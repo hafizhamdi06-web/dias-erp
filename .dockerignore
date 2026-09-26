@@ -1,0 +1,53 @@
+# Local state — harus fresh di image, bukan host.
+.git
+.gitignore
+.github
+.gitattributes
+
+# Build artifacts — vendor dibuild terpisah di stage 1, node_modules tidak dipakai.
+vendor
+node_modules
+package-lock.json
+
+# Local env — server punya .env sendiri.
+.env
+.env.example
+.env.docker
+.env.*.local
+
+# Runtime caches yang akan dibangun ulang oleh entrypoint.sh.
+storage/logs/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/framework/cache/*
+storage/app/mpdf
+
+# Test & docs yg tidak perlu di production image.
+tests
+phpunit.xml
+.phpunit.cache
+.phpunit.result.cache
+
+# Editor / OS metadata.
+.idea
+.vscode
+.DS_Store
+
+# Project context files (claude/cursor).
+CLAUDE.md
+AGENTS.md
+.cursorrules
+.cursor
+graphify-out
+.claude
+
+# CI / docs / scripts.
+README.md
+*.md
+!docker/README.md
+init-build.sh
+docker-compose.yaml
+docker-compose.*.yaml
+
+# Deploy state (lock + failed-sha) — runtime only, server-side, must NOT masuk image.
+.deploy

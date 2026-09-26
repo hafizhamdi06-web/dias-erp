@@ -1,0 +1,74 @@
+# DIAS ERP — single-container Laravel 12 + nginx (Traefik-terminated TLS).
+#
+# Arsitektur:
+#   internet -> Traefik (network `traefik-net`, TLS letsencrypt) -> container :80
+#   container -> MariaDB (network `mariadb-net`, db=data_pos_nmw_2023, shared dgn CI3/CI4)
+#
+# Yang TIDAK dilakukan compose ini:
+#   - Tidak expose port ke host (`ports:` kosong) -> hanya Traefik yang boleh akses.
+#   - Tidak membuat DB sendiri -> pakai service MariaDB existing di `mariadb-net`.
+#   - Tidak build Node/Vite -> config/adminlte.php sudah laravel_asset_bundling=>false.
+#
+# Environment file: `.env` (template: .env.docker.example). Compose membaca .env yg
+# SAMA untuk interpolasi variable di bawah ini + label Traefik (Host(), COMPOSE_PROJECT_NAME).
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hafizhamdi/dias-erp:latest
+    container_name: dias-erp
+    restart: unless-stopped
+
+    # .env dipakai Laravel runtime (APP_KEY, DB_HOST, APP_URL, dst).
+    env_file: .env
+
+    # WIB utk timestamp log nginx/supervisord saja - timezone aplikasi tetap
+    # config/app.php (UTC), TZ ini tidak mengubahnya.
+    environment:
+      TZ: Asia/Jakarta
+
+    volumes:
+      # HANYA storage yang persisten (SESSION_DRIVER=file, CACHE_STORE=file,
+      # PdfReport::tempDir = storage/app/mpdf). Source code & vendor dari image,
+      # bukan dari host -> tidak perlu bind mount repo.
+      - storage:/var/www/html/storage
+
+    healthcheck:
+      # /up = route bawaan Laravel 12 (lihat bootstrap/app.php). Mengembalikan 200
+      # kalau app boot tanpa exception; 500 kalau boot gagal. wget = bawaan
+      # php:8.2-fpm-alpine (busybox), tidak perlu paket baru. start_period lama
+      # karena entrypoint.sh membikin config/event/route/view cache dulu sebelum
+      # php-fpm menerima request; start_interval rapat supaya healthy terdeteksi
+      # segera setelah start_period.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/up || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+      # start_interval butuh Docker Engine >= 25 (cek `docker version` di server).
+      start_interval: 2s
+
+    networks:
+      - traefik-net
+      - mariadb-net
+
+    labels:
+      - traefik.enable=true
+      # Traefik harus resolve nama service di `traefik-net` (bukan default bridge).
+      - traefik.docker.network=traefik-net
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME:-dias-erp}.rule=Host(`${TRAEFIK_HOST}`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME:-dias-erp}.entrypoints=websecure
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME:-dias-erp}.tls=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME:-dias-erp}.tls.certresolver=letsencrypt
+      - traefik.http.services.${COMPOSE_PROJECT_NAME:-dias-erp}.loadbalancer.server.port=80
+
+volumes:
+  storage:
+
+networks:
+  traefik-net:
+    external: true
+  mariadb-net:
+    external: true

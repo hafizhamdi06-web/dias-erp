@@ -15,6 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'perm' => \App\Http\Middleware\CheckMenuPermission::class,
         ]);
         $middleware->redirectGuestsTo(fn () => route('login'));
+
+        // Trust Traefik (HTTPS reverse proxy in front of nginx). Tanpa ini, $request->isSecure()
+        // selalu false, asset()/Livewire URL/redirect jadi http:// -> mixed content & JS Livewire
+        // gagal. Aman: container tidak expose port langsung, hanya Traefik yang menjangkau.
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Token CSRF basi (tab lama terbuka, atau sesi kena regenerate) -> jangan tampilkan

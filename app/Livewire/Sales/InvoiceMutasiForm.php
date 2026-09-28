@@ -260,8 +260,18 @@ class InvoiceMutasiForm extends Component
 
         activity_log('create', 'sales/invoice-mutasi', $this->nomor, 'Buat Invoice Mutasi ' . $this->nomor);
         $this->dispatch('invoice-mutasi-saved');
-        session()->flash('status', 'Invoice Mutasi ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'IVM: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Invoice Mutasi ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('sales/invoice-mutasi', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'Invoice Mutasi ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Invoice Penjualan Mutasi',
+                okText: 'Ya, cetak',
+                url: route('sales.invoice-mutasi.print', $this->invoiceId));
+        }
     }
 
     public function closeTab(): void

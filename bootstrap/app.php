@@ -20,6 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // selalu false, asset()/Livewire URL/redirect jadi http:// -> mixed content & JS Livewire
         // gagal. Aman: container tidak expose port langsung, hanya Traefik yang menjangkau.
         $middleware->trustProxies(at: '*');
+
+        // Paksa ganti password sementara sebelum aplikasi boleh dipakai. Dipasang di grup
+        // `web` (bukan per-rute) supaya TIDAK ADA halaman yang kelewat; rute yang perlu
+        // dikecualikan ditangani di dalam middleware-nya sendiri.
+        $middleware->appendToGroup('web', \App\Http\Middleware\EnsurePasswordChanged::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Token CSRF basi (tab lama terbuka, atau sesi kena regenerate) -> jangan tampilkan

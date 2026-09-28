@@ -59,6 +59,12 @@
                             <td class="text-muted small">{{ $r->noPr ?: '—' }}</td>
                             <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
                             <td class="text-end text-nowrap">
+                                @if (can_do('purchase/pkb', 'print'))
+                                    <a href="{{ route('purchase.pkb.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak Perintah Kirim Barang">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editPkb({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-{{ (int) $r->status === 0 ? 'pen' : 'eye' }}"></i>
                                 </button>

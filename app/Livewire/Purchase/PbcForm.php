@@ -196,8 +196,18 @@ class PbcForm extends Component
 
         activity_log('create', 'purchase/pbc', $this->nomor, 'Buat PBC ' . $this->nomor . ' dari SJ ' . $this->noSj);
         $this->dispatch('pbc-saved');
-        session()->flash('status', 'PBC ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'PBC: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Penerimaan Barang ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('purchase/pbc', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'Penerimaan ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Penerimaan Barang',
+                okText: 'Ya, cetak',
+                url: route('purchase.pbc.print', $this->pbcId));
+        }
     }
 
     public function closeTab(): void

@@ -65,6 +65,12 @@
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editKmb({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
                                 </button>
+                                @if (can_do('inventory/kmb', 'print'))
+                                    <a href="{{ route('inventory.kmb.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak KMB">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 @if ((int) $r->status === 1 && can_do('inventory/kmb', 'delete'))
                                     <button class="btn btn-outline-danger btn-sm" wire:click="cancel({{ $r->id }})"
                                             data-confirm="Batalkan KMB {{ $r->nomor }}?" title="Batalkan"><i class="fas fa-ban"></i></button>

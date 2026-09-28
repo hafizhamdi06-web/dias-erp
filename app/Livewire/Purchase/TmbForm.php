@@ -320,8 +320,20 @@ class TmbForm extends Component
 
         activity_log('create', 'inventory/tmb', $this->nomor, 'Buat TMB ' . $this->nomor . ' dari KMB ' . $this->noKmb);
         $this->dispatch('tmb-saved');
-        session()->flash('status', 'TMB ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'TMB: ' . $this->nomor);
+
+        // Sukses -> toast, lalu tanya mau cetak sekarang (pola sama PO/PB/KMB).
+        $this->dispatch('toast',
+            message: 'Terima Mutasi Barang ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('inventory/tmb', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'TMB ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Terima Mutasi Barang',
+                okText: 'Ya, cetak',
+                url: route('inventory.tmb.print', $this->tmbId));
+        }
     }
 
     public function closeTab(): void

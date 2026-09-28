@@ -85,6 +85,31 @@ class User extends Authenticatable
     }
 
     /**
+     * Super user - definisi SAMA PERSIS `App\Support\Acl` (UID di `super_user_ids` ATAU
+     * UKODE di `super_user_codes`). Ditaruh di sini supaya ada SATU definisi kanonik yg
+     * bisa dipakai di luar Acl, mis. penyaringan cabang di laporan.
+     */
+    public function isSuperUser(): bool
+    {
+        return in_array((int) $this->UID, config('acl.super_user_ids', []), true)
+            || in_array((string) $this->UKODE, config('acl.super_user_codes', []), true);
+    }
+
+    /**
+     * Cabang yang boleh DILIHAT DATANYA (laporan, daftar lintas cabang).
+     * **`[]` berarti TANPA BATAS** - dipakai `whereIn` hanya kalau tidak kosong.
+     *
+     * Super user TIDAK dibatasi, konsisten dgn `Acl` yg melewatkan super user dari semua
+     * pemeriksaan hak akses. Ini penting secara praktis: UID 1 (Administrator) justru
+     * `UCABANGPILIH`-nya cuma `1`, jadi tanpa pengecualian ini admin malah terkunci ke
+     * satu cabang dan laporan lintas cabang mati.
+     */
+    public function visibleBranchIds(): array
+    {
+        return $this->isSuperUser() ? [] : $this->branchIds();
+    }
+
+    /**
      * Cabang AKTIF - baca dari session (`active_cabang_{UID}`) kalau user PERNAH ganti
      * lewat `switchActiveCabang()` DAN pilihan itu MASIH valid (ada di `branchIds()` user
      * ini - jaga2 kalau `UCABANGPILIH` diubah admin stlh session disimpan), fallback ke

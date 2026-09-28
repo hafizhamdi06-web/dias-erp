@@ -35,7 +35,7 @@ use Illuminate\Support\Facades\DB;
  * **3 baris izin di kop (No Izin / apt. / SIPA) TIDAK ADA DI DATABASE MANAPUN** - dicek
  * `information_schema`: tidak ada kolom IZIN/SIPA/APOTEK di skema ini, dan `ainfo` pun tidak
  * memuatnya; di sistem lama teks itu hardcode di template report. Di sini ditaruh di
- * **`config/po_print.php` per NPID** (badan hukum), BUKAN hardcode di blade - krn SIPA
+ * **`config/dokumen_print.php` per NPID** (badan hukum), BUKAN hardcode di blade - krn SIPA
  * adalah identitas apoteker yg BEDA per PT; kalau PT-nya belum terdaftar di config, ketiga
  * baris itu tidak dicetak sama sekali (lebih baik kosong daripada mencetak SIPA milik PT lain).
  * Penanda tangan "Diketahui Oleh" (apoteker) + HP-nya juga dari config yg sama - di PO contoh
@@ -44,7 +44,7 @@ use Illuminate\Support\Facades\DB;
  * **"Jenis" (`esalesorderu.SOUJENIS`) BELUM JELAS PEMETAANNYA** - PO contoh `SOUJENIS=1`
  * dicetak "Produk OTC"; data nyata cuma punya nilai 0 (16 PO) & 1 (220 PO), dan form VB6 yg
  * kita punya TIDAK menyebut kolom itu sama sekali, jadi label utk 0 TIDAK diketahui.
- * Dipetakan di `config/po_print.php` (`jenis`), nilai tak dikenal dicetak "-" (BUKAN tebakan).
+ * Dipetakan di `config/dokumen_print.php` (`jenis`), nilai tak dikenal dicetak "-" (BUKAN tebakan).
  * Form PO kita sendiri belum punya field Jenis, jadi PO baru akan kosong - perlu dikonfirmasi
  * ke user opsi Jenis-nya apa saja.
  */
@@ -79,7 +79,7 @@ class PoPrintController extends Controller
             : null;
 
         // Baris izin/apoteker khusus PT ini - lihat docblock kelas.
-        $extra = config('po_print.pt.' . ($pt->NPID ?? 0), []);
+        $extra = config('dokumen_print.pt.' . ($pt->NPID ?? 0), []);
 
         $lines = DB::table('esalesorderd as d')
             ->leftJoin('bitem as i', 'i.IID', '=', 'd.SODITEM')
@@ -119,7 +119,7 @@ class PoPrintController extends Controller
             'h'        => $h,
             'pt'       => $pt,
             'extra'    => $extra,
-            'jenis'    => config('po_print.jenis.' . (int) $h->SOUJENIS, '-'),
+            'jenis'    => config('dokumen_print.jenis.' . (int) $h->SOUJENIS, '-'),
             'lines'    => $lines,
             'totalQty' => $lines->sum('qty'),
             'subTotal' => $subTotal,

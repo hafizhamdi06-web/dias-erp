@@ -7,6 +7,12 @@
                     @if ($locked) <span class="badge text-bg-success ms-2">terkunci</span> @endif
                 </span>
                 <div>
+                    @if ($sjId && can_do('sales/sj', 'print'))
+                        <a href="{{ route('sales.sj.print', $sjId) }}" target="_blank"
+                           class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-print me-1"></i> Cetak
+                        </a>
+                    @endif
                     <button type="button" class="btn btn-secondary btn-sm" wire:click="closeTab">Tutup</button>
                     @unless ($locked)
                         <button type="submit" class="btn btn-primary btn-sm">
@@ -110,13 +116,22 @@
 
                 {{-- ---- Baris item (ditarik dari PKB, tidak bisa tambah bebas) ---- --}}
                 <hr class="my-3">
+                @php
+                    // Konversi TAMPILAN kolom Qty: "Qty Real / jumlah box", jumlah box =
+                    // qty real : `bitem.IQTYPERBOX` (permintaan user 2026-09-26).
+                    // Item ber-IQTYPERBOX 0 atau 1 TIDAK dikonversi - 0 tidak bisa jadi
+                    // pembagi, dan 1 box = 1 pcs jadi "/ 1 box" cuma jadi sampah visual
+                    // (5.016 dari 5.580 item nilainya 1).
+                    $ang = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, ',', '.'), '0'), ',');
+                    $box = fn ($qty, $perBox) => (float) $perBox > 1 ? (float) $qty / (float) $perBox : null;
+                @endphp
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
                                 <th style="width: 30%">Item</th>
-                                <th class="text-end" style="width: 90px">Qty Diminta</th>
-                                <th class="text-center" style="width: 110px">Qty Dikirim</th>
+                                <th class="text-end" style="width: 110px">Qty Diminta</th>
+                                <th class="text-center" style="width: 130px">Qty Dikirim</th>
                                 <th style="width: 80px">Satuan</th>
                                 <th style="width: 150px">No Batch</th>
                                 <th>Catatan</th>
@@ -133,11 +148,31 @@
                                         <div class="fw-semibold small">{{ $l['nama'] }}</div>
                                         <div class="text-muted small">{{ $l['kode'] }}</div>
                                     </td>
-                                    <td class="text-end">{{ rtrim(rtrim(number_format($l['sisa'], 2), '0'), '.') }}</td>
+                                    @php
+                                        $perBox = $l['qtyPerBox'] ?? 0;
+                                        $boxMinta = $box($l['sisa'], $perBox);
+                                        $boxKirim = $box($l['qty'], $perBox);
+                                        $tip = $perBox > 1 ? 'Isi ' . $ang($perBox) . ' per box' : null;
+                                    @endphp
+                                    <td class="text-end" @if ($tip) title="{{ $tip }}" @endif>
+                                        {{ $ang($l['sisa']) }}
+                                        @if ($boxMinta !== null)
+                                            <span class="text-muted small">/ {{ $ang($boxMinta) }} box</span>
+                                        @endif
+                                    </td>
                                     <td>
                                         <input type="number" min="0" step="any" max="{{ $l['sisa'] }}"
                                                class="form-control form-control-sm text-center"
-                                               wire:model="lines.{{ $i }}.qty" @disabled($locked)>
+                                               {{-- `.live` supaya konversi box (& Total di bawah)
+                                                    ikut berubah saat qty diketik; di-debounce
+                                                    spy tidak 1 request per ketikan. --}}
+                                               wire:model.live.debounce.400ms="lines.{{ $i }}.qty"
+                                               @disabled($locked)>
+                                        @if ($boxKirim !== null)
+                                            <div class="text-muted small text-center" title="{{ $tip }}">
+                                                / {{ $ang($boxKirim) }} box
+                                            </div>
+                                        @endif
                                     </td>
                                     <td class="text-muted small">{{ $l['satuanKode'] ?: '—' }}</td>
                                     <td>
@@ -171,7 +206,14 @@
                                 <tr class="fw-semibold">
                                     <td class="text-end">Total Qty Dikirim</td>
                                     <td></td>
-                                    <td class="text-center">{{ rtrim(rtrim(number_format($totalQty, 2), '0'), '.') }}</td>
+                                    <td class="text-center">
+                                        {{ $ang($totalQty) }}
+                                        @if ($totalBox > 0)
+                                            {{-- Total box = jumlah box SEMUA baris yg punya
+                                                 isi per box; baris tanpa konversi tidak ikut. --}}
+                                            <span class="text-muted small">/ {{ $ang($totalBox) }} box</span>
+                                        @endif
+                                    </td>
                                     <td colspan="{{ $locked ? 4 : 5 }}"></td>
                                 </tr>
                             </tfoot>

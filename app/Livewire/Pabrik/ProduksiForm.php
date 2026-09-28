@@ -578,8 +578,18 @@ class ProduksiForm extends Component
 
         activity_log('create', 'pabrik/produksi', $this->nomor, 'Buat Produksi ' . $this->nomor . ($this->noJop ? ' dari JOP ' . $this->noJop : ' (bebas)'));
         $this->dispatch('produksi-saved');
-        session()->flash('status', 'Produksi ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'Produksi: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Produksi ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('pabrik/produksi', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'Produksi ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Produksi',
+                okText: 'Ya, cetak',
+                url: route('pabrik.produksi.print', $this->produksiId));
+        }
     }
 
     public function closeTab(): void

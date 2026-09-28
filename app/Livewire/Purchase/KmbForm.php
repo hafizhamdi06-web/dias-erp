@@ -182,8 +182,20 @@ class KmbForm extends Component
 
         activity_log('create', 'inventory/kmb', $this->nomor, 'Buat KMB ' . $this->nomor . ' dari PR ' . $this->noPr);
         $this->dispatch('kmb-saved');
-        session()->flash('status', 'KMB ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'KMB: ' . $this->nomor);
+
+        // Sukses -> toast, lalu tanya mau cetak sekarang (pola sama PO/PB).
+        $this->dispatch('toast',
+            message: 'Kirim Mutasi Barang ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('inventory/kmb', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'KMB ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Kirim Mutasi Barang',
+                okText: 'Ya, cetak',
+                url: route('inventory.kmb.print', $this->kmbId));
+        }
     }
 
     public function closeTab(): void

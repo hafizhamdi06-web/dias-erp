@@ -7,6 +7,12 @@
                     @if ($locked) <span class="badge text-bg-success ms-2">terkunci</span> @endif
                 </span>
                 <div>
+                    @if ($kmbId && can_do('inventory/kmb', 'print'))
+                        <a href="{{ route('inventory.kmb.print', $kmbId) }}" target="_blank"
+                           class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-print me-1"></i> Cetak
+                        </a>
+                    @endif
                     <button type="button" class="btn btn-secondary btn-sm" wire:click="closeTab">Tutup</button>
                     @unless ($locked)
                         <button type="submit" class="btn btn-primary btn-sm">

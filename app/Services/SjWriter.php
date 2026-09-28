@@ -115,6 +115,9 @@ class SjWriter
                 'qty'        => $sisa,
                 'satuan'     => $l->PKBDSATUAN ? (int) $l->PKBDSATUAN : null,
                 'satuanKode' => $l->satuan_kode ?? '',
+                // Isi per box (`bitem.IQTYPERBOX`) - HANYA utk konversi TAMPILAN kolom Qty
+                // di form SJ, tidak pernah disimpan ke `fstokd`. Lihat docblock kelas.
+                'qtyPerBox'  => (float) ($l->IQTYPERBOX ?? 0),
                 'catatan'    => null,
                 'serial'     => (int) ($l->ISERIAL ?? 0) === 1 && $this->serial->gudangPakaiSerial($gudangAsal),
                 'batches'    => [],
@@ -315,7 +318,7 @@ class SjWriter
             ->leftJoin('bsatuan as s', 's.SID', '=', 'd.SDSATUAN')
             ->where('d.SDIDSU', $id)
             ->orderBy('d.SDURUTAN')
-            ->get(['d.*', 'i.IKODE', 'i.INAMA', 'i.ISERIAL', 's.SKODE as satuan_kode'])
+            ->get(['d.*', 'i.IKODE', 'i.INAMA', 'i.ISERIAL', 'i.IQTYPERBOX', 's.SKODE as satuan_kode'])
             ->all();
 
         foreach ($rows as $r) {

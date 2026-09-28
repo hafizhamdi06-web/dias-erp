@@ -71,3 +71,35 @@ if (! function_exists('terbilang')) {
         return $n === 0 ? $minus . 'Nol' : $minus . trim(preg_replace('/\s+/', ' ', $baca($n)));
     }
 }
+
+if (! function_exists('terbilang_rupiah')) {
+    /**
+     * Terbilang LENGKAP dgn satuan mata uang, utk cetakan yg nilainya bisa pecahan -
+     * mis. Invoice Penjualan (PPN 11% hampir selalu menghasilkan sen).
+     *
+     * Bagian sen HANYA ditulis kalau bukan nol, mengikuti contoh cetakan lama user
+     * (`Invoice Penjualan BZ-IV26090001.pdf`): total 19.781.726,25 dibaca
+     * "... Tujuh Ratus Dua Puluh Enam Rupiah **Dua Puluh Lima Sen**".
+     *
+     * Sengaja fungsi TERPISAH, bukan mengubah `terbilang()` - cetakan PURCHASE ORDER
+     * sudah memakai `terbilang()` apa adanya (tanpa kata "Rupiah") dan tidak boleh berubah.
+     */
+    function terbilang_rupiah(float $angka): string
+    {
+        // Dibulatkan ke 2 desimal dulu supaya galat float (mis. 0.24999999) tidak
+        // membuat sen meleset satu.
+        $bulat = round(abs($angka), 2);
+        $rupiah = (int) floor($bulat);
+        $sen = (int) round(($bulat - $rupiah) * 100);
+
+        // Pembulatan sen bisa menghasilkan 100 (mis. 12,999 -> 13,00).
+        if ($sen === 100) {
+            $rupiah++;
+            $sen = 0;
+        }
+
+        $teks = ($angka < 0 ? 'Minus ' : '') . terbilang((float) $rupiah) . ' Rupiah';
+
+        return $sen > 0 ? $teks . ' ' . terbilang((float) $sen) . ' Sen' : $teks;
+    }
+}

@@ -420,8 +420,20 @@ class PbForm extends Component
 
         activity_log('create', 'purchase/receipt', $this->nomor, 'Buat PB ' . $this->nomor);
         $this->dispatch('pb-saved');
-        session()->flash('status', 'PB ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'PB: ' . $this->nomor);
+
+        // Sukses -> toast, lalu tanya mau cetak sekarang (pola sama PO).
+        $this->dispatch('toast',
+            message: 'Penerimaan Barang ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('purchase/receipt', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'PB ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Penerimaan Barang',
+                okText: 'Ya, cetak',
+                url: route('purchase.pb.print', $this->pbId));
+        }
     }
 
     public function closeTab(): void

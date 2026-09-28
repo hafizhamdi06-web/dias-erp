@@ -67,6 +67,12 @@
                             <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
                             <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
                             <td class="text-end text-nowrap">
+                                @if (can_do('pabrik/jop', 'print'))
+                                    <a href="{{ route('pabrik.jop.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak Job Order Produksi">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editJop({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-{{ (int) $r->status === 1 ? 'pen' : 'eye' }}"></i>
                                 </button>

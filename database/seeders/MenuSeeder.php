@@ -69,8 +69,11 @@ class MenuSeeder extends Seeder
             'inventory.kmb'    => ['Kirim Mutasi Barang', 'inventory/kmb',   'fas fa-truck-ramp-box',     'link',  53, 'inventory'],
             'inventory.tmb'    => ['Terima Mutasi Barang', 'inventory/tmb',  'fas fa-dolly',               'link',  54, 'inventory'],
             'inventory.adjust' => ['Penyesuaian Stok',  'inventory/adjust',  'fas fa-scale-balanced',     'link',  55, 'inventory'],
-            'inventory.opname'  => ['Stok Opname',      'inventory/opname',  'fas fa-clipboard-check',    'link',  56, 'inventory'],
-            'inventory.serial' => ['Data Histori Serial', 'inventory/serial', 'fas fa-barcode',          'link',  57, 'inventory'],
+            // Kembar Penyesuaian tapi keluar-saja (`fstoku` SUSUMBER='PL'), sengaja
+            // bersebelahan di menu krn alur kerjanya mirip.
+            'inventory.pengeluaran-lain' => ['Pengeluaran Lain', 'inventory/pengeluaran-lain', 'fas fa-arrow-right-from-bracket', 'link', 56, 'inventory'],
+            'inventory.opname'  => ['Stok Opname',      'inventory/opname',  'fas fa-clipboard-check',    'link',  57, 'inventory'],
+            'inventory.serial' => ['Data Histori Serial', 'inventory/serial', 'fas fa-barcode',          'link',  58, 'inventory'],
 
             // ---- Finance / Accounting -------------------------------
             'finance'            => ['Finance & Accounting', null,             'fas fa-coins',              'group', 60, null],
@@ -93,6 +96,7 @@ class MenuSeeder extends Seeder
             'laporan'          => ['Laporan',           null,               'fas fa-chart-column',       'group', 80, null],
             'laporan.penjualan' => ['POS',              null,               'fas fa-cash-register',      'group', 81, 'laporan'],
             'laporan.penjualan-per-barang' => ['IP Per Barang', 'laporan/penjualan-per-barang', 'fas fa-box', 'link', 82, 'laporan.penjualan'],
+            'laporan.ip-tindakan-produk' => ['IP Tindakan/Produk Per Bulan', 'laporan/ip-tindakan-produk', 'fas fa-calendar-days', 'link', 83, 'laporan.penjualan'],
         ];
 
         $idBySegment = [];

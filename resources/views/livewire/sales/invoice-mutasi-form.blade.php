@@ -10,9 +10,17 @@
                     <span class="badge text-bg-success ms-2">Tersimpan</span>
                 @endif
             </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="closeTab">
-                <i class="fas fa-xmark me-1"></i> Tutup
-            </button>
+            <div>
+                @if ($invoiceId && can_do('sales/invoice-mutasi', 'print'))
+                    <a href="{{ route('sales.invoice-mutasi.print', $invoiceId) }}" target="_blank"
+                       class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-print me-1"></i> Cetak
+                    </a>
+                @endif
+                <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="closeTab">
+                    <i class="fas fa-xmark me-1"></i> Tutup
+                </button>
+            </div>
         </div>
         <div class="card-body">
             @if ($errors->has('lines'))

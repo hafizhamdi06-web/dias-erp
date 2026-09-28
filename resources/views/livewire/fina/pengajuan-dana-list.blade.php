@@ -48,6 +48,12 @@
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editTransaksi({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
                                 </button>
+                                @if (can_do('finance/pengajuan-dana', 'print'))
+                                    <a href="{{ route('finance.pengajuan-dana.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak Petty Cash">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 @if (can_do('finance/pengajuan-dana', 'delete'))
                                     <button class="btn btn-outline-danger btn-sm" wire:click="hapus({{ $r->id }})"
                                             data-confirm="Hapus Pengajuan Dana {{ $r->nomor }}? Baris Kas Keluar terkait akan bisa ditarik lagi." title="Hapus"><i class="fas fa-trash"></i></button>

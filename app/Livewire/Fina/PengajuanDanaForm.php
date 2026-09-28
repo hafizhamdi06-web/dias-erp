@@ -191,8 +191,18 @@ class PengajuanDanaForm extends Component
 
         activity_log('create', 'finance/pengajuan-dana', $this->nomor, 'Buat Pengajuan Dana ' . $this->nomor);
         $this->dispatch('pengajuan-dana-saved');
-        session()->flash('status', 'Pengajuan Dana ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'Pengajuan Dana: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Pengajuan Dana ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('finance/pengajuan-dana', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'Pengajuan Dana ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Petty Cash',
+                okText: 'Ya, cetak',
+                url: route('finance.pengajuan-dana.print', $this->id));
+        }
     }
 
     public function closeTab(): void

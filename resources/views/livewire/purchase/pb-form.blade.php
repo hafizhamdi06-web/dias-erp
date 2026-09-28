@@ -12,9 +12,17 @@
                     </span>
                 @endif
             </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="closeTab">
-                <i class="fas fa-xmark me-1"></i> Tutup
-            </button>
+            <div>
+                @if ($pbId && can_do('purchase/receipt', 'print'))
+                    <a href="{{ route('purchase.pb.print', $pbId) }}" target="_blank"
+                       class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-print me-1"></i> Cetak
+                    </a>
+                @endif
+                <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="closeTab">
+                    <i class="fas fa-xmark me-1"></i> Tutup
+                </button>
+            </div>
         </div>
         <div class="card-body">
             @if ($errors->has('lines'))

@@ -176,8 +176,18 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Password Baru <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" wire:model="newPassword" autocomplete="off">
+                        <div class="input-group">
+                            <input type="text" class="form-control font-monospace" wire:model="newPassword"
+                                   autocomplete="off" placeholder="ketik sendiri atau klik Buat Password">
+                            <button type="button" class="btn btn-outline-secondary" wire:click="buatPassword">
+                                <i class="fas fa-wand-magic-sparkles me-1"></i> Buat Password
+                            </button>
+                        </div>
                         @error('newPassword') <div class="text-danger small">{{ $message }}</div> @enderror
+                        <div class="form-text">
+                            Password ini <strong>sementara</strong>. Begitu dipakai login, user wajib
+                            menggantinya sendiri dengan password yang kuat.
+                        </div>
                     </div>
                     <div class="form-check">
                         <input type="checkbox" class="form-check-input" id="pw-legacy" wire:model="pwLegacy">

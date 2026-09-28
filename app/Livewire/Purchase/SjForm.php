@@ -43,7 +43,7 @@ class SjForm extends Component
 
     public int $status = 1; // SUSTATUS: 0 pending (jarang), 1 aktif, 9 batal
 
-    /** @var array<int,array{sodid:int,pbdid:?int,item:int,kode:string,nama:string,sisa:float,qty:float,satuan:?int,satuanKode:string,catatan:?string,stok:float,serial:bool,batches:array}> */
+    /** @var array<int,array{sodid:int,pbdid:?int,item:int,kode:string,nama:string,sisa:float,qty:float,satuan:?int,satuanKode:string,qtyPerBox:float,catatan:?string,stok:float,serial:bool,batches:array}> */
     public array $lines = [];
 
     // modal "Pilih Serial" (item bitem.ISERIAL=1) - padanan dialog VB6 fFrmSuratJalanDepo_CL
@@ -108,6 +108,8 @@ class SjForm extends Component
                 'qty'        => (float) $l->SDKELUAR,
                 'satuan'     => $l->SDSATUAN ? (int) $l->SDSATUAN : null,
                 'satuanKode' => $l->satuan_kode ?? '',
+                // Konversi tampilan saja - lihat `SjWriter::fromPkb()`.
+                'qtyPerBox'  => (float) ($l->IQTYPERBOX ?? 0),
                 'catatan'    => $l->SDCATATAN,
                 'stok'       => 0,
                 'serial'     => (int) ($l->ISERIAL ?? 0) === 1
@@ -423,8 +425,18 @@ class SjForm extends Component
 
         activity_log('create', 'sales/sj', $this->nomor, 'Buat SJ ' . $this->nomor . ' dari PKB ' . $this->noPkb);
         $this->dispatch('sj-saved');
-        session()->flash('status', 'SJ ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'SJ: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Surat Jalan ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('sales/sj', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'Surat Jalan ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Surat Jalan',
+                okText: 'Ya, cetak',
+                url: route('sales.sj.print', $this->sjId));
+        }
     }
 
     public function closeTab(): void
@@ -439,6 +451,13 @@ class SjForm extends Component
             'cabangKirimLabel' => $this->cabangKirim
                 ? (string) DB::table('bgudang')->where('GID', $this->cabangKirim)->value('GNAMA') : null,
             'totalQty' => array_sum(array_map(fn ($l) => (float) $l['qty'], $this->lines)),
+            // Total box utk footer - hanya baris yg PUNYA isi per box > 1 yg dihitung
+            // (lihat komentar konversi di blade). Tampilan saja, tidak disimpan.
+            'totalBox' => array_sum(array_map(
+                fn ($l) => (float) ($l['qtyPerBox'] ?? 0) > 1
+                    ? (float) $l['qty'] / (float) $l['qtyPerBox'] : 0.0,
+                $this->lines
+            )),
         ]);
     }
 }

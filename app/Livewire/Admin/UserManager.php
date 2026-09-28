@@ -128,7 +128,9 @@ class UserManager extends Component
         }
 
         if ($this->password) {
-            $this->writePassword($user->UID, $this->password);
+            // Password yang diketik admin saat tambah/ubah user juga dianggap SEMENTARA -
+            // adminlah yang tahu isinya, jadi user wajib menggantinya saat login.
+            $this->writePassword($user->UID, $this->password, true);
 
             if ($this->editingId && $this->legacy_login) {
                 User::where('UID', $user->UID)->update(['UPASSWORD' => md5($this->password)]);
@@ -168,6 +170,36 @@ class UserManager extends Component
         $this->showPwModal = true;
     }
 
+    /**
+     * Buat password SEMENTARA: 2 angka + 4 huruf + 2 angka = 8 karakter (permintaan user
+     * 2026-09-28). Password ini hanya untuk diserahkan ke user; begitu dipakai login, user
+     * DIPAKSA menggantinya (lihat `resetPassword()` yg menyalakan `must_change`).
+     *
+     * **Karakter rancu sengaja dibuang** - angka `0`/`1` dan huruf `i`/`l`/`o`. Password ini
+     * didikte lewat telepon/WhatsApp; salah baca `0` vs `O` atau `1` vs `l` memicu telepon
+     * balik ke admin. Ruang tebakannya jadi 8^2 x 23^4 x 8^2 = ~1,1 miliar - lebih dari cukup
+     * untuk password yang umurnya hanya sampai login pertama.
+     *
+     * `random_int()` (CSPRNG), BUKAN `rand()`/`mt_rand()` yang bisa ditebak.
+     */
+    public function buatPassword(): void
+    {
+        $angka = '23456789';
+        $huruf = 'abcdefghjkmnpqrstuvwxyz';
+
+        $ambil = function (string $dari, int $n): string {
+            $hasil = '';
+            for ($i = 0; $i < $n; $i++) {
+                $hasil .= $dari[random_int(0, strlen($dari) - 1)];
+            }
+
+            return $hasil;
+        };
+
+        $this->newPassword = $ambil($angka, 2) . $ambil($huruf, 4) . $ambil($angka, 2);
+        $this->resetErrorBag('newPassword');
+    }
+
     public function resetPassword(): void
     {
         $this->validate([
@@ -175,7 +207,9 @@ class UserManager extends Component
         ]);
 
         $user = User::findOrFail($this->pwUserId);
-        $this->writePassword($user->UID, $this->newPassword);
+        // `true` = WAJIB GANTI saat login berikutnya. Password hasil reset admin selalu
+        // dianggap sementara - tanpa ini, password 8 karakter itu jadi permanen.
+        $this->writePassword($user->UID, $this->newPassword, true);
 
         if ($this->pwLegacy) {
             User::where('UID', $user->UID)->update(['UPASSWORD' => md5($this->newPassword)]);
@@ -187,11 +221,16 @@ class UserManager extends Component
         $this->reset(['pwUserId', 'newPassword', 'pwLegacy']);
     }
 
-    private function writePassword(int $userId, string $plain): void
+    /**
+     * @param bool $wajibGanti true utk password SEMENTARA (reset oleh admin) - user dipaksa
+     *                         menggantinya saat login berikutnya oleh middleware
+     *                         `EnsurePasswordChanged`.
+     */
+    private function writePassword(int $userId, string $plain, bool $wajibGanti = false): void
     {
         UserAuth::updateOrCreate(
             ['user_id' => $userId],
-            ['password_hash' => Hash::make($plain), 'must_change' => false]
+            ['password_hash' => Hash::make($plain), 'must_change' => $wajibGanti]
         );
     }
 

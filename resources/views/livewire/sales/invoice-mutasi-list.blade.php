@@ -47,6 +47,12 @@
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editInvoice({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
                                 </button>
+                                @if (can_do('sales/invoice-mutasi', 'print'))
+                                    <a href="{{ route('sales.invoice-mutasi.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak Invoice Mutasi">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 @if (can_do('sales/invoice-mutasi', 'delete'))
                                     <button class="btn btn-outline-danger btn-sm" wire:click="delete({{ $r->id }})"
                                             data-confirm="Hapus Invoice Mutasi {{ $r->nomor }}? Baris TMB terkait akan bisa ditagih ulang." title="Hapus"><i class="fas fa-trash"></i></button>

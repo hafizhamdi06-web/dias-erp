@@ -1,11 +1,25 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\InvoiceMutasiPrintController;
+use App\Http\Controllers\InvoicePrintController;
+use App\Http\Controllers\JopPrintController;
+use App\Http\Controllers\KmbPrintController;
 use App\Http\Controllers\LookupController;
+use App\Http\Controllers\PbcPrintController;
+use App\Http\Controllers\PbPrintController;
+use App\Http\Controllers\PkbPrintController;
+use App\Http\Controllers\ProduksiPrintController;
+use App\Http\Controllers\PengeluaranLainPrintController;
+use App\Http\Controllers\PengajuanDanaPrintController;
+use App\Http\Controllers\PenyesuaianPrintController;
 use App\Http\Controllers\PoPrintController;
 use App\Http\Controllers\PosReceiptController;
 use App\Http\Controllers\PrPrintController;
+use App\Http\Controllers\SjPrintController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\TmbPrintController;
+use App\Livewire\Auth\ChangePassword;
 use App\Livewire\Workspace;
 use Illuminate\Support\Facades\Route;
 
@@ -30,15 +44,34 @@ Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
 Route::middleware('auth')->group(function () {
 
+    // Wajib ganti password sementara. SENGAJA didaftarkan sebelum rute lain & dilewati
+    // middleware `EnsurePasswordChanged` supaya user tidak terkunci dalam lingkaran redirect.
+    Route::get('ganti-password', ChangePassword::class)->name('password.change');
+
     Route::get('/', Workspace::class)->name('workspace');
     Route::get('dashboard', fn () => redirect()->route('workspace'))->name('dashboard');
 
     Route::get('sales/pos/receipt/{id}', [PosReceiptController::class, 'show'])->name('sales.pos.receipt');
     Route::get('inventory/pr/{id}/print', [PrPrintController::class, 'show'])->name('inventory.pr.print');
     Route::get('purchase/po/{id}/print', [PoPrintController::class, 'show'])->name('purchase.po.print');
+    Route::get('purchase/pb/{id}/print', [PbPrintController::class, 'show'])->name('purchase.pb.print');
+    Route::get('inventory/kmb/{id}/print', [KmbPrintController::class, 'show'])->name('inventory.kmb.print');
+    Route::get('inventory/tmb/{id}/print', [TmbPrintController::class, 'show'])->name('inventory.tmb.print');
+    Route::get('inventory/adjust/{id}/print', [PenyesuaianPrintController::class, 'show'])->name('inventory.adjust.print');
+    Route::get('inventory/pengeluaran-lain/{id}/print', [PengeluaranLainPrintController::class, 'show'])->name('inventory.pengeluaran-lain.print');
+    Route::get('sales/invoice/{id}/print', [InvoicePrintController::class, 'show'])->name('sales.invoice.print');
+    Route::get('sales/invoice-mutasi/{id}/print', [InvoiceMutasiPrintController::class, 'show'])->name('sales.invoice-mutasi.print');
+    Route::get('sales/sj/{id}/print', [SjPrintController::class, 'show'])->name('sales.sj.print');
+    Route::get('purchase/pbc/{id}/print', [PbcPrintController::class, 'show'])->name('purchase.pbc.print');
+    Route::get('purchase/pkb/{id}/print', [PkbPrintController::class, 'show'])->name('purchase.pkb.print');
+    Route::get('pabrik/produksi/{id}/print', [ProduksiPrintController::class, 'show'])->name('pabrik.produksi.print');
+    Route::get('pabrik/jop/{id}/print', [JopPrintController::class, 'show'])->name('pabrik.jop.print');
+    Route::get('finance/pengajuan-dana/{id}/print', [PengajuanDanaPrintController::class, 'show'])->name('finance.pengajuan-dana.print');
 
     Route::get('reports/penjualan-per-barang', [ReportController::class, 'penjualanPerBarang'])->name('reports.penjualan-per-barang');
     Route::get('reports/penjualan-per-barang/excel', [ReportController::class, 'penjualanPerBarangExcel'])->name('reports.penjualan-per-barang.excel');
+    Route::get('reports/ip-tindakan-produk', [ReportController::class, 'ipTindakanProduk'])->name('reports.ip-tindakan-produk');
+    Route::get('reports/ip-tindakan-produk/excel', [ReportController::class, 'ipTindakanProdukExcel'])->name('reports.ip-tindakan-produk.excel');
 
     // Lookup JSON untuk <x-search-select> (auth saja, tanpa filter hak menu).
     Route::prefix('lookup')->name('lookup.')->group(function () {

@@ -64,9 +64,12 @@ class Workspace extends Component
             'sales.invoice-mutasi' => ['sales.invoice-mutasi-list', 'Invoice Penjualan Mutasi', 'fas fa-truck-arrow-right'],
             'sales.alkes'       => ['sales.alkes-list', 'Input Alkes Depo', 'fas fa-syringe'],
             'inventory.pr'      => ['purchase.pr-list', 'Permintaan Barang', 'fas fa-clipboard-list'],
+            'inventory.stock'   => ['inventory.kartu-stok', 'Kartu Stok', 'fas fa-boxes-stacked'],
             'inventory.kmb'     => ['purchase.kmb-list', 'Kirim Mutasi Barang', 'fas fa-truck-ramp-box'],
             'inventory.tmb'     => ['purchase.tmb-list', 'Terima Mutasi Barang', 'fas fa-dolly'],
             'inventory.serial'  => ['inventory.serial-histori', 'Data Histori Serial', 'fas fa-barcode'],
+            'inventory.adjust'  => ['inventory.penyesuaian-list', 'Penyesuaian Barang', 'fas fa-scale-balanced'],
+            'inventory.pengeluaran-lain' => ['inventory.pengeluaran-lain-list', 'Pengeluaran Lain', 'fas fa-arrow-right-from-bracket'],
             'pabrik.jop'        => ['pabrik.jop-list', 'Job Order Produksi', 'fas fa-clipboard-list'],
             'pabrik.produksi'   => ['pabrik.produksi-list', 'Produksi', 'fas fa-industry'],
             'finance.kas-masuk'  => ['fina.kas-masuk-list', 'Kas Masuk', 'fas fa-money-bill-trend-up'],
@@ -75,6 +78,7 @@ class Workspace extends Component
             'finance.bank-keluar' => ['fina.bank-keluar-list', 'Bank Keluar', 'fas fa-building-columns'],
             'finance.pengajuan-dana' => ['fina.pengajuan-dana-list', 'Pengajuan Dana', 'fas fa-hand-holding-dollar'],
             'laporan.penjualan-per-barang' => ['reports.penjualan-per-barang', 'IP Per Barang', 'fas fa-box'],
+            'laporan.ip-tindakan-produk' => ['reports.ip-tindakan-produk', 'IP Tindakan/Produk Per Bulan', 'fas fa-calendar-days'],
         ];
     }
 

@@ -29,9 +29,9 @@ class PenjualanPerBarang extends Component
         $this->from = now()->toDateString();
         $this->to = now()->toDateString();
 
-        $user = auth()->user();
-        $allowed = $user->branchIds();
-        $this->cabang = $allowed === [] ? ((int) ($user->UCABANG ?? 0) ?: null) : null;
+        // ATURAN APP (user 2026-09-28): filter Cabang di SEMUA laporan SELALU default ke
+        // cabang AKTIF user - lihat docblock `IpTindakanProduk::mount()`.
+        $this->cabang = (int) (auth()->user()->UCABANG ?? 0) ?: null;
     }
 
     protected function rules(): array
@@ -72,10 +72,20 @@ class PenjualanPerBarang extends Component
         $this->dispatch('close-tab', key: $this->tabKey);
     }
 
+    /** Pilihan cabang dibatasi hak user - lihat `IpTindakanProduk::branchOptions()`. */
+    protected function branchOptions()
+    {
+        $boleh = auth()->user()->visibleBranchIds();
+
+        return $boleh !== []
+            ? Branch::active()->whereIn('GID', $boleh)->orderBy('GNAMA')->get(['GID', 'GKODE', 'GNAMA'])
+            : Branch::options();
+    }
+
     public function render()
     {
         return view('livewire.reports.penjualan-per-barang', [
-            'branches' => Branch::options(),
+            'branches' => $this->branchOptions(),
         ]);
     }
 }

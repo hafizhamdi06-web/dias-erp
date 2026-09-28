@@ -63,6 +63,12 @@
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editPbc({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
                                 </button>
+                                @if (can_do('purchase/pbc', 'print'))
+                                    <a href="{{ route('purchase.pbc.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak Penerimaan Barang">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 @if ((int) $r->status !== 9 && can_do('purchase/pbc', 'delete'))
                                     <button class="btn btn-outline-danger btn-sm" wire:click="cancel({{ $r->id }})"
                                             data-confirm="Batalkan PBC {{ $r->nomor }}?" title="Batalkan"><i class="fas fa-ban"></i></button>

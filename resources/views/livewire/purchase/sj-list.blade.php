@@ -69,6 +69,12 @@
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editSj({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
                                 </button>
+                                @if (can_do('sales/sj', 'print'))
+                                    <a href="{{ route('sales.sj.print', $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak Surat Jalan">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 @if ((int) $r->status !== 9 && can_do('sales/sj', 'delete'))
                                     <button class="btn btn-outline-danger btn-sm" wire:click="cancel({{ $r->id }})"
                                             data-confirm="Batalkan SJ {{ $r->nomor }}?" title="Batalkan"><i class="fas fa-ban"></i></button>

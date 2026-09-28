@@ -251,8 +251,18 @@ class PkbForm extends Component
 
         activity_log('create', 'purchase/pkb', $this->nomor, 'Buat PKB ' . $this->nomor . ' dari PR ' . $this->noPr);
         $this->dispatch('pkb-saved');
-        session()->flash('status', 'PKB ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'PKB: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Perintah Kirim Barang ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('purchase/pkb', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'PKB ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Perintah Kirim Barang',
+                okText: 'Ya, cetak',
+                url: route('purchase.pkb.print', $this->pkbId));
+        }
     }
 
     public function closeTab(): void

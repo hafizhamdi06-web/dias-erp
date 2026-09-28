@@ -207,7 +207,7 @@ class PkbWriter
             ->leftJoin('bsatuan as s', 's.SID', '=', 'd.PKBDSATUAN')
             ->where('d.PKBDIDSU', $id)
             ->orderBy('d.PKBDURUTAN')
-            ->get(['d.*', 'i.IKODE', 'i.INAMA', 'i.ISERIAL', 's.SKODE as satuan_kode'])
+            ->get(['d.*', 'i.IKODE', 'i.INAMA', 'i.ISERIAL', 'i.IQTYPERBOX', 's.SKODE as satuan_kode'])
             ->all();
     }
 

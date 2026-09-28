@@ -341,7 +341,7 @@ class JopForm extends Component
                 return;
             }
             activity_log('edit', 'pabrik/jop', $this->nomor, 'Edit JOP ' . $this->nomor);
-            session()->flash('status', 'JOP ' . $this->nomor . ' diperbarui.');
+            $this->dispatch('toast', message: 'JOP ' . $this->nomor . ' diperbarui.', type: 'success');
         } else {
             $branch = Branch::query()->where('GID', $this->cabang)->first(['GALAMAT1', 'GKODE']);
             $res = $writer->create($header, $lines, [
@@ -356,11 +356,21 @@ class JopForm extends Component
             $this->jopId = $res['id'];
             $this->nomor = $res['nomor'];
             activity_log('create', 'pabrik/jop', $this->nomor, 'Buat JOP ' . $this->nomor);
-            session()->flash('status', 'JOP ' . $this->nomor . ' tersimpan.');
+            $this->dispatch('toast',
+                message: 'Job Order Produksi ' . $this->nomor . ' berhasil disimpan.',
+                type: 'success');
         }
 
         $this->dispatch('jop-saved');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'JOP: ' . $this->nomor);
+
+        if (can_do('pabrik/jop', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'JOP ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Job Order Produksi',
+                okText: 'Ya, cetak',
+                url: route('pabrik.jop.print', $this->jopId));
+        }
     }
 
     public function closeTab(): void

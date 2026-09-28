@@ -257,8 +257,18 @@ class InvoiceForm extends Component
 
         activity_log('create', 'sales/invoice', $this->nomor, 'Buat Invoice ' . $this->nomor);
         $this->dispatch('invoice-saved');
-        session()->flash('status', 'Invoice ' . $this->nomor . ' tersimpan.');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'IV: ' . $this->nomor);
+        $this->dispatch('toast',
+            message: 'Invoice ' . $this->nomor . ' berhasil disimpan.',
+            type: 'success');
+
+        if (can_do('sales/invoice', 'print')) {
+            $this->dispatch('confirm-print',
+                message: 'Invoice ' . $this->nomor . ' sudah tersimpan. Cetak dokumennya sekarang?',
+                title: 'Cetak Invoice Penjualan',
+                okText: 'Ya, cetak',
+                url: route('sales.invoice.print', $this->invoiceId));
+        }
     }
 
     public function closeTab(): void

@@ -4,6 +4,20 @@ Rebuild ERP klinik kecantikan NMW dengan **Laravel 12 + Livewire (class-based) +
 Jalan **langsung di DB produksi `data_pos_nmw_2023`** (MariaDB). CI3 (`C:\xampp\htdocs\dias-online-app`)
 dan CI4 (`C:\xampp\htdocs\dias-online-nmw`) jalan paralel di DB yang sama.
 
+### LINGKUP DATABASE — hanya `data_pos_nmw_2023` (ditegaskan user 2026-09-28)
+
+**Database lain di server ini milik PROYEK LAIN, bukan urusan proyek ini.** Termasuk
+`data_pos_nmw_2027`, `db_mp_pabrik_2026`, `official_nmw`. Konsekuensi konkret:
+- **Jangan** mengusulkan/mengerjakan perbaikan di sana, meskipun cacatnya sama (mis. trigger
+  `fstokd` di `db_mp_pabrik_2026` & `data_pos_nmw_2027` punya bug kembar yg persis sama -
+  tetap BUKAN urusan kita), dan jangan menaruhnya di daftar "masih terbuka".
+- **Jangan** menghitungnya sbg bagian dari cutover 1 Oktober.
+- **Tapi WASPADA saat menguji**: trigger `fstokd` di DB kita MENULIS ke
+  `official_nmw.ops_invoice_header` (dirujuk absolut, lewat `SDPRDID`). Data uji WAJIB pakai
+  `SDPRDID=-1` supaya UPDATE itu tidak mengenai baris apa pun di database proyek lain.
+- **Selalu filter `TRIGGER_SCHEMA`/`ROUTINE_SCHEMA`/`TABLE_SCHEMA`** saat query
+  `information_schema` - tanpa itu hasilnya bercampur DB proyek lain & bikin salah kesimpulan.
+
 ## Menjalankan
 
 - PHP: **`C:\php82\php.exe`** (PATH `php` = 7.4, rusak untuk composer/artisan).
@@ -1358,6 +1372,1136 @@ Verifikasi (skrip throwaway, 14 asersi LULUS): markup & helper ada; 0 sisa `wire
 mengeluarkan `data-confirm`; simpan & batalkan Alkes benar2 men-dispatch event `toast`
 (`assertDispatched`), pembatalannya sungguhan jalan (SUSTATUS=9).
 
+## PO (daftar): status DIHITUNG dari penerimaan, bukan dari `SOUSTATUS` (2026-09-26)
+
+Permintaan user: "semua barang sudah ditarik = Selesai, sebagian = Ditarik Sebagian, belum
+sama sekali = Aktif, batal = Batal". `PoList::statusExpr()` (CASE di SQL, dipakai SEKALIGUS
+utk kolom `status` DAN filter status):
+- `SOUSTATUS = 9` -> **Batal** (satu2nya status yg memang ditulis modul kita)
+- `SUM(SODORDER) > 0` DAN `SUM(SODMASUK) >= SUM(SODORDER)` -> **Selesai** (3)
+- `SUM(SODMASUK) > 0` -> **Ditarik Sebagian** (2)
+- selain itu -> **Aktif** (0). PO tanpa baris detail jatuh ke sini (tidak ada yg bisa diterima).
+
+**KENAPA tidak membaca `SOUSTATUS`**: kolom itu TERBUKTI tidak pernah diperbarui - dari
+**224 PO berstatus tersimpan 0 ("Aktif"), 168 sebenarnya sudah diterima PENUH** dan 10
+sebagian; cuma 46 yg benar2 belum ditarik. Tidak ada trigger yg memutakhirkannya & mekanisme
+aslinya tidak diketahui (lihat docblock `PurchaseOrderWriter`/`PbWriter`). Sesuai aturan
+proyek: kode BARU baca ground truth, kolom turunan buggy TIDAK dipercaya & TIDAK ditulis ulang.
+
+**Filter status WAJIB pakai ekspresi yg sama** - kalau tidak, memilih "Selesai" cuma dapat 9
+baris (kolom tersimpan) padahal nyatanya 177.
+
+**BUG LAMA ikut diperbaiki**: dropdown filter status dulu cuma punya `Aktif (value=1)` &
+`Batal (9)` - **nilai 1 TIDAK ADA di sistem**, jadi filter "Aktif" selalu nihil. Sekarang 4
+opsi dgn nilai benar (0/2/3/9).
+
+**Tombol aksi ikut status hitung**: PO yg sudah ada penerimaannya -> ikon "mata" (bukan
+pensil) & tombol Batalkan DISEMBUNYIKAN. Ditambah **guard server-side di `PoList::cancel()`**
+(`SUM(SODMASUK) > 0` -> tolak): `wire:click` bisa dipanggil paksa dari klien, dan tanpa guard
+PO yg barangnya SUDAH diterima bisa ditandai batal padahal penerimaannya tidak ikut
+dibatalkan - dokumen & stok jadi bertentangan.
+
+Verifikasi (19 asersi LULUS): sebaran status hitung cocok query manual (Aktif 46 / Sebagian 13
+/ Selesai 177 / Batal 0) utk KEEMPAT filter; status tiap baris halaman 1 cocok hitungan manual;
+badge "Selesai" hijau; PO Selesai tidak menampilkan tombol Batalkan & ikonnya mata; paksa
+`cancel()` PO yg sudah diterima -> status TIDAK berubah, sedangkan PO yg belum diterima TETAP
+bisa dibatalkan (diuji di transaksi + rollback). Catatan: teks pesan penolakannya tidak bisa
+diverifikasi di harness tinker (flash session tidak terbawa), perilaku penolakannya yg diuji.
+
+## PO (daftar): tombol "Histori Penerimaan" (2026-09-26)
+
+Permintaan user. `PurchaseOrderWriter::historiPenerimaan()` + modal di `PoList`
+(`openHistory()`/`closeHistory()`, tombol jam-mundur di kolom Aksi). Pola sama modal Histori
+di `PrList`.
+
+Rantai: `esalesorderd.SODID` <- `fstokd.SDSODID` (baris PB) -> `fstoku` (`SUSUMBER='PB'`).
+Modal menampilkan PER BARIS ITEM: Qty Order (`SODORDER`), Diterima (`SODMASUK`), Sisa, lalu
+daftar PB yg menerimanya (nomor, tanggal, No Invoice, qty).
+
+**Qty yg ditampilkan = `SDMASUKPB`, BUKAN `SDMASUK`** - `SDMASUKPB` adalah qty dlm SATUAN PO
+dan justru kolom INILAH yg dipakai trigger `fstokd_add` menaikkan `esalesorderd.SODMASUK`.
+Kalau dipakai `SDMASUK` (satuan dasar), angkanya tidak akan cocok dgn Qty Order/Diterima
+begitu `IQTYPERBOX` != 1. Diuji eksplisit: **jumlah qty penerimaan == `SODMASUK` di SEMUA
+baris**.
+
+Baris PB yg DIBATALKAN tetap ditampilkan (badge "Batal") supaya jejaknya terlihat - qty-nya
+memang sudah 0 krn `PbWriter::cancel()` menolkan `SDMASUKPB`.
+
+Verifikasi (13 asersi LULUS, PO nyata `DF-PO26090029` dgn 8 baris): jumlah qty penerimaan
+cocok `SODMASUK` tiap baris; Sisa = Order - Diterima; PO yg belum pernah diterima aman
+(daftar kosong, tanpa error); tombol & modal ter-render, nomor PB tampil, `closeHistory`
+membersihkan state.
+
+## Modul Inventory: Penyesuaian Barang (PY) (2026-09-26)
+
+`App\Services\PenyesuaianWriter` + `App\Livewire\Inventory\{PenyesuaianList,PenyesuaianForm}`
++ 2 blade. Menu `inventory.adjust` ("Penyesuaian Stok", path ACL `inventory/adjust`) SUDAH ada
+di seeder - yg kurang cuma komponen + entri `Workspace::listRegistry()`.
+`fstoku`/`fstokd` `SUSUMBER='PY'` (`aanomor` NKODE='PY' = "Penyesuaian Barang"), 600 dokumen
+nyata (28 punya detail - sisanya korban import gagal).
+
+**TIDAK ADA file VB6 acuan** utk form ini di `CODE_VB6` - struktur direkonstruksi dari DATA
+NYATA + spesifikasi field dari user.
+
+**Field**: header Kontak (`SUKONTAK`) / Gudang (`SUCABANG`) / Jenis Penyesuaian
+(`SUJENISPENYESUAIAN` -> `bjenispenyesuaian.JID`) / Uraian (`SUURAIAN`) / Tanggal / No
+Transaksi; detail Kode-Nama-**Masuk**(`SDMASUK`)-**Keluar**(`SDKELUAR`)-Satuan-Catatan;
+ringkasan **Jumlah Masuk & Jumlah Keluar**.
+
+**SATU BARIS BOLEH PUNYA MASUK *DAN* KELUAR SEKALIGUS** - bukan salah satu. Terbukti di data
+(`KM-PY26060001` baris "SARUNG TANGAN S": `SDMASUK=200` DAN `SDKELUAR=100`). Trigger generic
+menghitung stok `+SDMASUK - SDKELUAR`, jadi dampaknya netto. Diuji: masuk 10 + keluar 4 ->
+stok naik 6, lalu kembali persis setelah dibatalkan.
+
+**`SUSTATUS` = 0 saat aktif** (600/600 dokumen legacy = 0) - pola SAMA modul AL, BEDA dari
+SJ/PBC/KMB/TMB yg pakai 1. Batal = 9 (konvensi kita).
+
+**Jenis Penyesuaian WAJIB diisi** (11 pilihan di `bjenispenyesuaian`: Racikan dipakai 361x,
+Penurunan Barang 194x, Pembelian Langsung 25x, dst). Baris dgn Masuk=0 DAN Keluar=0 dibuang
+otomatis sebelum simpan - kalau semua baris begitu, simpan ditolak.
+
+**Gudang = cabang user login, read-only** (aturan app), dan nilai itu juga dipakai `SDGUDANG`
+tiap baris. Daftar discope `branchIds()` + filter Gudang/Jenis/Status/tanggal/pencarian.
+PY tersimpan read-only; koreksi lewat Batalkan lalu input ulang.
+
+**CATATAN ke user**: spesifikasi menyebut "jenis" dan "Penyesuaian (bjenispenyesuaian)"
+terpisah - ditafsirkan sebagai SATU field "Jenis Penyesuaian" dari `bjenispenyesuaian` (tidak
+ada kolom `SUJENIS` di `fstoku`). Perlu dikonfirmasi kalau ternyata maksudnya 2 field.
+
+**DEFER**: `bjenispenyesuaian.JAKUNBIAYA` (akun biaya per jenis, utk posting jurnal) - modul
+ini spt semua modul lain TIDAK posting jurnal.
+
+Verifikasi (40 asersi LULUS, simpan di transaksi + rollback): ke-14 field spesifikasi
+ter-render; Gudang = cabang user; Jenis wajib; baris 0/0 ditolak; simpan -> `SUSUMBER='PY'`,
+`SUSTATUS=0`, nomor `PG-PY26090001`, `SUJENISPENYESUAIAN` & `SDGUDANG` & catatan benar,
+satu baris Masuk 10 + Keluar 4; **trigger menaikkan stok netto +6 (134->140) lalu kembali
+134 setelah dibatalkan**; mode view read-only + badge Batal; filter Jenis jalan; tab terbuka
+dari sidebar.
+
+## Stok per gudang: kolom dipisah + trigger dirapikan (2026-09-28)
+
+**Dikerjakan atas permintaan eksplisit user** ("tolong kamu rapihkan trigger itu", lalu
+"pisahkan kolom gudang itu buat menjadi kolom sendiri") - ini **pengecualian** dari aturan
+CLAUDE.md "jangan perbaiki trigger/pembukuan legacy, cukup dokumentasikan". Diserahkan sbg
+**file SQL yang sudah diuji**, BUKAN dijalankan langsung. Tiga file:
+`database/production/2026-09-28_03_pisah_kolom_stok.sql` (yg dijalankan),
+`.gen.php` (pembangkitnya), `.uji.sh` (pengujinya). **Belum dijalankan di
+`data_pos_nmw_2023`** - menunggu izin user.
+
+### Akar masalahnya: `F_KOLOMGUDANG()` punya `ELSE 'ISTOKPG'`
+
+Fungsi ini yg dipakai **SEMUA** aplikasi (dias-laravel & CI3 dias-online-app) utk menentukan
+kolom stok sebuah gudang, dan dia hanya mendaftarkan sebagian gudang lalu menutupnya dgn
+`ELSE 'ISTOKPG'`. Jadi **7 gudang yg tidak terdaftar diam-diam membaca kolom Petogogan** -
+bukan karena ada yg memutuskan menggabung, tapi karena lupa didaftarkan. `ISTOKMP` juga
+dibagi 2 gudang (9 Gogobli, 18 Marketplace) - ini eksplisit di fungsi.
+
+**Perbaikan intinya: `ELSE` sekarang -> `ISTOKXX`, bukan `ISTOKPG`.** Gudang baru yg lupa
+dipetakan jadi terlihat salah di satu kolom yg bisa diaudit, tidak lagi menumpuk ke Petogogan.
+Trigger ikut punya statement penampung `ISTOKXX` dgn `SDGUDANG NOT IN (...)` supaya sisi TULIS
+& BACA sama. `SELECT COUNT(*) FROM bitem WHERE ISTOKXX<>0` harus SELALU 0.
+
+### Tidak ada angka yg perlu dipecah - sudah diperiksa
+
+Dari 8 gudang yg berbagi `ISTOKPG`, **hanya gudang 1 (2.033 mutasi) & 42 (85 mutasi)** yg punya
+mutasi, dan mutasi gudang 42 **belum pernah tertulis ke kolom mana pun** (tidak ada statement
+trigger untuknya). Jadi `ISTOKPG` sekarang MURNI Petogogan -> **dibiarkan apa adanya**. Idem
+`ISTOKMP`: gudang 9 nol mutasi, isinya murni gudang 18. Kolom baru mulai dari 0, TIDAK diisi
+dari mutasi lama (netto gudang 42 = **-932,5**, negatif karena keluar tanpa saldo awal yg
+tercatat - mengisinya justru menanam angka salah). Penyesuaian 1 Okt yg menetapkan angkanya.
+
+### Kolom: 5 dibuat, 4 dipakai ulang
+
+Baru: `ISTOKDT` (39 Depo Tindakan), `ISTOKKB` (40 Kubis 1), `ISTOKDR` (42 Depo Research),
+`ISTOKBS` (49 Busura), `ISTOKXX` (penampung). Dipakai ulang - **sudah ada di skema tapi tidak
+pernah dipakai, namanya jelas peruntukannya**: `ISTOKOL` (6 Online), `ISTOKGG` (9 Gogobli),
+`ISTOKHC` (14 Home Care), `ISTOKPM` (15 Pameran, `int(11)` -> `double`). Bukti penggabungan ini
+regresi belakangan, bukan rancangan awal. Seluruh 49 kolom diberi `COMMENT 'Gudang N Nama'`
+supaya petanya terbaca dari `SHOW FULL COLUMNS FROM bitem`.
+
+**`ISTOKOL` berisi 106 item nilai basi (jumlah -3.846) & WAJIB dinolkan** - selama ini gudang 6
+membaca `ISTOKPG` jadi isi kolom itu tidak terlihat; setelah dipisah kolomnya mulai dibaca dan
+stok hantu akan muncul. Gudang 6 nol mutasi -> stok benarnya memang 0.
+
+### PRASYARAT yg hampir terlewat: `bitem` ROW_FORMAT COMPACT -> DYNAMIC
+
+`bitem` punya **222 kolom + 4 kolom TEXT** dan `ROW_FORMAT=COMPACT`, di mana tiap TEXT menyimpan
+awalan **768 byte DI DALAM baris** (4 x 768 = 3.072 byte) - tabel ini sudah mentok batas 8.126
+byte/baris. Akibatnya **setiap `MODIFY COLUMN` gagal** dgn `ERROR 1118 Row size too large`,
+karena MODIFY memaksa tabel dibangun ulang & batas itu diperiksa lagi. Yg gagal BUKAN
+`ADD COLUMN` (itu lolos lewat INSTANT/INPLACE) - sempat menyesatkan saya. `ALTER TABLE bitem
+ROW_FORMAT=DYNAMIC` menyelesaikannya (TEXT jadi penunjuk 20 byte); DYNAMIC juga sudah default
+server (`innodb_default_row_format=dynamic`), `bitem` COMPACT warisan dump lama. Terukur
+**0,3 detik utk 5.580 baris**, semua baris utuh. **Kalau nanti perlu menambah kolom ke tabel
+legacy lain, cek ROW_FORMAT-nya dulu.**
+
+### `sql_mode` WAJIB diset di file SQL, 2 alasan berbeda
+
+`SET SESSION sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION';`
+1. `ALTER TABLE bitem` GAGAL dgn sql_mode default server (`ERROR 1067 Invalid default value for
+   'IMODIFD'`) - MariaDB memvalidasi ULANG seluruh definisi tabel saat ALTER, & kolom warisan
+   `IMODIFD` punya default `'0000-00-00'` yg ditolak `NO_ZERO_DATE`.
+2. **Trigger & rutin MENYIMPAN sql_mode saat dibuat lalu memakainya tiap kali jalan.** Nilai di
+   atas persis sama dgn yg tersimpan di `fstokd_*`/`F_KOLOMGUDANG`/`P_RESETSTOK*` sekarang
+   (dibaca dari `information_schema.TRIGGERS.SQL_MODE`) supaya yg baru berperilaku identik.
+   **Jangan pakai `sql_mode=''`** - itu mengubah perilaku trigger diam-diam.
+
+### Kode aplikasi TIDAK perlu diubah
+
+Seluruh dias-laravel sudah memanggil `F_KOLOMGUDANG()` (`KartuStok`, `PkbForm`, `PrForm`,
+`SjForm`, `PosTerminal`) - tidak ada pemetaan gudang->kolom yg ditulis keras. CI3
+`dias-online-app` juga (`Datatable_Master.php`, `PB_Permintaan_Barang.php`). Tidak ada VIEW yg
+menyebut `ISTOK`. `KartuStok::stokSistem()` mencari "gudang lain yg berbagi kolom" lewat
+`whereRaw('F_KOLOMGUDANG(GID) = ?')` -> setelah dipisah hasilnya kosong sendiri & peringatan di
+layar hilang tanpa ubah kode. Hanya docblock yg diperbarui.
+
+### `P_RESETSTOK*` ikut diperbaiki (bug destruktif)
+
+`P_RESETSTOKPERBARANG(IDBARANG)` punya **11 `UPDATE` TANPA `WHERE`** -> stok SATU barang
+ditimpakan ke SELURUH 5.580 barang. Cabang `IDGUDANG=1` di `P_RESETSTOKPERBARANGGUDANG` juga
+tanpa `WHERE`, dan masih menjumlah gudang 1+6 / 9+18. Tidak ada aplikasi yg memanggilnya
+(dicek di 3 codebase) jadi belum pernah meledak. Ditulis ulang pakai **SQL dinamis + PREPARE**,
+kolom dari `F_KOLOMGUDANG()` -> otomatis ikut kalau ada gudang baru, tidak ada daftar yg bisa
+basi. **Tetap BERBAHAYA dijalankan**: menghitung ulang murni dari `fstokd`, padahal hanya
+**31 dari 2.872 item** yg `ISTOKPG`-nya sama dgn netto mutasi gudang 1 (stok sebelum
+pertengahan 2026 tidak punya jejak mutasi). Diperbaiki supaya aman KALAU dipanggil, bukan
+supaya dipakai.
+
+### Trigger: 3 cacat yg diperbaiki, semuanya HANYA pada statement `update bitem set ISTOK...`
+1. **Duplikat**: `ISTOKBZ` (gudang 10 Bizpark) & `ISTOKDE` (gudang 20 Depo) masing2 ditulis
+   DUA KALI -> tiap mutasi dihitung 2x. Terbukti di data: dari 237 item di gudang 20, **56
+   item** nilai `ISTOKDE`-nya tepat 2x netto mutasinya.
+2. **Gudang terlewat**: 16 Tokopedia & 38 Rhein Medika Sektor 9 tidak punya statement sama
+   sekali -> mutasinya tidak tercatat ke kolom mana pun, padahal aplikasi TETAP menampilkan
+   stok utk gudang itu. Idem gudang 15/39/40/42/49 - **gudang 42 "Depo Research" (AKTIF)
+   sudah punya 85 baris mutasi yg hilang begitu saja**.
+3. **Tulis vs baca beda**: kolom tujuan tiap gudang sekarang diambil dari `F_KOLOMGUDANG()`
+   - fungsi yg sama yg dipakai aplikasi MEMBACA stok, jadi tidak bisa lagi menyimpang.
+
+**Dibangkitkan skrip, bukan ditulis tangan**
+(`database/production/2026-09-28_03_pisah_kolom_stok.gen.php`, jalankan dari root project via
+`artisan tinker --execute="require '...'"`): body trigger
+asli dibaca dari `information_schema.TRIGGERS` lalu disunting **bedah** - buang statement
+kembar (normalisasi spasi), perluas kondisi `ISTOKPG`, tambah statement gudang baru dgn
+**statement `ISTOKCP` (gudang 2) sbg cetakan** karena pemetaannya 1:1 & kondisinya paling
+sederhana. Utk `_edit` diambil DUA bentuk sekaligus: pembalik OLD (`-`) dan penerap NEW
+(`+ ... WHERE NEW.SDCANCEL=0`).
+
+**Logika NON-STOK di dalam trigger disalin apa adanya** dan itu diverifikasi: `PBDQTYTERIMA`
+(PR), `PKBDQTYPAKAI`, `official_nmw.ops_invoice_header`, `esalesorderd.sodmasuk`,
+`fproduksid.PDMASUKPAKAI/PDKELUARPAKAI`, blok IF item 5076/5720. Diff potongan non-stok:
+**10 vs 10, 16 vs 16, 8 vs 8 - IDENTIK** di ketiga trigger.
+
+**Diuji di DB terpisah** `uji_trigger_dias`
+(`database/production/2026-09-28_03_pisah_kolom_stok.uji.sh`, `sh` dari mana saja - jalur di
+dalamnya absolut; DB uji dibuat & dibuang sendiri): struktur disalin
+tanpa data, trigger LAMA dipasang dulu utk **membuktikan cacatnya ada**, baru diganti yg
+baru. Hasil - masuk 50 ke gudang 20,10,42,38,16: LAMA `DE=100 BZ=100 PG=0 TP=0 RK=0`
+(dobel + hilang) -> BARU `DE=50 BZ=50 PG=50 TP=50 RK=50`. insert/update/delete diuji per
+gudang (1 yg sudah benar, 20 yg tadinya dobel, 16 yg baru, 42 yg tadinya hilang); SDKELUAR
+juga (100-40=60).
+
+**Jebakan yg sempat menipu saya - jangan diulang**:
+- **Jumlah statement stok BUKAN bukti duplikat hilang**: buang 2 kembar + tambah 2 gudang
+  baru = jumlah tetap 41/82/41, sama seperti sebelumnya. Duplikat hanya terlihat dgn
+  membandingkan jumlah **TOTAL vs UNIK** (lama 41/39, 82/78, 41/39 -> baru 41/41, 82/82,
+  41/41).
+- **`information_schema.TRIGGERS` TIDAK terbatas pada DB yg sedang dipakai** - tanpa
+  `WHERE TRIGGER_SCHEMA=...` hasilnya bercampur trigger DB proyek lain (sempat terbaca
+  "4 baris per nama trigger" & bikin salah kesimpulan). Lihat aturan LINGKUP DATABASE di atas.
+- **Menyalin struktur tabel legacy butuh `SET SESSION sql_mode=''`** - default `0000-00-00`
+  di `IMODIFD`/`KMODIFD` ditolak mode ketat (`ERROR 1067`).
+- **`U_fstokd` unik atas (SDIDSU, SDURUTAN)** - data uji harus beda `SDURUTAN` tiap baris.
+- **Urutan bersih-bersih penting**: hapus baris `fstokd` DULU (trigger DELETE ikut jalan),
+  BARU nol-kan kolom stok. Kebalikannya menghasilkan stok negatif & terlihat spt bug trigger.
+- Saat menguji, pakai `SDPRDID=-1` supaya UPDATE ke **`official_nmw.ops_invoice_header`**
+  (database NYATA, dirujuk absolut di dalam trigger) tidak mengenai baris apa pun, dan
+  hindari item **5076/5720** supaya blok `IF` + `F_Tanggalsu` tidak ikut jalan.
+
+**Jebakan tambahan dari tahap pisah kolom**:
+- **`ADD COLUMN` lolos tapi `MODIFY COLUMN` gagal** di tabel yg mentok ukuran baris - sempat
+  bikin saya salah menyimpulkan bahwa penambahan kolomnya yg bermasalah. Baca nomor baris di
+  pesan error, jangan tebak.
+- **Nolkan kolom stok SEBELUM** menanam nilai basi buatan di data uji, bukan sesudah (fungsi
+  `bersih()` menolkan semua kolom `ISTOK%`, jadi nilai uji ikut terhapus).
+- Membaca kolom yg **belum dibuat** -> `ERROR 1054`, bukan `NULL`. Periksa keberadaan kolom
+  lewat `information_schema.COLUMNS`, jangan `SELECT` kolomnya.
+- Di skrip uji, cacat pada objek LAMA itu **yg dibuktikan, bukan kegagalan** - jangan diberi
+  label GAGAL (sempat menampilkan 3 "GAGAL LAMA" yg justru bukti perbaikannya benar).
+
+**`CREATE TABLE ... LIKE` TIDAK menyalin FOREIGN KEY** - ini bikin DB uji terlalu longgar &
+baru ketahuan saat uji di DB nyata. `fstokd` punya DUA FK yg tidak muncul di DB uji:
+`FK_fstokd_u` (`SDIDSU` -> `fstoku.SUID`, ON DELETE CASCADE) dan `FK_fstokd_gudang`
+(`SDGUDANG` -> `bgudang.GID`). Konsekuensinya: **gudang asal-asalan tidak bisa masuk `fstokd`**,
+jadi `ISTOKXX` hanya bisa kena oleh gudang yg ADA di `bgudang` tapi BELUM di `F_KOLOMGUDANG()` -
+yaitu persis regresi yg dulu terjadi. Kalau perlu FK di DB uji, salin skema tabelnya (bukan
+`LIKE`) atau uji bagian itu langsung di DB nyata di dalam transaksi.
+
+**JANGAN membangkitkan ulang generator SESUDAH migrasinya terpasang.** Generator ini MEMBACA
+keadaan DB lalu menulis langkah "dari keadaan itu ke keadaan benar" - dijalankan dari DB yg
+sudah termigrasi, hasilnya file yg TIDAK membuat kolom, TIDAK mengubah ROW_FORMAT & TIDAK
+menolkan nilai basi, jadi **tidak bisa dipakai di server production yg belum dimigrasi**. Saya
+sempat menimpa file aslinya persis karena ini. Sekarang ada **pengaman**: generator
+`throw RuntimeException` kalau kolom `ISTOKXX` sudah ada di DB sumber. Cara membangkitkan ulang
+dgn benar - pulihkan cadangan ke DB terpisah lalu `$GEN_DB` diarahkan ke situ:
+`sh C:\hafiz\backup-db\bangun_prapisah.sh` lalu
+`php artisan tinker --execute="\$GEN_DB='gen_prapisah'; require '<gen.php>';"`.
+Skrip uji juga menerima `SRCLAMA=gen_prapisah` (struktur tabel yg ADA di salinan pra-migrasi
+diambil dari situ - kalau `bitem` terbawa dari DB yg sudah termigrasi, `ADD COLUMN` bentrok).
+
+**DIJALANKAN di `data_pos_nmw_2023` 2026-09-28** atas izin user. Cadangan di
+`C:\hafiz\backup-db\` (`bitem_<ts>.sql` struktur+data, `rutin_trigger_<ts>.sql` semua routine,
+`trigger_fstokd_<ts>.sql` ketiga trigger; mysqldump menulis nama trigger TANPA backtick - jangan
+grep `` `fstokd_add` ``). Di folder itu juga ada `bangun_prapisah.sh` + `pasang_routine.php` utk
+membangun ulang keadaan pra-migrasi dari cadangan. **Catatan saat memulihkan routine dari dump
+mysqldump**: dump itu berisi trigger tabel LAIN juga - saring ke `^CREATE (FUNCTION|PROCEDURE)`
+saja, kalau tidak `CREATE TRIGGER` utk tabel yg tidak ada memicu fatal & loop berhenti di tengah.
+Dan **PHP di Windows tidak mengerti jalur gaya MSYS `/c/...`** - pakai `C:/...` utk bagian PHP
+walaupun bagian shell-nya jalan dgn `/c/...`. Hasil sesudah dijalankan: `bitem` ROW_FORMAT **Dynamic**, 227 kolom,
+5.580 baris utuh; 49 gudang -> **49 kolom berbeda** (tidak ada lagi yg berbagi); `ISTOKXX`=0;
+`ISTOKOL`=0; `ISTOKPG` **tidak berubah** (2.870 item, jumlah 2.284.240,94). Cadangan `bitem`
+dipulihkan ke DB terpisah lalu **54 kolom stok dibandingkan satu per satu**: hanya `ISTOKOL`
+(106 baris) yg beda - tepat yg disengaja; kolom non-stok 0 beda; 0 baris hilang. Uji mutasi
+NYATA dibungkus `DB::beginTransaction()`/`rollBack()`: 13 gudang masing-masing ke kolom sendiri
+tepat 50, gudang 20 update/delete/`SDKELUAR` benar, gudang baru 9001 masuk `ISTOKXX` tanpa
+mengotori `ISTOKPG`, dan sesudah rollback tidak ada sisa sama sekali. SQL_MODE trigger & rutin
+baru **identik** dgn yg lama.
+
+**Hasil uji lengkap** (`.uji.sh`, 12 bagian, DB sementara `uji_pisahstok_dias`): rutin & trigger
+LAMA dipasang dulu utk membuktikan cacatnya ada -> masuk 50 ke gudang 20/10/42 memberi
+`DE=100 BZ=100` (dobel) & mutasi gudang 42 hilang; setelah file SQL, 12 gudang diuji satu per
+satu semuanya menulis ke kolomnya sendiri tepat 50; insert/update/delete di kolom baru
+(`ISTOKDR`) & kolom yg tadinya dobel (`ISTOKDE`) benar; `SDKELUAR` benar (100-40=60); penampung
+`ISTOKXX` menerima gudang 77 yg tidak terdaftar tanpa mengotori `ISTOKPG`; statement kembar
+41/39 82/78 41/39 -> 50/50 100/100 50/50; potongan non-stok 10/16/8 **IDENTIK**;
+`P_RESETSTOKPERBARANG` tidak lagi menimpa item lain. **SEMUA LULUS.**
+
+Masih terbuka (SEMUA di dalam `data_pos_nmw_2023`): 9 kolom cadangan `ISTOK*31122016`
+(semuanya 0, tidak dirujuk apa pun) dibiarkan; `P_RESETSTOK*` sekarang aman KALAU dipanggil
+tapi **tetap jangan dijalankan** (hanya 31 dari 2.872 item yg cocok dgn netto mutasi).
+
+## Salin Hak Akses (2026-09-28)
+
+**Latar yg penting dipahami**: hak akses disetel **per user x per menu x 6 kewenangan**,
+sedangkan ada **306 user aktif** dan **58 menu** - sekitar 17.000 keputusan centang kalau
+disetel satu per satu. Saat fitur ini dibuat `lv_user_menu` baru berisi **1 baris**, dan
+cutover 1 Oktober tinggal 2 hari. Tanpa ini, cutover praktis tidak mungkin.
+
+Ditambahkan ke `Admin\UserAccess` (dua arah):
+- **`salinDari($sumberId)`** - tarik hak akses user lain ke GRID. **TIDAK langsung menyimpan**;
+  admin periksa dulu lalu klik Simpan. Grid ditimpa penuh, bukan digabung.
+- **`terapkanKe()`** - tulis centangan di layar ke BANYAK user sekaligus. Ada
+  `pilihSemuaHasil()` utk mencentang seluruh hasil pencarian - ini inti fiturnya.
+
+**MENGGANTI, bukan menggabung**: hak akses user tujuan dihapus dulu (`whereIn(...)->delete()`)
+baru diisi. Alasan: "salin" yg menggabung menghasilkan hak akses yg tidak bisa ditebak isinya
+DAN tidak bisa dipakai MENCABUT akses. Satu transaksi supaya tidak ada user yg separuh jadi;
+insert dipecah `array_chunk(500)`.
+
+Yg ditulis adalah **isi GRID di layar**, bukan yg tersimpan di DB - supaya penyesuaian yg
+belum sempat disimpan tidak diam-diam terbawa berbeda. User yg sedang dibuka SELALU
+dikecualikan dari daftar tujuan (di query maupun saat menyimpan).
+
+**RISIKO OPERASIONAL yg sudah terlihat saat uji**: "Pilih semua hasil" ikut menyapu user
+produksi yg kebetulan cocok kata pencariannya (uji dgn kata "KASIR" ikut menarik
+"KASIR PAMERAN" & "usertes"). Daftar centangnya terlihat di layar & jumlahnya ditampilkan di
+konfirmasi, tapi tetap perlu diperiksa sebelum diterapkan. Tercatat di `lv_activity_log`
+(`user_access_copy`) lengkap dgn daftar UKODE tujuan, jadi bisa ditelusuri kalau salah sapu.
+
+### GOTCHA `x-lw-modal` WAJIB dibungkus `@if` (kena nyata 2026-09-28)
+
+Modal dipasang tanpa `@if` -> **diklik tidak muncul apa-apa**, padahal state-nya sudah `true`
+dan server SUDAH merender markup lengkap dgn `show d-block` + backdrop (dicek eksplisit).
+Sebabnya: `components/lw-modal.blade.php` memakai **`wire:ignore.self`** pada div modalnya,
+jadi Livewire tidak memperbarui **atribut elemen itu sendiri** - kelas `show d-block` tidak
+pernah ikut terpasang saat elemennya sudah ada sejak awal.
+
+**Selalu bungkus `@if ($showXxx)`** supaya elemennya DIBUAT BARU (sudah membawa kelasnya) -
+pola yg dipakai semua modal lain di app ini (`user-manager`, `coa-manager`, dst). Gejalanya
+menyesatkan krn uji server-side LULUS: `$c->html()` memang memuat modalnya.
+
+**INI SOLUSI SEMENTARA.** Rencana sesudah cutover: konsep **Role** (`lv_role` + `lv_role_menu`,
+user dikaitkan ke role, `lv_user_menu` tetap jadi pengecualian per user) supaya menu baru cukup
+disetel sekali per role, bukan 306 kali. Sengaja TIDAK dibuat sekarang - memperkenalkan konsep
+hak akses baru 2 hari sebelum semua aplikasi lama dimatikan menambah risiko di saat terburuk.
+Kalau Role jadi dibuat, pengecualian aturan password utk kasir ikut jatuh otomatis dari situ.
+
+Verifikasi (30 asersi LULUS, 3 user uji di transaksi + rollback): salin-dari memuat kewenangan
+sumber dgn tepat (POS view+add+print, yg tidak dimiliki tetap kosong), menimpa hak akses lama
+di grid, **TAPI DB belum berubah sampai Simpan ditekan**; setelah Simpan hak akses lama
+terhapus; terapkan-ke-banyak -> tiap tujuan **TEPAT 2 baris** (tidak ada sisa hak akses lama),
+isinya sama persis sumber, dan hak akses SUMBER tidak berubah; diri sendiri tidak pernah ikut
+tercentang maupun muncul di daftar; tanpa tujuan tidak melakukan apa pun; tercatat di log
+aktivitas. Rollback bersih - `lv_user_menu` kembali 1 baris.
+
+## Password sementara + wajib ganti saat login pertama (2026-09-28)
+
+Permintaan user: tombol **Buat Password** di reset password admin (2 angka + 4 huruf +
+2 angka), password itu **sementara**, dan **user diharuskan menggantinya saat login pertama**.
+
+### Yang dibuat
+- **`UserManager::buatPassword()`** - generator 8 karakter. `random_int()` (CSPRNG), BUKAN
+  `rand()`. **Karakter rancu dibuang**: angka `0`/`1`, huruf `i`/`l`/`o` - password ini
+  didikte lewat telepon/WhatsApp. Ruang tebakan 8^2 x 23^4 x 8^2 = ~1,1 miliar; cukup krn
+  umurnya hanya sampai login pertama.
+- **`must_change = true`** saat admin reset password DAN saat admin mengetik password di form
+  tambah/ubah user - dua-duanya password yang isinya diketahui admin.
+- **`EnsurePasswordChanged`** (middleware, dipasang ke grup `web` lewat `bootstrap/app.php`) -
+  mengalihkan ke `password.change` selama `must_change` menyala.
+- **`Auth\ChangePassword`** + `layouts/auth.blade.php` (layout berdiri sendiri, di luar shell
+  tab) - syarat password baru: min 8, ada huruf DAN angka, `uncompromised()`, dan wajib beda
+  dari password lama.
+
+### Yang HARUS dilewati middleware (kalau tidak user terkunci berputar)
+`password.change`, `logout`, dan **`livewire/*`** - halaman ganti password itu sendiri memakai
+Livewire, memblokir endpointnya membuat formnya tidak bisa disubmit.
+
+### GOTCHA: `confirmed` vs properti camelCase (kena nyata)
+Aturan `confirmed` mencari field `passwordBaru_confirmation` (snake), sedangkan properti
+Livewire di sini `passwordBaruConfirmation` - akibatnya validasi **SELALU gagal walau isinya
+sama**, dan gejalanya menyesatkan: semua kasus penolakan lulus, justru kasus BERHASIL yang
+gagal. Dipakai **`same:passwordBaruConfirmation`**.
+
+### Keputusan: ganti password sendiri TIDAK menyalin MD5 ke `auser.UPASSWORD`
+Reset oleh admin punya checkbox utk itu (supaya login CI3 ikut jalan), tapi di layar ganti
+password sendiri sengaja TIDAK: MD5 tanpa garam bisa dibongkar cepat, jadi menyalinnya justru
+melemahkan password kuat yang baru dibuat. Akibat yang diterima: sampai aplikasi lama
+dihentikan, password CI3 user tetap yang lama.
+
+### Aturan password kuat + throttle login (2026-09-28)
+
+Aturan password yang dibuat SENDIRI user ada di **`config/acl.php` -> `password`**
+(`min` = 10, `kata_terlarang`). **SENGAJA TIDAK mewajibkan simbol/huruf besar** - aturan
+komposisi menghasilkan pola tertebak (`Password1!`, `P@ssw0rd`) yg justru dicoba pertama;
+NIST SP 800-63B menyarankan menghindarinya. Panjang jauh lebih menentukan: 10 karakter
+huruf+angka ~1.300x lebih luas drpd 8. Ditambah `ChangePassword::tolakKataJelas()` yg menolak
+password memuat **username sendiri** atau kata jelas (`nmw`, `petogogan`, `kasir`, ...) -
+jauh lebih berguna drpd simbol, krn itu yg biasanya dipilih orang.
+
+**Throttle login** di `LoginController` (5 percobaan, blokir 300 detik). Kuncinya
+**`username|IP`**, SENGAJA bukan salah satunya saja: kunci IP-saja membuat satu kantor
+ber-IP sama saling mengunci; kunci username-saja membuat penyerang bisa mengunci akun orang
+lain dari luar. `RateLimiter::clear()` saat login berhasil.
+
+**JEBAKAN `uncompromised()` - dua-duanya kena & sudah ditangani**:
+1. **Gagal DIAM-DIAM (fail-open)**: `NotPwnedVerifier::search()` menelan exception & balik
+   body kosong -> password dianggap aman & LOLOS tanpa pesan. Kalau server produksi tidak bisa
+   menjangkau `api.pwnedpasswords.com`, aturan ini **praktis mati dan tidak ada yg tahu**.
+   Wajib dipastikan saat deploy.
+2. **Timeout bawaan 30 DETIK** -> tombol Simpan menggantung selama itu. Dipendekkan jadi 3
+   lewat binding di `AppServiceProvider`. **`ValidationServiceProvider` adalah DEFERRED
+   provider** - ia register saat kontrak pertama di-resolve dan MENIMPA binding kita, baik
+   dari `register()` MAUPUN `boot()` (terbukti: timeout tetap 30). Solusinya
+   `$this->app->register(ValidationServiceProvider::class)` dulu, baru `bind()`.
+
+Verifikasi (21 asersi LULUS): 8 karakter ditolak (min 10), tanpa angka/tanpa huruf ditolak,
+memuat username sendiri ditolak, memuat `nmw`/`petogogan`/`password`/`KASIR` (tidak peka huruf
+besar) ditolak & pesannya menyebut kata yg salah; **password 15 karakter huruf+angka TANPA
+simbol DITERIMA**; throttle memblokir tepat di percobaan ke-6, penghitung per username+IP, user
+lain dari IP sama tidak ikut terblokir; timeout verifier terbukti 3 detik.
+
+Verifikasi (26 asersi LULUS, user uji dibuat di transaksi + rollback): 300 password hasil
+generator semuanya 8 karakter, berpola benar, **tanpa karakter rancu**, 300/300 unik; reset
+admin -> hash tersimpan (bukan teks polos), `must_change` TRUE, MD5 tidak ditulis saat checkbox
+mati; middleware mengalihkan `/` ke ganti-password TAPI melewatkan halaman itu sendiri, logout,
+& `livewire/*`; layar ganti password menolak password lama salah / tanpa angka / tanpa huruf /
+< 8 karakter / ulangi tidak sama / sama dgn password lama - dan di setiap penolakan
+`must_change` TETAP menyala; password kuat diterima -> `must_change` mati, hash berubah,
+**login dgn password baru berhasil & password sementara ditolak**; rollback bersih, 0 user
+produksi terpengaruh.
+
+## ATURAN: filter Cabang di SEMUA laporan default ke cabang aktif user (2026-09-28)
+
+Permintaan user, berlaku utk laporan yg sudah ada MAUPUN yg dibuat nanti:
+**filter Cabang selalu default ke CABANG AKTIF user**, bukan "semua cabang".
+
+```php
+// di mount() tiap komponen filter laporan
+$this->cabang = (int) (auth()->user()->UCABANG ?? 0) ?: null;
+```
+
+`User::UCABANG` adalah **accessor**, bukan kolom mentah - sudah menghormati fitur "ganti
+cabang aktif" lewat session (`active_cabang_{UID}`), jadi cukup dibaca apa adanya.
+**JANGAN dikondisikan lagi ke `branchIds()`** seperti pola lama
+(`$allowed === [] ? UCABANG : null`) yg justru default ke "semua cabang" untuk user
+bercabang banyak - kebalikan dari yg diminta.
+
+Sudah diterapkan: `Reports\IpTindakanProduk`, `Reports\PenjualanPerBarang`.
+
+Verifikasi (14 asersi LULUS): user 1 bercabang tunggal & user 7 bercabang 48 SAMA2 default ke
+cabang aktifnya; terbukti tidak lagi "semua cabang"; **mengikuti switch cabang aktif** (user 7
+di-switch ke 13 Cibubur -> filter ikut 13); laporan hasilnya benar terfilter (1 blok cabang
+"Petogogan", nama cabang ikut di subtitle).
+
+### Penyaringan cabang di laporan (user 2026-09-28)
+
+Aturan user: **"jika user hanya akses 3 cabang, maka jika dia pilih semua, yang tampil 3
+cabang itu"**. Penegaknya **`ReportController::cabangLaporan()`** - dipakai SEMUA laporan:
+
+- "Semua cabang" -> seluruh cabang yg BOLEH DILIHAT user, bukan seluruh perusahaan.
+- Pilih satu cabang -> **DIIRISKAN** dgn daftar yg boleh. Irisan kosong -> `[0]` (GID 0 tidak
+  ada) sehingga hasilnya nihil. **Mengembalikan `[]` di situ justru MEMBUKA semua cabang** -
+  jebakan yg sama pernah kena di `KartuStok::gudangIds()`.
+- Penyaringan WAJIB di controller, bukan cuma dropdown: parameter `cabang` datang lewat URL.
+
+**Super user DIKECUALIKAN**, lewat `User::visibleBranchIds()` (`[]` = tanpa batas). Konsisten
+dgn `Acl` yg melewatkan super user dari semua pemeriksaan. Praktis wajib: UID 1
+(Administrator) `UCABANGPILIH`-nya justru cuma `1`, jadi tanpa pengecualian ini admin terkunci
+ke Petogogan dan laporan lintas cabang mati. Definisi super user dipindah jadi
+**`User::isSuperUser()`** supaya ada satu sumber, tidak lagi hanya di dalam `Acl`.
+
+**BUG YG IKUT KETEMU & DIPERBAIKI**: `dataPenjualanPerBarang()` SUDAH menyaring
+`branchIds()` sejak awal TAPI tanpa pengecualian super user - jadi laporan IP Per Barang
+selama ini **sudah terkunci ke Petogogan untuk admin**. Sekarang ikut `cabangLaporan()`.
+
+Verifikasi (21 asersi LULUS, user uji 3 cabang dibuat di transaksi + rollback): user biasa
+pilih "Semua" -> tepat 3 cabang (Ciputat, Depok, Petogogan), bukan seluruh perusahaan; pilih
+cabang sendiri -> tampil; **pilih cabang di luar haknya (Kalimalang) -> hasil KOSONG & nilai 0,
+bukan malah semua cabang**; dropdown kedua laporan ikut 3 cabang; laporan IP Per Barang juga
+terbatas 3 cabang. Super user: `visibleBranchIds()` `[]`, "Semua cabang" -> 18 cabang (tidak
+terkunci), dropdown penuh 31 cabang, boleh pilih cabang lain. Rollback bersih.
+
+## Laporan IP Tindakan/Produk Per Bulan (2026-09-27)
+
+Port dari CI3 - **sumbernya ADA & lengkap**: `dias-online-app/application/views/modul/laporan/
+laporan-ip-tindakan-produk-perbulan.php` (+ versi `xls/`) dan
+`application/sql/2026-09-02_laporan-ip-tindakan-produk-perbulan.sql` (yg memuat spesifikasinya
+di komentar). Baca dua file itu dulu kalau perlu menyentuh laporan ini lagi.
+
+`ReportController::ipTindakanProduk()` / `...Excel()` + `reports/ip-tindakan-produk.blade.php`
+& `-xls.blade.php`; tab filter `App\Livewire\Reports\IpTindakanProduk` +
+`livewire/reports/ip-tindakan-produk.blade.php`. Route `reports/ip-tindakan-produk[/excel]`,
+menu `laporan.ip-tindakan-produk` (sort 83, di bawah `laporan.penjualan`), registry Workspace
+sudah didaftarkan. Pola tombol PDF/Excel SAMA `PenjualanPerBarang` (dispatch
+`report-pdf-ready` / `report-excel-download`).
+
+**Sumber `SUSUMBER IN ('IP','AL')`** (POS + Alkes Depo), `SUSTATUS <> 9`.
+Grup **Cabang > Bulan > Tindakan/Produk**; kolom Tindakan/Produk | Qty Transaksi | Nilai |
+Pasien.
+
+### TIGA aturan hitung yg TIDAK boleh disederhanakan (disalin persis dari CI3)
+1. **Qty mengecualikan baris kedatangan**:
+   `SUM(CASE WHEN IFNULL(SDKEDATANGAN,0)=0 THEN SDKELUAR ELSE 0 END)`. Baris ber-`SDKEDATANGAN`
+   TETAP ikut kolom Nilai tapi TIDAK dihitung qty-nya. Nyata: 391 baris di Jun-Sep 2026, dan
+   terbukti membuat Qty total 10.522,77 < `SUM(SDKELUAR)` polos 10.990,27.
+2. **Kolom Pasien per baris** = `COUNT(DISTINCT kontak)` **hanya pada baris yg ADA HARGANYA**
+   (`SDKELUAR*(SDHARGA-SDDISKON) > 0`) - tindakan gratis/bonus tidak menghitung pasien.
+3. **Total pasien per bulan dihitung QUERY TERPISAH**, bukan menjumlahkan kolom Pasien:
+   `COUNT(DISTINCT CONCAT(kontak,'#',tanggal))` - **1 pasien per hari dihitung 1x**. Karena itu
+   total bulan hampir selalu LEBIH KECIL dari jumlah kolom di atasnya, dan **itu MEMANG BENAR**
+   (jangan "diperbaiki"). Baris "Total Cabang" & "Grand Total" SENGAJA mengosongkan kolom
+   Pasien (CI3 juga) - menjumlahkannya lintas bulan/cabang akan menghitung pasien yg sama 2x.
+
+**BEDA SENGAJA dari CI3 (1)**: label bulan di-Indonesia-kan (`->locale('id')` -> "Juni 2026");
+CI3 pakai `DATE_FORMAT(...,'%M %Y')` yg selalu Inggris ("June 2026").
+
+Versi Excel SENGAJA meratakan grup jadi kolom "Cabang" & "Periode" yg diulang tiap baris -
+supaya bisa di-pivot, beda dari PDF yg bertingkat.
+
+Verifikasi (31 asersi LULUS, periode Jun-Sep 2026 semua cabang): **hasil dicocokkan
+baris-per-baris ke QUERY CI3 ASLI yg dijalankan berdampingan** - **2.059 baris, NOL selisih**
+di Qty, Nilai, maupun Pasien per baris; total pasien per cabang-bulan juga **nol selisih** di
+36 grup; terbukti ada bulan yg total pasiennya lebih kecil dari jumlah kolom (aturan 3
+bekerja); aturan 1 terbukti dari data; 9 potongan teks cetakan; Excel ber-Content-Type &
+nama file benar + kolom Cabang/Periode; tanggal terbalik ditolak; default rentang bulan
+berjalan; kedua tombol men-dispatch event yg benar; registry & menu terdaftar.
+
+## Pengajuan Dana: cetakan "Petty Cash" (2026-09-27)
+
+`PengajuanDanaPrintController` + `reports/pengajuan-dana-print.blade.php`, route
+`finance/pengajuan-dana/{id}/print` (ACL `finance/pengajuan-dana` ability `print`). Dari contoh
+user `Pengajuan dana PG-PDN26090001.pdf`. Tabel `ctransaksipu` + `ctransaksipd` (prefix CU/CD).
+Tombol Cetak di daftar + form; setelah simpan: toast + `confirm-print`.
+
+**Judul cetakannya "Petty Cash"**, bukan "Pengajuan Dana" - nama modul & nama dokumen beda.
+
+**Cetakan paling kompleks sejauh ini - 5 blok**: (1) kop **BERULANG tiap halaman**
+(`<htmlpageheader>`, bukan konten biasa - contoh 2 halaman menampilkannya di KEDUANYA);
+(2) tabel berbingkai dgn judul kolom **DWIBAHASA bertumpuk** (Keterangan/Description,
+COA/Account No., Jumlah/Amount) + satu kolom tanggal **tanpa judul**; (3) baris Terbilang +
+total menyatu di dalam bingkai; (4) kotak ttd 3 sel Dibuat/Diperiksa/Disetujui masing2 dgn
+"Tgl/Date"; (5) kotak rekap per COA (KODE|KETERANGAN|DEBIT|KREDIT) + ttd
+"Accounting Manager/SPV" & "Accounting".
+
+**Baris urutan 1 = akun sumber dana DIKECUALIKAN** (sesuai `PengajuanDanaWriter::lines()` dan
+sesuai contoh: rekapnya hanya 3 COA biaya, tanpa akun sumber). Yg dicetak urutan > 1:
+`CDCATATAN` (Keterangan), `CDNOCOA` -> `bcoa.CNOCOA` (COA), `CDDEBIT` (Jumlah).
+Rekap DEBIT/KREDIT di-`SUM` atas baris yg sama - bukan dipatok 0 - supaya tetap jujur kalau
+suatu saat ada baris kredit di luar akun sumber.
+
+**Perlu konfirmasi user (2)**:
+1. **Kolom tanggal per baris** diisi `CUTANGGAL`. Di contoh ke-43 barisnya bernilai SAMA dgn
+   tanggal dokumen (10/09/2026) walau uraiannya menyebut tanggal belanja berbeda-beda, jadi
+   jelas BUKAN tanggal belanja; kandidat lain (tanggal KK asal) tidak terbedakan dari contoh.
+2. **Alamat cabang** dari `bgudang` (`'NMW ' + GNAMA`, lalu `GALAMAT2`). Contoh menulis
+   "Jl Petogogan 11 No 29 / Keb Baru - Jak Sel" sedangkan `GALAMAT2` gudang 1 berbunyi
+   "Jl. Petogogan 2 No. 29, Kebayoran Baru Jakarta Selatan 12160" - beda nomor jalan & format.
+   Dipakai data master supaya cabang lain ikut benar.
+
+**CATATAN**: `ctransaksipu` `CUSUMBER='PDN'` **KOSONG (0 baris)** - modul belum pernah dipakai,
+tidak ada dokumen nyata utk dicetak.
+
+Verifikasi (44 asersi LULUS, dokumen uji di transaksi + rollback dgn angka & COA disalin dari
+contoh): 24 potongan teks contoh termasuk judul kolom dwibahasa & `htmlpageheader`; **baris
+akun sumber terbukti TIDAK tercetak** (hanya 6 baris biaya dirender); Total 2.968.617,00 sama
+contoh; **terbilang identik kalimat contoh**; **rekap 3 COA cocok contoh sampai rupiah**
+(1.696.323,00 / 888.019,00 / 384.275,00) DAN nama akunnya cocok ("Biaya Kebutuhan kantor",
+"Biaya ATK, FC, Materai, Cetakan", "Biaya Transport & Akomodasi") - konfirmasi kuat pemetaan
+COA benar; jumlah rekap = Total; banner pembatalan; **rollback bersih, 0 PDN tertinggal**.
+
+## JOP: cetakan "Job Order Produksi" (2026-09-27)
+
+`JopPrintController` + `reports/jop-print.blade.php`, route `pabrik/jop/{id}/print` (ACL
+`pabrik/jop` ability `print`). Dari contoh user `Job Order Produksi RP-JOP26090001.pdf`.
+Tombol Cetak di `JopList` + `JopForm`; setelah simpan/ubah: toast + `confirm-print`.
+
+Tabel **`fproduksiu` + `fproduksid` (prefix PU / PD) dgn `PUSUMBER='JOP'`** - BUKAN
+`fstoku`/`fstokd` spt Produksi (PRO). JOP = RENCANA, PRO = eksekusinya.
+
+**Tabel 5 kolom: No | Item | Nama Item | Qty Masuk | Qty Keluar** (`PDMASUK`/`PDKELUAR`) + dua
+Total Qty. Mirip cetakan Produksi TAPI 3 beda: label kolom "Qty Masuk/Keluar" (bukan "Qty
+Produk Jadi/Bahan Baku"), **TIDAK ADA kolom Satuan**, dan tanda tangannya DUA & **BERNAMA**.
+
+**Tanda tangan bernama - satu dari data, satu dari config**:
+- "Di Buat Oleh" = `bkontak.KNAMA` dari `PUKONTAK` (di contoh "( Andi Andrian )", sama dgn
+  isi "Tujuan :").
+- **"Di Setujui Oleh" = `config('dokumen_print.pt.<NPID>.penyetuju_jop')`**. Namanya TIDAK ADA
+  di DB: `fproduksiu` **tidak punya kolom approver sama sekali** (`PUKARYAWAN` NULL di kedua
+  JOP lokal) dan "Dra. TRI WAHYUNI, Apt." tidak ada persis di `bkontak` (terdekat
+  "` TRI WAHYUNI.`" KID 21788, tanpa gelar) - hardcode di report lama, pola SAMA apoteker/SIPA.
+  NPID lewat `PUCABANG` -> `bgudang.GPT`; **gudang 35 "RII Produksi" -> NPID 8
+  "PT. Royal Igyolini Indonesia"**, jadi entri config ditaruh di NPID 8.
+  PT lain -> kurung KOSONG, tidak memakai nama PT lain (diuji eksplisit).
+
+**FLAG**: penyetuju di-scope per PT karena hanya ada SATU contoh (dari RII Produksi). Kalau
+ternyata orang yg sama menyetujui JOP semua PT, entri config-nya perlu disalin/dijadikan
+global - tanyakan ke user sebelum mengubah.
+
+**CATATAN**: dokumen contoh `RP-JOP26090001` TIDAK ADA di DB lokal - hanya 2 JOP
+(`PG-JOP26090001/2`, Petogogan). Sama spt cetakan Produksi yg contohnya (`RP-PRO...`) juga
+tidak ada: **dokumen ber-prefix RP (RII Produksi) tampaknya belum ikut terimpor** ke salinan
+lokal ini.
+
+Verifikasi (32 asersi LULUS, `PG-JOP26090002`): 15 potongan teks contoh; terbukti TIDAK ada
+kolom Satuan & tidak memakai label cetakan Produksi; dua total cocok `SUM(PDMASUK)`/
+`SUM(PDKELUAR)` (100,00 / 306,00); "Di Buat Oleh" berisi nama kontak ("Arnis"); rantai config
+terbukti (NPID 8 berisi nama sesuai contoh, gudang 35 -> NPID 8) dan **PT tanpa config ->
+penyetuju kosong, nama PT lain TIDAK bocor**; SEMUA 2 JOP tercetak; controller JOP menolak id
+non-JOP (404); tombol cetak di daftar & form.
+
+## PBC / PKB / Produksi: cetakan (2026-09-27)
+
+Tiga cetakan sekaligus dari contoh user. Tombol Cetak di daftar + form masing2; setelah
+simpan: toast + `confirm-print` (menggantikan `session()->flash('status')`).
+
+**JEBAKAN DOCBLOCK - KENA DUA KALI, JANGAN KETIGA**: menulis sepasang prefix kolom bergaya
+`(PKBU*/PKBD*)` atau `(CU*/CD*)` di komentar **menutup docblock lebih awal** krn mengandung
+`*/` -> `ParseError: Unmatched ')'` yg menunjuk ke BARIS DOCBLOCK, bukan ke kode. Blade-nya
+sendiri kompilasi bersih sehingga sempat salah dicurigai dua-duanya.
+**Selalu tulis `PKBU / PKBD`, `CU / CD` - jangan pernah `X*/Y*`.**
+Cek cepat seluruh proyek: `for f in $(find app config routes database -name '*.php'); do
+php -l "$f"; done` - dipakai setelah kejadian kedua, hasilnya 0 file bermasalah.
+
+### PBC - `PbcPrintController` + `reports/pbc-print.blade.php`, route `purchase/pbc/{id}/print`
+Judulnya **"Penerimaan Barang"**, SAMA dgn cetakan PB - bukan "...Cabang". Sekeluarga
+`pb-print` tapi **TANPA kolom "No PO"** (PBC menerima dari SJ antar cabang), jadi 5 kolom:
+No | Item | Nama Item | Qty Masuk | Satuan. Qty dari `SDMASUK`.
+**"No Invoice :" SENGAJA DIKOSONGKAN**: di cetakan PB kolom itu diisi `SUNOREF`, tapi utk PBC
+`SUNOREF` isinya **nomor Permintaan Barang (RS)** - diverifikasi **1.838 dari 1.838** PBC
+berpola `%-RS%`, nol yg kosong. Contoh user pun menampilkannya kosong.
+
+### PKB - `PkbPrintController` + `reports/pkb-print.blade.php`, route `purchase/pkb/{id}/print`
+Tabel `fperintahkirimbarangu` + `...d`, BUKAN `fstoku`. Strukturnya beda sendiri: kop
+"NMW CLINIC" (`bnamapt.NPNAMACLINIC` via `PKBUGUDANG` -> `bgudang.GPT`), blok kanan No PKB +
+Tanggal, lalu sub-judul **"Data Permintaan :"**.
+**Empat field diambil dari PR, BUKAN dari PKB**: "No Transaksi"/"Tanggal" =
+`PBUNOTRANSAKSI`/`PBUTANGGAL`; "No Ref" = `PBUNOREF`; **"Gudang :" = `PBUGUDANG`** - di contoh
+tercetak "Bali" padahal `PKBUGUDANG` = 20 "Depo"; **"Tipe" = `PBUTIPEPERMINTAAN` ->
+`blain.LNAMA`** (`PKBUTIPEPERMINTAAN` NULL di dokumen contoh).
+**Dua beda SENGAJA**: (1) Tipe dicetak utuh **"Depo Farmasi"**, contoh menyingkat "Farmasi" -
+memangkas awalan "Depo " akan merusak nilai lain di `blain` ("Depo Ciledug"->"Ciledug",
+"Depo Research"->"Research"); (2) **nilai "Total Qty" DICETAK** - cetakan lama menampilkan
+labelnya TANPA angka (contoh: 1 baris qty 30,00, di sebelah "Total Qty" kosong), jelas cacat.
+**"Diperintah oleh" dibiarkan KOSONG** ikut contoh - sumbernya tidak ketemu: `PKBUKARYAWAN`
+DAN `PKBUKONTAK` dua2nya berisi "Indah Nurhayati" sedangkan cetakan contoh kosong
+(`PKBUKONTAK` terisi di 1.103/1.103 PKB). Footer PKB **tanpa awalan "Halaman"**, beda dari
+cetakan SJ/PB/KMB/TMB - direplikasi apa adanya.
+
+### Produksi - `ProduksiPrintController` + `reports/produksi-print.blade.php`, route `pabrik/produksi/{id}/print`
+Ciri khas: **DUA kolom qty** - `Qty Produk Jadi` (`SDMASUK`) & `Qty Bahan Baku` (`SDKELUAR`) -
+dgn **dua Total Qty berdampingan**. Tanda tangan **hanya SATU: "Bag Produksi"** (dokumen
+internal, tidak ada serah terima). "Tujuan :" = `bkontak.KNAMA` (nama ORANG, "Andi Andrian").
+**Dokumen contoh `RP-PRO26090001` TIDAK ADA di `data_pos_nmw_2023`** (PRO September yg ada cuma
+`PG-PRO26090001/2`). Diverifikasi ke PRO nyata berbentuk sama: `RP-PRO26060028` (RII Produksi,
+Andi Andrian, 463 produk jadi / 1.985,20 bahan baku).
+
+Verifikasi (61 asersi LULUS): PBC - 16 potongan teks contoh, Total Qty 600,00 & 9 baris sama
+contoh, terbukti tidak ada kolom No PO, dan `SUNOREF` (MP-RS26080015) terbukti TIDAK tercetak;
+PKB - 19 potongan teks, Gudang terbukti dari PR ("Bali") bukan PKB ("Depo"), Total Qty 30
+tercetak, "Diperintah oleh" terbukti tidak menebak nama, footer tanpa "Halaman"; Produksi -
+13 potongan teks, dua total cocok `SUM(SDMASUK)`/`SUM(SDKELUAR)`, terbukti hanya satu ttd, ada
+baris produk jadi DAN bahan baku. **SEMUA 1.838 PBC + 1.103 PKB + 41 PRO tercetak tanpa
+error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC user 1
+Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
+user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
+
+## SJ: cetakan "Surat Jalan" (2026-09-27)
+
+`SjPrintController` + `reports/sj-print.blade.php`, route `sales/sj/{id}/print` (ACL
+`sales/sj` ability `print`). Layout dari contoh cetakan lama user
+(`Surat Jalan DE-SJ26090001.pdf` = `fstoku` SUID 1288618). Tombol Cetak di `SjList` +
+`SjForm`; setelah simpan: toast + `confirm-print` (menggantikan `session()->flash('status')`).
+
+**KOP APOTEK - beda dari cetakan dokumen stok lain.** PB/KMB/TMB/PY/PL sama sekali tanpa kop;
+SJ berkop 3 baris: nama apotek ("APOTEK RHEIN"), "Apoteker : ...", "SIPA : ...". Ketiganya
+**TIDAK ADA di database** (dicek: tidak ada kolom IZIN/SIPA/APOTEK; `ainfo`/`bnamapt`/`bgudang`
+tidak memuatnya) - hardcode di template report lama. Diambil dari config per `bnamapt.NPID`,
+jalur sama cetakan PO: `SUCABANG` -> `bgudang.GPT` -> `NPID`. Dikonfirmasi: SJ dari gudang 20
+"Depo" -> NPID 1, dan SIPA di config **cocok persis** dgn contoh. PT tanpa config -> kop
+dikosongkan, BUKAN ditebak (diuji dgn SJ ber-GPT=8).
+
+**`config/dokumen_print.php` DIGANTI NAMA jadi `config/dokumen_print.php`** (2026-09-27) krn kini
+dipakai >1 cetakan. Ditambah 2 kunci: `apotek` ("APOTEK RHEIN") & `apoteker_nama`.
+**`apoteker` vs `apoteker_nama` sengaja dua kunci**: cetakan PO menulis nama dgn gelar
+("apt. Leo Arif Prasetyadi, S.Farm"), cetakan SJ pakai label sendiri "Apoteker : " lalu nama
+TANPA "apt." - dua2nya disalin persis dari contoh masing2, tidak diturunkan satu dari yg lain.
+
+**GOTCHA: label "No PO" isinya nomor PERMINTAAN BARANG**, bukan Purchase Order. Dirunut:
+`SJ.SUNOSO` -> `fperintahkirimbarangu` (PKB `DE-PKB26090003`) -> `PKBUNORS` ->
+`fpermintaanbarangu.PBUNOTRANSAKSI` = `BA-RS26080047` (nomor yg tercetak di contoh). Label
+menyesatkan DIPERTAHANKAN sesuai contoh - pola sama "Tujuan :" di cetakan PB yg isinya vendor.
+
+**Lebar kolom info (permintaan user 2026-09-27)**: sel isi kiri (Tujuan / Gudang Tujuan /
+Gudang Sumber) pakai kelas `.isi-kiri` = **46%** (semula 33%), label kanan dikecilkan
+78pt->68pt. **Keterangan diberi `colspan="3"`** = seluruh sisa lebar, karena sisi kanan
+barisnya memang kosong. Diuji jg pada SJ berteks terpanjang di seluruh data
+(`DE-SJ26080120`, kontak 33 huruf).
+
+Kolom lain: "Tujuan :" = `bkontak.KNAMA`, "Gudang Tujuan :" = `SUGUDANGTUJUAN`,
+"Gudang Sumber :" = `SUCABANG` (perhatikan: cetakan KMB menamai kolom yg sama "Gudang Asal"),
+"Keterangan :" = `SUURAIAN`. Tabel **5 kolom: No | Nama Item | Keluar | Satuan | Catatan** -
+**TIDAK ADA kolom kode item** (beda dari KMB/TMB/PB). Ttd "Bag Apotik"/"Penerima" sebaris
+dgn "Total Qty".
+
+**DEFER**: No Batch (`SDSERIAL`) tidak dicetak - contoh tidak memuatnya walau form SJ sudah
+mendukung pilih batch. Datanya siap lewat `SerialBatch::unpack()` kalau nanti diminta.
+
+**CATATAN DATA**: **841 dari 1.878 SJ tidak punya baris detail** (header-only hasil impor) -
+cetakannya keluar "Tidak ada item.", bukan bug.
+
+Verifikasi (44 asersi LULUS): **regresi cetakan PO masih jalan** setelah config di-rename;
+29 potongan teks contoh dicocokkan (kop apotek/apoteker/SIPA, judul, 4 label kiri + isinya,
+3 label kanan + isinya termasuk `BA-RS26080047`, 4 header kolom, 2 nama item, 2 ttd,
+Total Qty, footer); terbukti TIDAK ada kolom kode "Item"; Total Qty 21,00 = contoh = `SUM
+(SDKELUAR)` DB; 5 baris seperti contoh; kop terbukti dari config per NPID (PT lain -> kop
+kosong tapi dokumen tetap normal); tombol cetak di form & di daftar (diuji sbg user Depo,
+1.058 baris - **user Petogogan tidak punya SJ sama sekali**, SJ dikirim dari Depo/Depo
+Farmasi/Bizpark); **SEMUA 1.878 SJ bisa dicetak tanpa error**.
+
+## Invoice Penjualan Mutasi: cetakan (2026-09-27)
+
+Permintaan user: "layout sama, beda penarikan saja, mutasi tarik dari TMB". Karena itu layout,
+kop, perhitungan, terbilang & kotak rekap DIPINDAH ke **`InvoicePrintBase`** (abstract),
+dipakai bersama IV & IVM; `reports/invoice-print.blade.php` juga SATU file utk keduanya, judul
+kolom dokumen sumber jadi variabel (`$kolom1`/`$kolom2`). Tiap turunan cuma menentukan
+`sumber()`, `aclPath()`, `labelKolom()`, `isiSumber()`.
+
+`InvoiceMutasiPrintController` + route `sales/invoice-mutasi/{id}/print` (ACL
+`sales/invoice-mutasi` ability `print`). Tombol Cetak di `InvoiceMutasiList` +
+`InvoiceMutasiForm`; setelah simpan: toast + `confirm-print`.
+
+**Rantai sumber IVM: KMB -> TMB** (sejajar IV yg SJ -> PBC, dokumen KELUAR dulu lalu TERIMA):
+- **No TMB** = `IPDSUID` -> `fstoku.SUNOTRANSAKSI` (`SUSUMBER='TMB'`).
+- **No KMB** = `TMB.SUPRUID` -> `fstoku.SUID`.
+- **Gudang yg ditagih** = **`TMB.SUCABANG`** (konvensi `TmbWriter`: cabang pembuat TMB = cabang
+  penerima barang) -> "Kepada Yth" & blok rekap.
+
+**`IPUGUDANGTUJUAN` TIDAK DIPAKAI** walau konsepnya paling tepat & diisi
+`InvoicePenjualanMutasiWriter::create()` utk dokumen baru: **NULL di SELURUH 107 IVM impor**.
+Ditelusuri dari TMB supaya dokumen lama & baru sama2 benar.
+
+**Rantai TMB->KMB terbukti SANGAT konsisten**: dari 265 baris ber-TMB, `SUPRUID` **tidak pernah
+NULL**, 257 ketemu KMB-nya, dan **257 dari 257 punya `KMB.SUCABANG` = `IPUGUDANG` penerbit**.
+8 sisanya `SUPRUID` yatim (KMB tidak ikut terimpor) -> kolom No KMB kosong.
+
+**CATATAN DATA IMPOR IVM (lebih parah dari IV)**: dari 525 baris, **265 menunjuk TMB (benar),
+258 YATIM, 2 menunjuk dokumen `IP`** (POS, bukan TMB). Akibatnya hanya **58 dari 107 IVM**
+dapat gudang tujuan; sisanya "Kepada Yth" jatuh ke nama kontak & kolom dokumen kosong. Baris
+yatim TETAP dicetak (nilainya harus masuk Sub Total), tidak dibuang.
+
+Verifikasi (48 asersi LULUS): **regresi IV lengkap** setelah refactor (Sub Total/Pajak/Total/
+Kepada Yth/judul kolom/daftar No SJ & No PBC/kotak rekap semua tidak berubah, dan SEMUA 208 IV
+masih tercetak); IVM `PG-IVM26060001` -> judul kolom "No KMB"/"No TMB", 31 no TMB & 30 no KMB,
+**semua nomor kolom 2 terbukti dokumen TMB dan kolom 1 dokumen KMB**, "Kepada Yth" = 5 gudang
+tujuan dari `TMB.SUCABANG`; Sub Total 19.037.786,00 dihitung ulang (kolom DB 0); jumlah kotak
+rekap = Sub Total di **SEMUA 107 IVM**; cetakan IVM TIDAK memakai judul kolom IV; tombol cetak
+di daftar & form; **controller IV menolak dokumen IVM dan sebaliknya** (404, tidak tertukar).
+
+## Invoice Penjualan: cetakan "INVOICE" (2026-09-26)
+
+`InvoicePrintController` + `reports/invoice-print.blade.php`, route `sales/invoice/{id}/print`
+(ACL `sales/invoice` ability `print`). Layout dari contoh cetakan lama user
+(`Invoice Penjualan BZ-IV26090001.pdf` = `einvoicepenjualanu` IPUID 6265). Tombol Cetak di
+`InvoiceList` + `InvoiceForm`; setelah simpan: toast + `confirm-print` (menggantikan
+`session()->flash('status')` yg lama).
+
+**KOP SURAT PER CABANG - BUKAN dari `ainfo`.** Ini beda besar dari cetakan dokumen stok
+(PB/KMB/TMB/PY/PL) yg semuanya tanpa kop. Dikonfirmasi ke data: `ainfo.inama` = "NMW Clinic"
+dgn SEMUA alamat "-", sedangkan cetakan menampilkan "PT. Royal Igyolini Indonesia" + alamat
+Bizpark. Sumbernya `bgudang` dari `IPUGUDANG`:
+- `GNAMAPT` = badan hukum cabang (gudang 10 -> "PT. Royal Igyolini Indonesia", gudang 1 ->
+  "PT. Igyolini Indonesia" - **beda PT per cabang, JANGAN di-hardcode**).
+- `GALAMAT2` = alamat, dan **baris "Telpon : ..." SUDAH ada di dalamnya** (ada newline;
+  `GTELP` gudang 10 justru kosong) -> dirender `nl2br()`, jangan digabung manual dgn GTELP.
+
+**SEMUA angka dihitung ulang dari baris.** `IPUSUBTOTAL` = 0 DAN `IPDSUBTOTAL`/`IPDTOTAL` = 0
+di SELURUH data impor (invoice 6265: total & pajak terisi, subtotal 0).
+`SUM(qty*(harga-diskon))` = 17.821.375 = PERSIS angka contoh. Pola SAMA `SDSUBTOTAL` PO lama.
+
+**Asal kolom tabel (dikonfirmasi ke data, bukan tebakan)**:
+- **No SJ** = `IPDSUID` -> `fstoku.SUNOTRANSAKSI`. **BUKAN `IPDSJD`/`IPDSDID`** - keduanya NULL
+  di 22/22 baris data impor (walau `InvoicePenjualanWriter::create()` mengisinya utk invoice
+  baru). Pakai `IPDSUID` supaya dokumen lama & baru sama2 tampil.
+- **No PBC** = `fstoku` `SUSUMBER='PBC'` dgn **`SUNOSJAPOTIK` = id SJ**. PBC TIDAK punya FK SJ
+  di kolom yg "kedengaran benar" (`SUPBUID`/`SUSOUID`/`SUNOSO`/`SUNOREFTRANSAKSI` semua NULL).
+- **Termin** = `IPUTERMIN` -> `btermin.TTEMPO` (FK, bukan jumlah hari: nilai 4 -> tempo 30).
+- **Kemas** = `bsatuan.SKODE`.
+
+`terbilang_rupiah()` BARU di `helpers.php` - `terbilang()` lama membuang desimal, sedangkan
+invoice hampir selalu berpecahan krn PPN 11%. Bagian "Sen" hanya ditulis kalau bukan nol,
+sesuai contoh ("...Dua Puluh Enam Rupiah Dua Puluh Lima Sen"). `terbilang()` SENGAJA tidak
+diubah - cetakan PO memakainya tanpa kata "Rupiah".
+
+**Beda SENGAJA dari cetakan lama (2, keduanya perbaikan)**: (1) kolom Nama di cetakan lama
+TERPOTONG kalau panjang - di sini WRAP, krn nama item terpotong di dokumen tagihan kehilangan
+informasi; (2) baris "No Surat Jalan :"/"No PBC :" lama diawali koma nyasar (artefak
+string-concat) - di sini digabung rapi.
+
+**"Kepada Yth" = `'NMW ' + nama gudang TUJUAN SJ`** (aturan user 2026-09-27), BUKAN
+`bkontak.KNAMA` - di contoh `IPUKONTAK` = "PT IGYOLINI INDONESIA" tapi tercetak
+"NMW Petogogan". **Satu invoice bisa BANYAK tujuan**: cuma 50 dari 138 bertujuan tunggal,
+sisanya 2-6 (mis. `DF-IV26080009` 6 tujuan) - semuanya dirangkai koma. Fallback ke nama kontak
+kalau tujuan tidak ketemu (lihat catatan data di bawah).
+
+**Kotak rekap bawah = 2 tingkat: gudang tujuan -> tipe pendapatan** (aturan user 2026-09-27),
+lewat rantai `bitem` -> `bitem2` (`I2IDITEM`) -> `bcoatipe_pendapatan`
+(`I2COAPENDAPATAN = CTID`), label `CTNAMA`.
+**JEBAKAN**: label itu SAMA PERSIS dgn nama akun di `bcoa` (`5-03-01-00-00` = "Skincare &
+Retail Revenue"), tapi jalurnya BUKAN lewat kolom COA di `bitem` - sudah diuji
+`ICOAPENDAPATAN`/`ICOAPERSEDIAAN`/`ICOAHPP`/`ICOA2021`/`ICOA2026`/`IJENISITEMCOA`, **0 dari 22
+baris** menunjuk akun itu; `IKELOMPOK23` pecah 5 grup; `IJENISBARU` labelnya "NMW Clinical
+Treatment". Jangan ulangi pencarian itu.
+`bcoatipe_pendapatan` di-LEFT JOIN: 3 baris data nyata tanpa tipe -> grup "-" supaya nilainya
+TETAP terhitung (kalau dibuang, jumlah rekap tidak sama dgn Sub Total = lebih menyesatkan).
+Kolom Satuan = satuan baris PERTAMA tiap grup (contoh: "Botol"; kebetulan sekaligus satuan
+terbanyak, jadi dua tafsir itu tidak terbedakan dari contoh).
+
+**CATATAN DATA IMPOR - 32% baris punya `IPDSUID` yatim**: 3.716 dari 11.450 baris menunjuk
+`fstoku.SUID` yg TIDAK ADA (`IPDSUID` NULL: 0; tujuan NULL: 0 - murni referensi yatim). Akibatnya
+**70 dari 208 invoice** tidak punya gudang tujuan, sehingga kolom **No SJ & No PBC kosong** dan
+"Kepada Yth" jatuh ke nama kontak. Ini masalah DATA (SJ sumbernya tidak ikut terimpor / id
+di-remap saat impor), BUKAN bug cetakan.
+
+Verifikasi (55 asersi LULUS, invoice nyata `BZ-IV26090001`): Sub Total 17.821.375,00 / Pajak
+1.960.351,25 / Total 19.781.726,25 / qty 1.620 / 22 baris **sama persis contoh PDF**; terbukti
+`IPDSUBTOTAL` = 0 sehingga angka benar HANYA krn dihitung ulang; 35 potongan teks contoh
+dicocokkan (kop, label, 6 header kolom, 2 no SJ, 2 no PBC, syarat pembayaran, ttd, nilai);
+terbilang **identik** kalimat contoh + 3 kasus batas (tanpa sen, pembulatan 12,999 -> "Tiga
+Belas Rupiah", 0,05 -> "Nol Rupiah Lima Sen"); SEMUA 22 baris dapat No SJ & No PBC (terbukti
+`IPDSJD` NULL di 22 baris -> memakainya akan mengosongkan kolom); tombol cetak di daftar &
+form; **SEMUA 208 invoice IV bisa dicetak tanpa error, 0 invoice tanpa detail**.
+
+Verifikasi lanjutan "Kepada Yth" + rekap (31 asersi LULUS): contoh -> "NMW Petogogan", rekap
+1 blok "Petogogan" x 1 tipe "Skincare & Retail Revenue" qty 1.620,00 satuan Botol jumlah
+17.821.375,00 = **persis kotak rekap contoh**, dan jumlahnya = Sub Total dokumen; invoice
+6 tujuan (`DF-IV26080009`) -> "Kepada Yth" merangkai 6 nama & rekap 6 blok, jumlah semua blok
+34.706.443,75 = Sub Total dan qty 1.689 = qty dokumen; invoice 5 tipe (`DE-IV26080011`) ->
+5 baris tipe, jumlah tetap = Sub Total; baris tanpa tipe muncul sbg grup "-" TANPA merusak
+kecocokan jumlah; **jumlah kotak rekap = Sub Total di SEMUA 208 invoice (0 selisih)**.
+
+## Kartu Stok: isi menu `inventory.stock` (2026-09-26)
+
+Menunya sudah ada sejak MenuSeeder awal tapi KOSONG (tidak ada komponen). Dibuat
+`App\Livewire\Inventory\KartuStok` + `livewire/inventory/kartu-stok.blade.php`, didaftarkan di
+registry `Workspace` (`inventory.stock` -> `inventory.kartu-stok`). READ-ONLY total.
+Filter sesuai permintaan user: Tanggal s/d Tanggal, Cabang, **Nama Item (wajib)**.
+
+**TIDAK ADA acuan legacy**: tidak ada form VB6 `bFrm*KartuStok*`, tidak ada implementasi di
+CI3/CI4, dan tabel `fstoksaldo`/`fstoksaldod` (yg dari namanya jelas dimaksudkan menyimpan
+saldo awal/akhir per periode) **KOSONG, 0 baris**. Struktur dirancang dari data.
+
+### Saldo Awal dari mutasi, BUKAN dari `bitem.ISTOK{kode}` - dan kenapa
+
+`Saldo Awal = SUM(SDMASUK - SDKELUAR)` utk `fstokd` item+gudang dgn `SUTANGGAL < dari`.
+Alternatif "mundur dari stok sekarang" SENGAJA ditolak, diverifikasi ke DB:
+- **`ISTOK{kode}` BUKAN stok per gudang.** `F_KOLOMGUDANG()` memetakan **8 gudang** ke
+  `ISTOKPG` (1 Petogogan, 6 Online, 14 Home Care, 15 Pameran, 39 Gudang Depo Tindakan,
+  40 Gudang Kubis 1, 42 Depo Research, 49 Busura) dan **2 gudang** ke `ISTOKMP` (9 Gogobli,
+  18 Marketplace). Memakainya sbg jangkar bikin kartu 10 gudang itu salah diam-diam.
+- `ISTOKDE` punya bug double-count yg sudah didokumentasikan.
+
+**KETERBATASAN yg DITAMPILKAN di layar, bukan disembunyikan**: `fstoku` paling awal
+**2026-06-01**, bukan sejak awal usaha. Diuji: gudang 2 (`ISTOKCP`, pemetaan 1:1) hanya
+**28 dari 225 item** yg `SUM(masuk-keluar)`-nya sama dgn `ISTOKCP`. Jadi Saldo Awal utk tanggal
+<= 2026-06-01 selalu 0 dan Saldo Akhir bisa beda dari Stok Sistem. Kartu ini menampilkan
+**Stok Sistem + selisihnya** di kartu ringkasan, plus alert kuning yg menjelaskan sebabnya.
+Kalau nanti stok awal di-import ke `fstoksaldod`, rumusnya tidak perlu diubah - cukup tambahkan
+saldo awal itu.
+
+### Catatan implementasi
+- Kolom: Tanggal | No Transaksi | Jenis (+badge kode) | [Gudang, hanya mode Semua] |
+  Keterangan (uraian + kontak + catatan baris) | Masuk | Keluar | Saldo berjalan.
+  Baris pembuka "Saldo Awal per dd/mm/yyyy" + footer Jumlah.
+- Baris `SDMASUK=0 AND SDKELUAR=0` dibuang - itu sisa dokumen DIBATALKAN (pola cancel semua
+  modul: nolkan qty + `SDCANCEL=1`), tidak perlu jadi baris kosong.
+- Saldo berjalan dihitung di PHP urut `SUTANGGAL, SUID, SDURUTAN` (pola sama
+  `SerialHistori::mutasi()`).
+- Label Jenis dari `ajenistransaksistok`. **Tabel itu TIDAK LENGKAP**: `AL`, `PL`, `RC` ada di
+  data tapi tidak terdaftar -> ditambal `KartuStok::JENIS_TAMBAHAN`.
+- Tanpa pagination (ledger, pagination merusak saldo berjalan). Pengaman `MAKS_BARIS=2000` +
+  alert merah kalau kepenuhan; item tersibuk di DB ini cuma 140 baris (item 379 gudang 20).
+- Cabang boleh "Semua Gudang" = semua gudang yg BOLEH DILIHAT user (kolom Gudang ikut muncul).
+
+**CELAH AKSES YG DITEMUKAN & DIPERBAIKI saat pengujian**: versi pertama `gudangIds()`
+MENGGANTI batasan cabang user dgn pilihan dropdown (`return [(int) $this->cabang]`) - artinya
+mengirim `cabang` gudang lain lewat state Livewire menembus batasan `branchIds()`. Terbukti
+nyata: user uji (hanya berhak gudang 1) bisa menarik 48 baris gudang 20. Sekarang pilihan
+DIIRISKAN dgn `branchIds()`, dan irisan kosong -> `[0]` (GID 0 tidak ada) supaya hasilnya 0
+baris - mengembalikan `[]` justru akan MEMBUKA semua gudang. **Pola yg harus diikuti komponen
+lain: filter cabang milik user DIIRISKAN, jangan menggantikan scope.**
+
+Verifikasi (62 asersi LULUS, item nyata 379 SPUIT 3 CC gudang 1): tanpa item -> ajakan pilih &
+tabel tidak dirender, label bertanda wajib; default rentang bulan ini & cabang user; Saldo Awal
+536 / Masuk 353 / Keluar 0 / Saldo Akhir 889 semuanya cocok SQL terpisah; saldo berjalan benar
+di SEMUA 7 baris & baris terakhir = Saldo Akhir; urutan tanggal menaik; tidak ada baris 0/0;
+7 header kolom ada, kolom Gudang muncul HANYA di mode Semua Gudang; label Jenis benar termasuk
+tambalan AL/PL/RC dan tetap pakai `ajenistransaksistok` utk IP; **gudang di luar hak user -> 0
+baris & saldo 0**; pemetaan kolom stok benar (gudang 2 -> ISTOKCP tanpa peringatan, gudang 1 ->
+ISTOKPG terdeteksi dipakai 7 gudang lain + peringatan tampil menyebut nama gudangnya); Saldo
+Awal 01/06/2026 = 0 + alert penjelasan muncul; filter tanggal/item/gudang benar-benar membatasi
+(dicek balik per `SDID`); `itemLabel` terisi otomatis (GOTCHA search-select); rentang kosong ->
+pesan jelas & Saldo Akhir = Saldo Awal; registry & menu benar.
+
+**BELUM ada cetakan** utk Kartu Stok (user belum minta).
+
+## SJ: konversi tampilan kolom Qty ke box (2026-09-26)
+
+Permintaan user: "Untuk Surat Jalan, ada konversi tampilan di Kolom Qty, yang tampil adalah
+Qty Real / Per Box, jumlah box diambil dari iqtyperbox". Dipakai di `SjForm` + bladenya:
+kolom **Qty Diminta** & **Qty Dikirim** (dan footer Total) menampilkan
+`<qty real> / <jumlah box> box`, dgn **jumlah box = qty real : `bitem.IQTYPERBOX`**.
+
+**MURNI TAMPILAN** - `qtyPerBox` cuma dibawa di array `$lines` utk dirender; `save()` punya
+whitelist kolom sendiri jadi nilai ini tidak pernah sampai ke writer/DB. Sudah dipastikan
+`fstokd` memang TIDAK punya kolom per-box, jadi konversi WAJIB dihitung dari `bitem` tiap
+kali render (bukan disimpan per transaksi - kalau isi per box berubah di master, cetakan/
+tampilan dokumen lama ikut berubah. Konsekuensi yg diterima, tidak ada tempat menyimpannya).
+
+`IQTYPERBOX` ditambahkan ke SELECT `PkbWriter::lines()` & `SjWriter::lines()` (dua sumber baris
+SJ: tarik-dari-PKB dan buka SJ tersimpan), lalu dipetakan ke `qtyPerBox` di
+`SjWriter::fromPkb()` & `SjForm::load()`.
+
+**Aturan kapan konversi DISEMBUNYIKAN** (penting, bukan kosmetik):
+- `IQTYPERBOX = 0` -> **408 dari 5.580 item**; bukan pembagi yg sah (division by zero).
+- `IQTYPERBOX = 1` -> **5.016 dari 5.580 item** (mayoritas!); 1 box = 1 pcs, jadi "/ 1 box"
+  cuma sampah visual di hampir semua baris.
+  Sisanya (nilai > 1) yg dikonversi - nilai nyata: 2, 2.5, 5, 10, 15, 20, 50, 60, 100, 250,
+  500, 1000, sampai 5000 (item cair/bulk spt GEL, NIACEF 1 KG).
+Isi per box aslinya ditaruh di `title` (tooltip "Isi 100 per box").
+
+**Total Box di footer** = jumlah box baris yg PUNYA konversi saja; baris tanpa konversi tidak
+ikut (jadi Total Qty Real tetap menjumlah semua, Total Box tidak). Kalau 0, footer box
+disembunyikan.
+
+**`wire:model` -> `wire:model.live.debounce.400ms`** di input Qty Dikirim supaya angka box (dan
+"Total Qty Dikirim" yg SEBELUMNYA juga baru ikut setelah round-trip) berubah saat qty diketik.
+Efek samping yg sudah ada & tidak berubah sifatnya: `updatedLines()` mengosongkan batch terpilih
+tiap qty berubah - sekarang terjadi saat mengetik (debounce), bukan saat blur.
+
+**TIDAK disentuh**: kolom Qty di modal "Pilih Serial" (qty per batch = pcs dari stok, konversi
+box tidak bermakna di sana), daftar SJ (tidak punya kolom Qty), dan cetakan SJ (belum ada).
+
+Verifikasi (41 asersi LULUS, PKB nyata `PG-PKB26090171` 8 baris): `IQTYPERBOX` terbawa dari
+`PkbWriter::lines()` -> `fromPkb()` -> `$lines['qtyPerBox']` dan cocok `bitem` di semua baris;
+6 item nyata ber-per-box > 1 tampil konversinya benar (3:2=1,5 box; 10:2=5; 20:15=1,33;
+20:5=4; 60:60=1; 60:50=1,2) + tooltip; uji sintetis 5 kasus: per-box 0 & 1 -> TIDAK ada teks
+box sama sekali & Total Box 0, per-box 100/2,5/60 -> box benar termasuk pecahan 1,5 dan Qty
+Real tetap tampil apa adanya; baris campuran -> Total Box 5 (bukan 12) sedangkan Total Qty
+Real 507; `save()` terbukti tidak menyentuh `qtyPerBox`; SJ nyata tersimpan `DE-SJ26090229`
+menampilkan konversi di mode read-only. Tidak ada SJ baru terbuat.
+
+## Pengeluaran Lain: modul + cetakan (2026-09-26)
+
+Permintaan user: "menu Pengeluaran lain, inputan sama seperti Penyesuaian Barang, tapi ini
+hanya keluar saja, buat juga cetakannya". Dibangun sbg **kembar Penyesuaian (PY)**:
+`PengeluaranLainWriter` / `PengeluaranLainList` / `PengeluaranLainForm` /
+`PengeluaranLainPrintController` + `reports/pengeluaran-lain-print.blade.php`.
+Menu `inventory.pengeluaran-lain` -> path `inventory/pengeluaran-lain`, sort 56 (TEPAT setelah
+Penyesuaian 55; `inventory.opname` digeser 56->57, `inventory.serial` 57->58).
+
+**`SUSUMBER='PL'`**, tabel `fstoku`/`fstokd` - persis seperti PY, satu-satunya beda: **tidak
+ada kolom Masuk**, `SDMASUK`/`SDMASUKD` selalu 0 dan baris divalidasi `keluar > 0`.
+
+**Struktur direkonstruksi dari SATU dokumen legacy** `RB-PL26060001` (SUID 1221092, satu-satunya
+PL hasil impor): header identik PY (`SUKONTAK`, `SUCABANG`=34, `SUURAIAN`='Pengeluaran Lain',
+`SUJENISPENYESUAIAN`=6, `SUSTATUS`=0), 2 baris `SDMASUK=0` / `SDKELUAR=3` & `2`, `SDCATATAN`=
+'dipakai produksi'. Jadi **PL ikut memakai `bjenispenyesuaian`** - tidak punya tabel jenis
+sendiri, dropdown Jenis-nya sama dgn PY.
+
+**GOTCHA legacy**: `PL` TIDAK terdaftar di `aanomor` (PY ada, NID 706) maupun
+`ajenistransaksistok` - modul yg ditambahkan belakangan tanpa melengkapi tabel referensi.
+Tidak mengganggu: `nextNumber()` menghitung sendiri dari `SUNOTRANSAKSI` (pola semua writer
+kita) dan formatnya sudah dicek sama dgn nomor legacy.
+
+**Trigger sudah diperiksa** (`information_schema.TRIGGERS`): `fstoku_add` / `fstokd_add` /
+`_edit` / `_DELL` TIDAK punya cabang khusus `SUSUMBER='PL'` - beda dari `'PY'` (menyentuh
+`fstokopnameu.SOUDIBUATPY`) dan `'SJ'`/`'IP'`. Stok digerakkan trigger generic `fstokd_add`
+(`bitem.ISTOK{kode}` += `SDMASUK - SDKELUAR` sesuai `SDGUDANG`), jadi TIDAK ada bookkeeping
+manual. Pembatalan SOFT (`SDCANCEL=1` + nolkan qty + `SUSTATUS=9`) dikembalikan `fstokd_edit`.
+
+Cetakannya kembar `penyesuaian-print`: **satu kolom qty ("Keluar") & satu "Total Keluar"**,
+6 kolom (No|Item|Nama Item|Keluar|Satuan|Catatan, lebar 4/20/31/11/9/25). Baris "Jenis :",
+kolom Catatan, dan ttd "Dibuat Oleh / Diketahui Oleh" diwarisi dari cetakan PY yg sudah
+disetujui user, supaya dua dokumen kembar ini konsisten.
+
+Verifikasi (68 asersi LULUS): cetakan PL legacy -> PDF, 17 potongan teks ada, **terbukti TIDAK
+punya kolom Masuk maupun Total Masuk**, Total Keluar 5,00 cocok `SUM()` DB, catatan per baris
+tampil; form punya 12 field/kolom spesifikasi & TIDAK punya "Jumlah Masuk"/input masuk, Gudang
+terkunci ke cabang user, Uraian default "Pengeluaran Lain", Jenis wajib; simpan -> `SUSUMBER`/
+`SDSUMBER`='PL', `SUSTATUS`=0, nomor `PG-PL26090001` (pola sama legacy), `SDKELUAR`=7 &
+`SDMASUK`=0, `SDGUDANG`/`SDSATUAN`/`SDCATATAN` benar, read-only setelah simpan, toast +
+`confirm-print`; **trigger menurunkan stok `ISTOKPG` 134 -> 127 dan batal mengembalikannya ke
+134**, `SDCANCEL`=1, banner "SUDAH DIBATALKAN" di cetakan, batal dua kali ditolak; baris
+Keluar=0 ditolak; muncul di daftar (kolom Keluar saja) dgn link cetak benar; registry Workspace
+& baris `lv_menu` benar. Semua tulisan DB di transaksi + rollback; dipastikan PL tetap 1 baris
+dan stok kembali 134.
+
+## Penyesuaian Barang: cetakan (2026-09-26)
+
+`PenyesuaianPrintController` + `reports/penyesuaian-print.blade.php`, route
+`inventory/adjust/{id}/print` (ACL `inventory/adjust` ability `print`). Permintaan user:
+"seperti TMB KMB bedanya penyesuaian ada masuk dan keluar".
+
+**TIDAK ADA contoh cetakan legacy** untuk dokumen ini, jadi 4 hal DIPUTUSKAN sendiri (semua
+ditandai di docblock controller supaya gampang dikoreksi kalau ada format bakunya):
+1. Tabel **7 kolom**: No | Item | Nama Item | **Masuk** (`SDMASUK`) | **Keluar** (`SDKELUAR`)
+   | Satuan | **Catatan** (`SDCATATAN`) - lebar 4/20/28/10/10/9/19%. Sel qty dikosongkan
+   (bukan "0,00") kalau nilainya 0, supaya arah tiap baris langsung kebaca.
+2. Blok bawah punya **DUA total: "Total Masuk" & "Total Keluar"** di dua baris - KMB/TMB cuma
+   satu "Total Qty".
+3. Blok info kiri dapat baris **"Jenis :"** (`bjenispenyesuaian.JNAMA`) - identitas utama
+   dokumen ini (Racikan / Penurunan Barang / Stok Opname / dst).
+4. Tanda tangan **"Dibuat Oleh" / "Diketahui Oleh"** - KMB/TMB pakai "Dikirim/Diterima Oleh"
+   yg tidak cocok untuk dokumen yg tidak berpindah gudang.
+
+"Tujuan :" = `bkontak.KNAMA`, label legacy yg dipertahankan demi konsistensi sekeluarga
+(PB/KMB/TMB semuanya begitu walau isinya nama orang/vendor).
+
+Tombol Cetak di kolom Aksi `PenyesuaianList` + header `PenyesuaianForm` (hanya kalau `$pyId`).
+Setelah simpan: toast + `confirm-print` (alur sama PO/PB/KMB/TMB).
+
+**Catatan data**: cuma 28 dari 600 PY hasil impor punya baris detail - kalau cetakan PY lama
+keluar "Tidak ada item.", itu memang datanya header-only, bukan bug.
+
+Verifikasi (29 asersi LULUS, PY nyata `KM-PY26060001`): PDF ter-generate (30 KB); 17 potongan
+teks ada (judul, 5 label info termasuk "Jenis :", 4 header kolom, 2 total, 2 ttd, footer
+halaman+waktu); terbukti TIDAK memakai "Total Qty" tunggal; Total Masuk 435,00 & Total Keluar
+405,00 cocok `SUM()` DB; baris ber-Masuk DAN Keluar (NaCl 500 ML 2/2) tampil dua-duanya;
+tombol cetak muncul di daftar (link route benar) & form tersimpan, TIDAK muncul di form baru;
+simpan PY baru -> `toast` + `confirm-print` ter-dispatch dan PY itu langsung bisa dicetak
+(semua tulisan di transaksi + rollback; dipastikan 0 baris PY tertinggal).
+
+## TMB: cetakan "Terima Mutasi Barang" (2026-09-26)
+
+`TmbPrintController` + `reports/tmb-print.blade.php`, route `inventory/tmb/{id}/print`
+(ACL `inventory/tmb` ability `print`). Kembaran `kmb-print`, dari contoh cetakan lama user
+(`Terima Mutasi Barang PG-TMB26090031.pdf`). Beda dari KMB:
+- **TIDAK ada baris "Gudang Tujuan"** - `SUGUDANGTUJUAN` memang NULL di semua TMB nyata
+  (dokumen penerimaan; gudang tujuannya ya `SUCABANG` itu sendiri, dilabeli "Gudang :").
+- Qty dari **`SDMASUK`** (TMB = dokumen MASUK), sedangkan KMB dari `SDKELUAR`.
+
+**GOTCHA: kolom qty berlabel "Qty Keluar" TAPI isinya `SDMASUK`** - dikonfirmasi dari data
+(TMB contoh `SDMASUK=5`, `SDKELUAR=0`, PDF asli menampilkan 5,00 di kolom "Qty Keluar").
+Jelas warisan salin-tempel dari laporan KMB; DIREPLIKASI apa adanya sesuai permintaan user
+("sama dgn cetakan lama"). Begitu juga tanda tangan "Dikirim Oleh / Diterima Oleh" yg terasa
+terbalik untuk dokumen penerimaan.
+
+"Tujuan :" = `bkontak.KNAMA` (nama ORANG) - pola menyesatkan yg SAMA dgn cetakan PB & KMB.
+
+Tombol Cetak di `TmbList` + `TmbForm`; setelah simpan: toast + `confirm-print`.
+
+Verifikasi (21 asersi LULUS, TMB nyata `PG-TMB26080021`): PDF ter-generate; 13 potongan teks
+dicocokkan ke contoh; terbukti TIDAK ada baris Gudang Tujuan; header benar (Arnis | Petogogan);
+Total Qty 5,00 dari `SDMASUK`; tombol cetak muncul di daftar & form.
+
+## KMB: cetakan "Kirim Mutasi Barang" (2026-09-26)
+
+`KmbPrintController` + `reports/kmb-print.blade.php`, route `inventory/kmb/{id}/print`
+(ACL `inventory/kmb` ability `print`). Layout dari contoh cetakan lama user
+(`Kirim Mutasi PG-KMB26090042.pdf`). Struktur & CSS SAMA `pb-print` (tanpa kop PT), bedanya:
+
+- Blok info punya **4 baris kiri**: Tujuan / Gudang Asal / **Gudang Tujuan** / Keterangan;
+  kanan cuma No Transaksi & Tanggal (**tidak ada No Invoice** spt PB).
+- Tabel **5 kolom**: No | Item | Nama Item | **Qty Keluar** (`SDKELUAR`, KMB = dokumen KELUAR)
+  | Satuan. **Tidak ada kolom No PO** - mutasi antar gudang tidak berasal dari PO.
+- Tanda tangan **"Dikirim Oleh" / "Diterima Oleh"** (PB: "Bag Gudang / Penerima").
+
+**"Tujuan :" = `bkontak.KNAMA` (nama ORANG)**, BUKAN gudang tujuan - gudang tujuan ada di
+barisnya sendiri. Label legacy yg menyesatkan, dipertahankan sesuai cetakan lama. Pola SAMA
+`PbPrintController` yg "Tujuan"-nya justru nama vendor. Sisanya: Gudang Asal=`SUCABANG`,
+Gudang Tujuan=`SUGUDANGTUJUAN`, Keterangan=`SUURAIAN`, Item=`IKODE`, Nama Item=`INAMA`.
+
+Tombol Cetak di kolom Aksi `KmbList` + header `KmbForm` (hanya kalau `$kmbId` ada). Setelah
+simpan: toast + `confirm-print` (alur sama PO/PB).
+
+Verifikasi (22 asersi LULUS, KMB nyata `CP-KMB26090010`): PDF ter-generate; 14 potongan teks
+cetakan dicocokkan ke contoh; nilai header benar (Endang Yuliyanti | Ciputat -> Tebet);
+Total Qty 2,00; Item/Nama Item terisi; terbukti TIDAK ada kolom No PO/Harga; tombol cetak
+muncul di daftar & form.
+
+## PB: cetakan "Penerimaan Barang" (2026-09-26)
+
+`PbPrintController` + `reports/pb-print.blade.php`, route `purchase/pb/{id}/print`
+(ACL `purchase/receipt` ability `print`). Layout direplikasi dari contoh cetakan lama user
+(`Penerimaan BarangRB-PB26080001.pdf` = `fstoku` SUID 1261469). Pola sama `PoPrintController`.
+
+**Label "Tujuan :" ternyata NAMA VENDOR** (`bkontak.KNAMA` - "PT ROI SURYA PRIMA FARMA"),
+BUKAN gudang tujuan - label legacy yg menyesatkan, dipertahankan krn user minta sama dgn
+cetakan lama. Sisanya lurus: "Gudang :" = `bgudang.GNAMA` (`SUCABANG`), "Keterangan :" =
+`SUURAIAN`, "No Transaksi :" = `SUNOTRANSAKSI`, "Tanggal :" = `SUTANGGAL`, "No Invoice :" =
+`SUNOREF`. Tabel: "Item" = `bitem.IKODE`, "Nama Item" = `INAMA` (dikonfirmasi lewat item 4843
+di contoh), "Qty Masuk" = `SDMASUK`, "Satuan" = `bsatuan.SKODE`, "No PO" ditelusuri
+`SDSODID` -> `esalesorderd.SODIDSOU` -> `esalesorderu.SOUNOTRANSAKSI`.
+
+**TIDAK ADA kop PT** (beda dari cetakan PO yg berkop `bnamapt`) - contoh aslinya memang cuma
+berjudul "Penerimaan Barang". **Harga TIDAK dicetak**, konsisten dgn kolom Harga yg
+disembunyikan di form.
+
+**Catatan data**: PB contoh (`RB-PB26080001`) ternyata **header-only** - baris detailnya
+korban import gagal yg sama spt modul lain, jadi cetakannya tampil tanpa item. Diuji juga
+dgn PB yg PUNYA detail (Total Qty 561,00) supaya angka & kolomnya terbukti benar.
+
+Tombol Cetak: kolom Aksi `PbList` + header `PbForm` (hanya kalau `$pbId` ada), `<a
+target="_blank">`. Setelah simpan: toast + `confirm-print` "Cetak dokumennya sekarang?"
+(persis alur PO).
+
+**Catatan revisi layout (2026-09-26)**: sempat dicoba memindahkan blok "Bag Gudang /
+Penerima / Total Qty" ke `<tfoot>` tabel item (biar Total Qty sejajar kolom Qty Masuk).
+**User minta DIKEMBALIKAN seperti semula** - blok bawah TETAP tabel TERPISAH (26/26/26/22%).
+Jangan diulangi kecuali diminta lagi.
+
+Yg TETAP dipakai: **kolom "No PO" dilebarkan 14% -> 22% + `white-space: nowrap`** (nomor spt
+`PG-PO26090001` tadinya patah 2 baris). AMAN krn semua `esalesorderu.SOUNOTRANSAKSI` PO
+panjangnya PERSIS 13 karakter (dicek 236 PO) - tidak mungkin meluber. Lebar kolom item
+sekarang **5/22/34/10/7/22** (tambahan diambil dari Qty Masuk 12->10 & Satuan 10->7 yg
+isinya pendek, plus Nama Item 37->34; kolom Item TIDAK dikurangi krn isinya `IKODE` yg di
+data ini sering sepanjang namanya).
+
+Verifikasi (33 asersi LULUS, simpan di transaksi + rollback): 20 potongan teks cetakan
+dicocokkan ke PDF contoh; Harga terbukti tidak ikut tercetak; PB berisi -> Total Qty & kolom
+Item/Nama Item benar; link cetak di daftar & form benar dan TIDAK muncul di form PB baru;
+simpan PB baru -> `toast` + `confirm-print` ter-dispatch dan PB itu bisa dicetak.
+
 ## PB (daftar): filter Gudang = cabang user, default cabang aktif (2026-09-26)
 
 Permintaan user, melengkapi perubahan "Gudang Tujuan = cabang user login" di `PbForm`.
@@ -1487,7 +2631,7 @@ bukan tebakan**. Pola sama `PrPrintController` (dokumen 1 transaksi, mpdf A4).
 
 **3 baris izin di kop (No Izin / apt. / SIPA) TIDAK ADA DI DATABASE** - dicek
 `information_schema`: tidak ada kolom IZIN/SIPA/APOTEK di skema ini & `ainfo` tidak memuatnya;
-di sistem lama hardcode di template report. Ditaruh di **`config/po_print.php` per `NPID`**
+di sistem lama hardcode di template report. Ditaruh di **`config/dokumen_print.php` per `NPID`**
 (badan hukum), BUKAN di blade - SIPA = identitas apoteker yg BEDA per PT, salah cetak = fatal.
 PT yg belum terdaftar -> ketiga baris + penanda tangan "Diketahui Oleh" tidak dicetak.
 HP apoteker di config terbukti cocok: 0851 5637 9562 = `bkontak` KID 285707 "Leo Arif
@@ -1495,7 +2639,7 @@ Prasetyadi", orang yg sama dgn di kop.
 
 **"Jenis" (`esalesorderu.SOUJENIS`) BELUM JELAS** - PO contoh `SOUJENIS=1` dicetak "Produk
 OTC"; data nyata cuma punya 0 (16 PO) & 1 (220 PO) dan form VB6 yg kita punya tidak menyebut
-kolom itu sama sekali, jadi label utk 0 TIDAK DIKETAHUI. Dipetakan di `config/po_print.php`,
+kolom itu sama sekali, jadi label utk 0 TIDAK DIKETAHUI. Dipetakan di `config/dokumen_print.php`,
 nilai tak dikenal dicetak "-" (tidak ditebak). **Form PO kita belum punya field Jenis** ->
 PO baru akan kosong; perlu konfirmasi user opsi Jenis-nya apa saja.
 

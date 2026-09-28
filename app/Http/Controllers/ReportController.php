@@ -13,6 +13,41 @@ use Illuminate\Support\Facades\DB;
 class ReportController extends Controller
 {
     /**
+     * Cabang yang boleh masuk hasil laporan - **penegak hak akses cabang** (aturan user
+     * 2026-09-28: "jika user hanya akses 3 cabang, maka jika dia pilih semua, yang tampil
+     * 3 cabang itu").
+     *
+     * @return list<int> `[]` = tanpa batas (super user). Pemanggil WAJIB memakai
+     *                   `whereIn` HANYA kalau hasilnya tidak kosong.
+     *
+     * Aturannya:
+     * - "Semua cabang" (tanpa parameter `cabang`) -> seluruh cabang yg BOLEH DILIHAT user,
+     *   bukan seluruh cabang perusahaan.
+     * - Pilih satu cabang -> **DIIRISKAN** dgn daftar yg boleh. Irisan kosong -> `[0]`
+     *   (GID 0 tidak ada) sehingga hasilnya nihil. Mengembalikan `[]` di situ justru akan
+     *   MEMBUKA semua cabang - jebakan yg sama pernah kena di `KartuStok::gudangIds()`.
+     *   Penyaringan di sini WAJIB ada krn dropdown cuma UI: parameter `cabang` datang dari
+     *   URL dan bisa diketik manual.
+     * - Super user tidak dibatasi (lihat `User::visibleBranchIds()`).
+     */
+    private function cabangLaporan(Request $r): array
+    {
+        $boleh = auth()->user()->visibleBranchIds();
+
+        if (! $r->filled('cabang')) {
+            return $boleh;
+        }
+
+        $pilih = $r->integer('cabang');
+
+        if ($boleh !== [] && ! in_array($pilih, $boleh, true)) {
+            return [0];
+        }
+
+        return [$pilih];
+    }
+
+    /**
      * Laporan IP Per Barang (nama tampilan direvisi 2026-09-23 dari "Penjualan Per Barang" -
      * "IP" = kode sumber transaksi `SUSUMBER`, method/route/nama file SENGAJA TETAP
      * `penjualanPerBarang` - cuma label yg berubah, bukan struktur kode) - detail baris
@@ -72,7 +107,10 @@ class ReportController extends Controller
             abort_if(! $item, 404, 'Item tidak ditemukan.');
         }
 
-        $allowed = auth()->user()->branchIds();
+        // Dipindah ke `cabangLaporan()` (2026-09-28) supaya SATU aturan dipakai semua
+        // laporan. Sebelumnya di sini memakai `branchIds()` langsung TANPA pengecualian
+        // super user - akibatnya UID 1 (UCABANGPILIH cuma "1") terkunci ke Petogogan.
+        $gudang = $this->cabangLaporan($r);
 
         $rows = DB::table('fstokd as d')
             ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
@@ -83,8 +121,7 @@ class ReportController extends Controller
             ->when($item, fn ($b) => $b->where('d.SDITEM', $item->IID))
             ->whereDate('u.SUTANGGAL', '>=', $r->query('from'))
             ->whereDate('u.SUTANGGAL', '<=', $r->query('to'))
-            ->when($r->filled('cabang'), fn ($b) => $b->where('u.SUCABANG', $r->integer('cabang')))
-            ->when($allowed !== [], fn ($b) => $b->whereIn('u.SUCABANG', $allowed))
+            ->when($gudang !== [], fn ($b) => $b->whereIn('u.SUCABANG', $gudang))
             ->orderBy('u.SUTANGGAL')->orderBy('u.SUNOTRANSAKSI')
             ->get([
                 'u.SUNOTRANSAKSI as nomor', 'u.SUTANGGAL as tanggal',
@@ -99,7 +136,8 @@ class ReportController extends Controller
                 return $row;
             });
 
-        $branch = $r->filled('cabang') ? DB::table('bgudang')->where('GID', $r->integer('cabang'))->value('GNAMA') : null;
+        $branch = count($gudang) === 1
+            ? DB::table('bgudang')->where('GID', $gudang[0])->value('GNAMA') : null;
         $periode = \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y')
             . ' s/d ' . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
             . ($branch ? ', ' . $branch : '');
@@ -112,6 +150,144 @@ class ReportController extends Controller
             'rows'     => $rows,
             'totalQty' => $rows->sum('qty'),
             'totalJumlah' => $rows->sum('jumlah'),
+        ];
+    }
+
+    /**
+     * Laporan IP Tindakan/Produk Per Bulan - rekap qty, nilai & pasien, dikelompokkan
+     * **Cabang > Bulan > Tindakan/Produk**. Port dari CI3
+     * (`views/modul/laporan/laporan-ip-tindakan-produk-perbulan.php`, dipasang lewat
+     * `application/sql/2026-09-02_laporan-ip-tindakan-produk-perbulan.sql`).
+     *
+     * **Sumber `SUSUMBER IN ('IP','AL')`** - POS ditambah Alkes Depo, `SUSTATUS <> 9`.
+     *
+     * ## Tiga aturan hitung yg TIDAK boleh disederhanakan (disalin persis dari CI3)
+     * 1. **Qty mengecualikan baris kedatangan**:
+     *    `SUM(CASE WHEN IFNULL(SDKEDATANGAN,0)=0 THEN SDKELUAR ELSE 0 END)`. Baris
+     *    ber-`SDKEDATANGAN` tetap ikut di kolom Nilai, tapi TIDAK dihitung qty-nya.
+     * 2. **Kolom Pasien per baris** = `COUNT(DISTINCT kontak)` **hanya pada baris yg ADA
+     *    HARGANYA** (`SDKELUAR*(SDHARGA-SDDISKON) > 0`) - tindakan gratis/bonus tidak
+     *    menghitung pasien.
+     * 3. **Total pasien per bulan dihitung TERPISAH**, bukan menjumlahkan kolom Pasien:
+     *    `COUNT(DISTINCT CONCAT(kontak,'#',tanggal))` - **satu pasien per hari dihitung 1x**
+     *    walau bertransaksi berkali-kali. Karena itu total bulan hampir selalu LEBIH KECIL
+     *    dari jumlah kolom Pasien di atasnya, dan itu MEMANG BENAR. Baris "Total Cabang" &
+     *    "Grand Total" SENGAJA mengosongkan kolom Pasien (CI3 juga) - menjumlahkan angka
+     *    per-bulan lintas bulan/cabang akan menghitung pasien yg sama berulang.
+     *
+     * Nilai = `SUM(SDKELUAR * (SDHARGA - SDDISKON))`; `SDDISKON` = rupiah diskon per unit
+     * (hasil kaskade disc1 x disc2), pola sama laporan IP Per Barang.
+     */
+    public function ipTindakanProduk(Request $r)
+    {
+        return app(PdfReport::class)->preview(
+            'reports.ip-tindakan-produk',
+            $this->dataIpTindakanProduk($r),
+            ['orientasi' => 'P']
+        );
+    }
+
+    /** Export Excel - pola sama `penjualanPerBarangExcel()` (HTML table ber-header .xls). */
+    public function ipTindakanProdukExcel(Request $r)
+    {
+        $data = $this->dataIpTindakanProduk($r);
+
+        return response()
+            ->view('reports.ip-tindakan-produk-xls', $data)
+            ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="' . $data['title'] . '.xls"');
+    }
+
+    /**
+     * @return array{title:string,subtitle:string,company:array,grup:array,totalQty:float,totalNilai:float}
+     */
+    private function dataIpTindakanProduk(Request $r): array
+    {
+        $r->validate([
+            'from'   => ['required', 'date'],
+            'to'     => ['required', 'date', 'after_or_equal:from'],
+            'cabang' => ['nullable', 'integer'],
+        ]);
+
+        $from = $r->query('from');
+        $to = $r->query('to');
+        $gudang = $this->cabangLaporan($r);
+
+        $dasar = fn () => DB::table('fstokd as d')
+            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->where('u.SUSTATUS', '<>', 9)
+            ->whereIn('u.SUSUMBER', ['IP', 'AL'])
+            ->whereBetween('u.SUTANGGAL', [$from, $to])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('u.SUCABANG', $gudang));
+
+        // Detail per cabang > bulan > item.
+        $rows = $dasar()
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'u.SUCABANG')
+            ->groupBy('g.GID', DB::raw("DATE_FORMAT(u.SUTANGGAL,'%Y%m')"), 'd.SDITEM')
+            ->orderBy('g.GKODE')->orderByRaw("DATE_FORMAT(u.SUTANGGAL,'%Y%m')")->orderBy('i.INAMA')
+            ->get([
+                DB::raw('g.GKODE as cabangKode'),
+                DB::raw('g.GNAMA as cabangNama'),
+                DB::raw("DATE_FORMAT(u.SUTANGGAL,'%Y%m') as ym"),
+                DB::raw('MIN(u.SUTANGGAL) as tglPertama'),
+                DB::raw('i.INAMA as barang'),
+                DB::raw('SUM(CASE WHEN IFNULL(d.SDKEDATANGAN,0)=0 THEN d.SDKELUAR ELSE 0 END) as qty'),
+                DB::raw('SUM(d.SDKELUAR*(d.SDHARGA - d.SDDISKON)) as nilai'),
+                DB::raw("COUNT(DISTINCT CASE WHEN (d.SDKELUAR*(d.SDHARGA - d.SDDISKON)) > 0 THEN u.SUKONTAK END) as pasien"),
+            ]);
+
+        // Pasien per cabang-bulan - query TERPISAH, 1 pasien per hari = 1 (lihat docblock).
+        $pasienPeriode = [];
+        foreach (
+            $dasar()
+                ->leftJoin('bgudang as g', 'g.GID', '=', 'u.SUCABANG')
+                ->whereRaw('(d.SDKELUAR*(d.SDHARGA - d.SDDISKON)) > 0')
+                ->groupBy('g.GKODE', DB::raw("DATE_FORMAT(u.SUTANGGAL,'%Y%m')"))
+                ->get([
+                    DB::raw('g.GKODE as cabangKode'),
+                    DB::raw("DATE_FORMAT(u.SUTANGGAL,'%Y%m') as ym"),
+                    DB::raw("COUNT(DISTINCT CONCAT(u.SUKONTAK,'#',u.SUTANGGAL)) as pasien"),
+                ]) as $p
+        ) {
+            $pasienPeriode[$p->cabangKode . '|' . $p->ym] = (int) $p->pasien;
+        }
+
+        // Susun jadi struktur bersarang supaya blade-nya cuma me-render, tanpa logika grup.
+        $grup = [];
+        foreach ($rows as $row) {
+            $ck = (string) $row->cabangKode;
+            $grup[$ck] ??= ['nama' => $row->cabangNama, 'bulan' => [], 'qty' => 0.0, 'nilai' => 0.0];
+            $grup[$ck]['bulan'][$row->ym] ??= [
+                // BEDA SENGAJA dari CI3: label bulan di-Indonesia-kan ("Juni 2026").
+                // CI3 pakai `DATE_FORMAT(...,'%M %Y')` yg selalu Inggris ("June 2026") -
+                // laporan berbahasa Indonesia, jadi bulannya ikut diterjemahkan.
+                'label'  => \Carbon\Carbon::parse($row->tglPertama)->locale('id')->translatedFormat('F Y'),
+                'baris'  => [],
+                'qty'    => 0.0,
+                'nilai'  => 0.0,
+                'pasien' => $pasienPeriode[$ck . '|' . $row->ym] ?? 0,
+            ];
+
+            $grup[$ck]['bulan'][$row->ym]['baris'][] = $row;
+            $grup[$ck]['bulan'][$row->ym]['qty'] += (float) $row->qty;
+            $grup[$ck]['bulan'][$row->ym]['nilai'] += (float) $row->nilai;
+            $grup[$ck]['qty'] += (float) $row->qty;
+            $grup[$ck]['nilai'] += (float) $row->nilai;
+        }
+
+        $branch = count($gudang) === 1
+            ? DB::table('bgudang')->where('GID', $gudang[0])->value('GNAMA') : null;
+
+        return [
+            'title'      => 'Laporan IP Tindakan-Produk Per Bulan',
+            'subtitle'   => \Carbon\Carbon::parse($from)->format('d/m/Y') . ' s/d '
+                            . \Carbon\Carbon::parse($to)->format('d/m/Y')
+                            . ($branch ? ', ' . $branch : '') . ' | Sumber : IP & AL',
+            'company'    => app(PdfReport::class)->companyInfo(),
+            'grup'       => $grup,
+            'totalQty'   => (float) $rows->sum('qty'),
+            'totalNilai' => (float) $rows->sum('nilai'),
         ];
     }
 }

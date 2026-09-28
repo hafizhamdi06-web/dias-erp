@@ -334,4 +334,61 @@ class PurchaseOrderWriter
             ])
             ->all();
     }
+
+    /**
+     * Histori PENERIMAAN (PB) per baris PO - dipakai modal "Histori" di `PoList`
+     * (permintaan user 2026-09-26). Pola sama `PurchaseRequestWriter::history()`.
+     *
+     * Rantai: `esalesorderd.SODID` <- `fstokd.SDSODID` (baris PB) -> `fstoku` (SUSUMBER='PB').
+     *
+     * **Qty yg ditampilkan = `SDMASUKPB`, BUKAN `SDMASUK`** - `SDMASUKPB` adalah qty dalam
+     * SATUAN PO, dan justru kolom INILAH yg dipakai trigger `fstokd_add` utk menaikkan
+     * `esalesorderd.SODMASUK`. Kalau dipakai `SDMASUK` (satuan dasar/klinik), angkanya tidak
+     * akan cocok dgn "Qty Order"/"Sudah Diterima" begitu `IQTYPERBOX` != 1.
+     *
+     * **Baris PB yg DIBATALKAN tetap ditampilkan** (ditandai `batal`) supaya jejaknya
+     * terlihat - tapi qty-nya memang sudah 0 krn `PbWriter::cancel()` menolkan `SDMASUKPB`.
+     *
+     * @return list<array{item:string,nama:string,satuan:string,qtyOrder:float,qtyTerima:float,sisa:float,penerimaan:list<array>}>
+     */
+    public function historiPenerimaan(int $poId): array
+    {
+        $pbByLine = DB::table('fstokd as d')
+            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->where('u.SUSUMBER', 'PB')
+            ->whereIn('d.SDSODID', function ($q) use ($poId) {
+                $q->select('SODID')->from('esalesorderd')->where('SODIDSOU', $poId);
+            })
+            ->orderBy('u.SUTANGGAL')->orderBy('u.SUID')
+            ->get([
+                'd.SDSODID as sodid', 'd.SDMASUKPB as qty',
+                'u.SUID as pbId', 'u.SUNOTRANSAKSI as nomor', 'u.SUTANGGAL as tanggal',
+                'u.SUSTATUS as status', 'u.SUNOREF as noInvoice',
+            ])
+            ->groupBy('sodid');
+
+        $out = [];
+        foreach ($this->lines($poId) as $l) {
+            $terima = $pbByLine->get((int) $l->SODID, collect());
+
+            $out[] = [
+                'item'       => $l->ICODING ?: ($l->IKODE ?? ''),
+                'nama'       => $l->IPONAMA ?: ($l->INAMA ?? ''),
+                'satuan'     => $l->satuan_kode ?? '',
+                'qtyOrder'   => (float) $l->SODORDER,
+                'qtyTerima'  => (float) $l->SODMASUK,
+                'sisa'       => (float) $l->SODORDER - (float) $l->SODMASUK,
+                'penerimaan' => $terima->map(fn ($r) => [
+                    'pbId'      => (int) $r->pbId,
+                    'nomor'     => $r->nomor,
+                    'tanggal'   => $r->tanggal,
+                    'noInvoice' => $r->noInvoice,
+                    'qty'       => (float) $r->qty,
+                    'batal'     => (int) $r->status === 9,
+                ])->values()->all(),
+            ];
+        }
+
+        return $out;
+    }
 }

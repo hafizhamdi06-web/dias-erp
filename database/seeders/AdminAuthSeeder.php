@@ -5,11 +5,15 @@ namespace Database\Seeders;
 use App\Models\User;
 use App\Models\UserAuth;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 /**
- * Beri password Laravel (bcrypt di lv_user_auth) untuk user admin yang sudah ada
- * di `auser`, supaya bisa login tanpa tahu password MD5 lamanya.
+ * Pastikan akun admin Laravel ada & punya password (bcrypt di lv_user_auth).
+ *
+ *   - UKODE belum ada di `auser` -> dibuat (pola sama `Admin\UserManager::save()`:
+ *     `UPASSWORD='-'` = tidak bisa login ke CI3, cabang = gudang default).
+ *   - Sudah ada di `auser` -> baris `auser` TIDAK disentuh sama sekali.
  *
  *   php artisan db:seed --class=AdminAuthSeeder
  *
@@ -35,8 +39,15 @@ class AdminAuthSeeder extends Seeder
             $user = User::where('UKODE', $ukode)->first();
 
             if ($user === null) {
-                $this->command?->warn("auser UKODE='{$ukode}' tidak ditemukan, dilewati.");
-                continue;
+                $user = User::create([
+                    'UKODE'        => $ukode,
+                    'UNAMA'        => $ukode,
+                    'UCABANG'      => DB::table('bgudang')->where('GDEFAULT', 1)->value('GID'),
+                    'UCABANGPILIH' => null, // kosong = tidak dibatasi cabang
+                    'UACTIVE'      => 1,
+                    'UPASSWORD'    => '-',  // tidak dipakai CI3
+                ]);
+                $this->command?->info("auser UKODE='{$ukode}' belum ada, dibuat (UID {$user->UID}).");
             }
 
             // Sudah punya password Laravel? Jangan timpa - admin mungkin sudah

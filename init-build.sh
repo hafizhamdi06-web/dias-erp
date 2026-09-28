@@ -19,7 +19,8 @@
 # Usage:
 #   ./init-build.sh                  # build + up + tunggu healthy (default TIDAK migrate)
 #   ./init-build.sh --migrate        # + run `php artisan migrate --force` setelah healthy
-#   ./init-build.sh --seed           # + run `php artisan db:seed --class=MenuSeeder`
+#   ./init-build.sh --seed           # + run `php artisan db:seed --force` (DatabaseSeeder:
+#                                    #   MenuSeeder + AdminAuthSeeder, KEDUANYA idempoten)
 #   ./init-build.sh --rebuild        # `--no-cache` build (paksa rebuild semua layer)
 #   ./init-build.sh --pull           # `docker compose pull` untuk base image terbaru
 #   ./init-build.sh --if-changed     # MODE CRON: pull origin/main, skip kalau tidak berubah,
@@ -30,11 +31,15 @@
 # Crontab (tiap 5 menit, log di-append):
 #   */5 * * * * /srv/dias-erp/init-build.sh --if-changed >> /var/log/dias-erp-deploy.log 2>&1
 #
-# Tentang --migrate:
-#   Default TIDAK migrate. CLAUDE.md: DB PRODUKSI shared dgn CI3/CI4. Migration
-#   hanya membuat tabel `lv_*` (prefix aman); tapi tabel existing harus ada di DB
-#   dan nama service MariaDB harus benar. User harus EKSPILISIT pass --migrate
-#   kalau memang pertama kali deploy tabel lv_* belum ada.
+# Tentang --migrate/--seed manual:
+#   Redundan kalau RUN_MIGRATIONS=true / RUN_SEED=true di .env - entrypoint.sh
+#   sudah menjalankan migrate + db:seed otomatis tiap container start. Flag
+#   manual ini untuk one-off (mis. deploy pertama tanpa flag di .env, atau
+#   mau paksa migrate/seed tanpa rebuild image).
+#
+#   DB PRODUKSI shared dgn CI3/CI4 (aturan CLAUDE.md). Migration hanya membuat
+#   tabel `lv_*` (prefix aman); tabel existing harus sudah ada di DB dan nama
+#   service MariaDB harus benar sebelum dijalankan.
 #
 # Tentang rollback:
 #   SEBELUM build, image :latest di-retag ke :rollback. Gagal di langkah
@@ -290,9 +295,11 @@ main() {
     fi
 
     if [ "$DO_SEED" -eq 1 ]; then
-        log "php artisan db:seed --class=MenuSeeder --force"
-        # MenuSeeder idempoten by segment_key; aman dipanggil ulang.
-        docker compose exec -T app php artisan db:seed --class=MenuSeeder --force
+        log "php artisan db:seed --force"
+        # db:seed polos = DatabaseSeeder (MenuSeeder + AdminAuthSeeder, KEDUANYA
+        # idempoten - lihat docker/entrypoint.sh RUN_SEED). Konsisten dgn alur
+        # auto-seed di container start.
+        docker compose exec -T app php artisan db:seed --force
     fi
 
     # --- 11. Bersihkan :rollback + dangling layers -----------------------

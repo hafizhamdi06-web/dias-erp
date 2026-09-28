@@ -39,14 +39,15 @@ services:
       # /up = route bawaan Laravel 12 (lihat bootstrap/app.php). Mengembalikan 200
       # kalau app boot tanpa exception; 500 kalau boot gagal. wget = bawaan
       # php:8.2-fpm-alpine (busybox), tidak perlu paket baru. start_period lama
-      # karena entrypoint.sh membikin config/event/route/view cache dulu sebelum
-      # php-fpm menerima request; start_interval rapat supaya healthy terdeteksi
-      # segera setelah start_period.
+      # karena entrypoint.sh membikin config/event/route/view cache, lalu
+      # `migrate` (kalau RUN_MIGRATIONS=true, dgn retry tunggu DB ~60 dtk),
+      # sebelum php-fpm menerima request; start_interval rapat supaya healthy
+      # terdeteksi segera setelah start_period.
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/up || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 90s
       # start_interval butuh Docker Engine >= 25 (cek `docker version` di server).
       start_interval: 2s
 

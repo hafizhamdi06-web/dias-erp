@@ -2542,34 +2542,55 @@ baris baru di dalam `<th>`/`<td>`, pakai `<br>` - jangan andalkan `display`.
 `print`). Tombol Cetak di daftar + form. Tabel `ctransaksiu`/`ctransaksid`, lihat docblock
 `KasBankWriter`.
 
+**Layout MENIRU contoh cetakan sistem lama** yg dikirim user (`Bukti Kas Keluar
+BZ-KK26090002.pdf`) - **SENGAJA jauh lebih polos drpd `pengajuan-dana-print`**: tanpa kop
+nama/alamat cabang, tanpa `htmlpageheader`/`htmlpagefooter`, tanpa bingkai tabel (garis
+horizontal saja: atas+bawah judul kolom, atas baris Jumlah), tanpa rekap per COA, tanpa judul
+kolom dwibahasa. Kolomnya cuma **Kode Akun | Nama | Debit | Kredit**. **JANGAN "diseragamkan"
+dgn cetakan Petty Cash** - user minta persis contohnya.
+*(Versi pertama saya justru menyeragamkannya ke rumah gaya Petty Cash lalu harus ditulis ulang -
+contoh cetakan lama TIDAK selalu satu gaya antar modul, jangan diasumsikan.)*
+
 **SATU blade & SATU query utk kedua arah** - permintaan user: *"untuk kas masuk di samakan saja
 dengan kas keluar, yang beda debit kreditnya dan judul"*. Jadi **TIDAK ADA percabangan layout**:
 yg beda cuma `$judul` ("Bukti Kas Masuk"/"Bukti Kas Keluar") dan angkanya jatuh di kolom Debit
 atau Kredit - dan itu terjadi **sendiri** karena `CDDEBIT`/`CDKREDIT` dicetak APA ADANYA dari DB
 (writer-lah yg menaruh angka di sisi benar: MASUK rekening=debit, KELUAR rekening=kredit).
-**JANGAN tambahkan `if ($masuk)` utk menukar kolom** - itu justru merusaknya.
+**JANGAN tambahkan `if ($masuk)` utk menukar kolom** - itu justru merusaknya. Label ttd pun
+TETAP "Dikeluarkan/Dicatat/Disetujui" di kedua arah, sesuai contoh.
 
-**Baris urutan 1 (rekening kas) IKUT DICETAK** - **beda dari `pengajuan-dana-print` yg
-mengecualikannya**. Ini bukti jurnal, harus berimbang Debit = Kredit di mata pemeriksa. Rekap
-bawah juga memuat semua baris, jadi total Debit = Kredit - itu sengaja, bukan duplikasi angka.
+**Baris rekening kas IKUT DICETAK & ditaruh PALING BAWAH.** Di DB ia `CDURUTAN=1`, tapi di
+contoh baris "Kas Kecil" ada di baris TERAKHIR - karena itu `ORDER BY CASE WHEN CDURUTAN=1 THEN
+1 ELSE 0 END, CDURUTAN`, bukan sekadar `CDURUTAN`. Beda dari `PengajuanDanaPrintController` yg
+justru MENGECUALIKAN baris urutan 1. Nol ditulis `0,00`, **tidak dikosongkan** (ikut contoh).
 
-Layout mengikuti rumah gaya `pengajuan-dana-print` (kop berulang, judul kolom dwibahasa pakai
-`<br>`, terbilang menyatu di bingkai) + blok identitas (Kontak/Rekening Kas/Uraian) dan kotak
-ttd **4 sel** (Dibuat/Diperiksa/Disetujui/**Diterima**) - sel Diterima khas bukti kas, tidak ada
-di Petty Cash.
+**Pemetaan field ke contoh**: "Uraian : KAS KELUAR" -> `CUURAIAN`; nama di bawah tanggal
+("Dede Suryaman") -> **`CUKONTAK` -> `bkontak.KNAMA`**, BUKAN nama user (diverifikasi: "DEDE
+SURYAMAN" ada sbg kontak `KID=151457`, di `auser` nama itu tidak ada sama sekali);
+"Jakarta, 25-September-2026" -> `bgudang.GKOTA` + `CUTANGGAL` `isoFormat('DD-MMMM-YYYY')`
+locale id. Nilai isian (Uraian, tanggal, nama kontak) pakai font **sans**, sisanya serif -
+ditiru apa adanya dari contoh.
+
+**ASUMSI perlu konfirmasi user**: contoh dari cabang **Bizpark** yg `GKOTA`-nya **NULL**, tapi
+cetakannya berbunyi "Jakarta" -> sistem lama kemungkinan MEMATOK "Jakarta". Dipakai `GKOTA`
+dulu, **fallback "Jakarta"** - sama persis utk cabang di contoh, tapi tidak salah utk
+Surabaya/Bali begitu `GKOTA` mereka diisi.
 
 **Bank Masuk/Keluar BELUM** - dokumen Bank py field tambahan (`CUTIPE` Tunai/Giro/Transfer,
 `CUBANK`, `CUNOGIRO`, `CUTGLTEMPO`) yg harus tampil, jadi tidak bisa sekadar ikut layout ini.
 `KasBank{Form,List}Base::printRoute()` mengembalikan `null` utk keduanya -> tombol Cetak
 otomatis disembunyikan.
 
-Verifikasi (45 asersi LULUS, dokumen uji KK+KM di transaksi + rollback): data view **ditangkap
-lewat `View::composer`** (bukan query tiruan) jadi yg diuji benar-benar yg dikirim controller;
-3 baris tercetak (rekening + 2 biaya); **berimbang debit=kredit=200.000** di kedua arah;
-**rekening di KREDIT utk KK & DEBIT utk KM**, baris biaya sebaliknya; rekap = total baris; 5
-judul kolom dwibahasa pakai `<br>`; CSS tanpa `display:block`; **kerangka HTML KK vs KM identik
-byte-per-byte** setelah judul & angka dinormalkan (bukti klaim "cuma beda judul & debit/kredit");
-rollback bersih, 0 dokumen uji tertinggal.
+Verifikasi (LULUS; 2 dokumen NYATA di DB + pasangan uji KK/KM di transaksi lalu rollback): data
+view **ditangkap lewat `View::composer`** (bukan query tiruan) jadi yg diuji benar-benar yg
+dikirim controller; urutan baris terbukti `2,3,4,1` (rekening kas terakhir); **berimbang
+debit=kredit** di kedua arah; **rekening di KREDIT utk KK & DEBIT utk KM**, baris biaya
+sebaliknya; 12 potongan layout contoh ada & 6 penanda layout Petty Cash terbukti TIDAK ada;
+**terbilang 2.534.719 identik kalimat di contoh user**; **kerangka HTML KK vs KM identik
+byte-per-byte** setelah judul & nomor dinormalkan - diff mentahnya menyisakan PERSIS 1 baris
+(nomor dokumen), bukti kuat klaim "cuma beda judul & debit/kredit"; contoh PDF direproduksi
+dgn 29 baris & total **2.534.719 sama persis** dgn lampiran user; rollback bersih, 0 dokumen
+uji tertinggal.
 
 ## JOP: cetakan "Job Order Produksi" (2026-09-27)
 

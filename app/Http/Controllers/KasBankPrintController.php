@@ -10,30 +10,44 @@ use Illuminate\Support\Facades\DB;
  * Cetak bukti Kas Masuk / Kas Keluar - PDF SATU dokumen `ctransaksiu` (prefix kolom CU/CD),
  * lihat docblock `KasBankWriter` utk struktur modulnya.
  *
- * **SATU blade & SATU query utk kedua arah** - permintaan user 2026-09-30: "untuk kas masuk
- * di samakan saja dengan kas keluar, yang beda debit kreditnya dan judul". Jadi di sini
- * TIDAK ADA percabangan layout: yg beda cuma `$judul` dan angkanya jatuh di kolom Debit atau
- * Kredit - dan itu terjadi SENDIRI karena kolom `CDDEBIT`/`CDKREDIT` dicetak APA ADANYA dari
- * DB (writer-lah yg menaruh angka di sisi yg benar: MASUK rekening=debit, KELUAR
+ * **Layout MENIRU contoh cetakan sistem lama** yg dikirim user 2026-09-30
+ * (`Bukti Kas Keluar BZ-KK26090002.pdf`) - SENGAJA jauh lebih polos drpd
+ * `pengajuan-dana-print`: tanpa kop nama/alamat cabang, tanpa bingkai tabel (garis
+ * horizontal saja), tanpa rekap per COA, tanpa judul kolom dwibahasa. **Jangan
+ * "diseragamkan" dgn cetakan Petty Cash** - user minta persis contohnya.
+ *
+ * **SATU blade & SATU query utk kedua arah** - permintaan user: "untuk kas masuk di samakan
+ * saja dengan kas keluar, yang beda debit kreditnya dan judul". Jadi di sini **TIDAK ADA
+ * percabangan layout**: yg beda cuma `$judul` dan angkanya jatuh di kolom Debit atau Kredit -
+ * dan itu terjadi SENDIRI karena kolom `CDDEBIT`/`CDKREDIT` dicetak APA ADANYA dari DB
+ * (writer-lah yg menaruh angka di sisi yg benar: MASUK rekening=debit, KELUAR
  * rekening=kredit). JANGAN tambahkan `if ($masuk)` utk menukar kolom - itu justru merusaknya.
+ * Label tanda tangan pun TETAP "Dikeluarkan/Dicatat/Disetujui" di kedua arah, sesuai contoh.
  *
- * **Baris urutan 1 (rekening kas) IKUT DICETAK** - beda dari
- * `PengajuanDanaPrintController` yg mengecualikannya. Alasannya: ini bukti jurnal, harus
- * berimbang Debit = Kredit di mata pemeriksa. Rekap bawah juga memuat semua baris, jadi
- * total Debit dan Kredit-nya sama - itu sengaja, bukan duplikasi angka.
+ * ## Urutan baris: rekening kas PALING BAWAH
+ * `ctransaksid` menyimpan rekening kas di `CDURUTAN=1`, tapi di contoh baris "Kas Kecil"
+ * ada di **baris TERAKHIR** setelah semua akun biaya. Karena itu di-`ORDER BY (CDURUTAN=1),
+ * CDURUTAN` - bukan sekadar `CDURUTAN`. Baris itu **IKUT DICETAK** (beda dari
+ * `PengajuanDanaPrintController` yg mengecualikan baris urutan 1), supaya "Jumlah"
+ * Debit = Kredit spt di contoh.
  *
- * Layout mengikuti rumah gaya `pengajuan-dana-print` (kop berulang, judul kolom DWIBAHASA,
- * terbilang menyatu di bingkai, kotak tanda tangan) supaya cetakan finance seragam. Judul
- * kolom Inggris memakai `<br>`, BUKAN `display:block` - mpdf tidak menghormati itu pada
- * elemen inline (lihat komentar di blade-nya).
+ * ## Pemetaan field ke contoh
+ * - "Uraian : KAS KELUAR" -> `CUURAIAN`.
+ * - Nama di bawah tanggal ("Dede Suryaman") -> **`CUKONTAK` -> `bkontak.KNAMA`**, BUKAN
+ *   nama user. Diverifikasi: "DEDE SURYAMAN" ada sbg kontak `KID=151457`
+ *   (`KKODE='CIB-000022'`), sedangkan di `auser` tidak ada nama itu sama sekali.
+ * - "Jakarta, 25-September-2026" -> kota cabang (`bgudang.GKOTA`) + `CUTANGGAL` format
+ *   `d-F-Y` berbahasa Indonesia.
  *
- * **CATATAN**: `ctransaksiu` `CUSUMBER` 'KM'/'KK' masih SANGAT sedikit isinya di DB ini
- * (modul baru), jadi verifikasi memakai dokumen sintetis di dalam transaksi yg di-rollback,
- * bukan data histori nyata.
+ * **ASUMSI yg perlu dikonfirmasi user**: contohnya dari cabang **Bizpark**, yg `GKOTA`-nya
+ * **NULL** di master, tapi cetakannya tetap berbunyi "Jakarta" - artinya sistem lama
+ * kemungkinan besar MEMATOK "Jakarta". Di sini dipakai `GKOTA` dulu dan **jatuh ke
+ * "Jakarta" kalau kosong** - hasilnya sama persis utk cabang di contoh, tapi tidak salah
+ * mencetak "Jakarta" utk cabang Surabaya/Bali begitu `GKOTA` mereka diisi. Kalau user
+ * memang mau selalu "Jakarta", tinggal buang `?:`-nya.
  *
  * Bank Masuk/Keluar BELUM disini - dokumen Bank punya field tambahan (`CUTIPE` Tunai/Giro/
- * Transfer, `CUBANK`, `CUNOGIRO`, `CUTGLTEMPO`) yg harus tampil di cetakannya, jadi tidak
- * bisa sekadar ikut layout ini tanpa blok tambahan.
+ * Transfer, `CUBANK`, `CUNOGIRO`, `CUTGLTEMPO`) yg harus tampil di cetakannya.
  */
 class KasBankPrintController extends Controller
 {
@@ -53,24 +67,20 @@ class KasBankPrintController extends Controller
 
         $h = DB::table('ctransaksiu as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.CUKONTAK')
-            ->leftJoin('bcoa as c', 'c.CID', '=', 'u.CUREKKAS')
             ->leftJoin('bgudang as g', 'g.GID', '=', 'u.CUCABANG')
-            ->leftJoin('auser as p', 'p.UID', '=', 'u.CUCREATEU')
             ->where('u.CUID', $id)->where('u.CUSUMBER', $sumber)
             ->first([
                 'u.CUID', 'u.CUNOTRANSAKSI', 'u.CUTANGGAL', 'u.CUURAIAN', 'u.CUTOTALTRANS',
-                'k.KNAMA as kontak',
-                'c.CNOCOA as rekKode', 'c.CNAMA as rekNama',
-                'g.GNAMA as gudang', 'g.GALAMAT2 as gudangAlamat',
-                'p.UNAMA as dibuatOleh',
+                'k.KNAMA as kontak', 'g.GKOTA as kota',
             ]);
 
         abort_if(! $h, 404);
 
-        // SEMUA baris, urutan 1 (rekening kas) IKUT - lihat docblock kelas.
+        // Rekening kas (CDURUTAN=1) diturunkan ke PALING BAWAH - lihat docblock kelas.
         $lines = DB::table('ctransaksid as d')
             ->leftJoin('bcoa as c', 'c.CID', '=', 'd.CDNOCOA')
             ->where('d.CDIDU', $id)
+            ->orderByRaw('CASE WHEN d.CDURUTAN = 1 THEN 1 ELSE 0 END')
             ->orderBy('d.CDURUTAN')
             ->get([
                 'd.CDURUTAN as urutan', 'd.CDCATATAN as keterangan',
@@ -78,23 +88,15 @@ class KasBankPrintController extends Controller
                 'c.CNOCOA as coa', 'c.CNAMA as coaNama',
             ]);
 
-        // Rekap per COA - dijumlahkan supaya akun yg dipakai 2x tidak muncul 2 baris.
-        $rekap = [];
-        foreach ($lines as $l) {
-            $kode = $l->coa ?: '-';
-            $rekap[$kode] ??= ['kode' => $kode, 'nama' => $l->coaNama ?: '-', 'debit' => 0.0, 'kredit' => 0.0];
-            $rekap[$kode]['debit'] += (float) $l->debit;
-            $rekap[$kode]['kredit'] += (float) $l->kredit;
-        }
-
         return $pdf->preview('reports.kas-bank-print', [
-            'title'      => $judul . ' ' . $h->CUNOTRANSAKSI,
-            'judul'      => $judul,
-            'h'          => $h,
-            'lines'      => $lines,
-            'totalDebit' => (float) $lines->sum('debit'),
-            'totalKredit' => (float) $lines->sum('kredit'),
-            'rekap'      => array_values($rekap),
-        ], ['size' => 'A4', 'orientasi' => 'P', 'marginTop' => 30]);
+            'title'          => $judul . ' ' . $h->CUNOTRANSAKSI,
+            'judul'          => $judul,
+            'h'              => $h,
+            'lines'          => $lines,
+            'totalDebit'     => (float) $lines->sum('debit'),
+            'totalKredit'    => (float) $lines->sum('kredit'),
+            'kota'           => trim((string) $h->kota) ?: 'Jakarta',
+            'tanggalPanjang' => \Carbon\Carbon::parse($h->CUTANGGAL)->locale('id')->isoFormat('DD-MMMM-YYYY'),
+        ], ['size' => 'A4', 'orientasi' => 'P', 'marginTop' => 18, 'marginLeft' => 15]);
     }
 }

@@ -1971,34 +1971,49 @@ root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF11`): dialog terbuka -> arti 
 akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
 `hotkeyCtrlEnter()`.
 
-### Pemetaan pintasan BERLAKU (per 2026-09-30) — rujuk ini, jangan komentar lama
+### Pemetaan pintasan BERLAKU (per 2026-09-30, penomoran KEEMPAT) — rujuk ini, jangan komentar lama
 
 | Tombol | Dialog bayar TERTUTUP | Dialog bayar TERBUKA |
 |---|---|---|
-| F1 | Cari Pelanggan | Tunai |
-| F2 | Cari Item | Kartu Debit |
-| F3 | *(kosong)* | Kartu Kredit |
-| F4 | *(kosong)* | Transfer |
-| F5 | Cari Voucher | DP (buka pemilih) |
-| F6 | Cari DP | Merchant |
-| F7 | *(kosong)* | Voucher (buka pemilih) |
-| F8 | **Buka dialog Pembayaran** | *(kosong)* |
-| F10 | **Harga Khusus** (dulu "Cari Promo") | *(kosong)* |
+| F1 | Cari Pelanggan | *(kosong)* |
+| F2 | Cari Item | **Merchant** |
+| F3 | *(kosong)* | *(kosong)* |
+| F4 | *(kosong)* | **Tunai** |
+| F5 | Cari Voucher | **Kartu Debit** |
+| F6 | Cari DP | **DP** (buka pemilih) |
+| F7 | *(kosong)* | *(kosong)* |
+| F8 | **Buka dialog Pembayaran** | **Kartu Kredit** |
+| F9 | *(kosong)* | **Transfer** |
+| F10 | **Harga Khusus** (dulu "Cari Promo") | **Voucher** (buka pemilih) |
 | F11 | **Daftar Paket** (dulu "Cari Paket") | *(kosong)* |
 | Ctrl+Enter | Simpan Transaksi | OK (isi bayar saja) |
 
-Nama variabel/tabel TETAP `promo`/`paket` — yg berubah 2026-09-30 hanya **caption & pintasan**
-(user), skemanya tidak. `hotkeyF10`/`hotkeyF11` sengaja DIAM selagi dialog bayar terbuka:
-memilih promo/paket di tengah dialog akan mengubah total sementara isian bayar sudah terkunci
-di layar. `hotkeyF8` juga dijaga agar tidak jalan saat dialog SUDAH terbuka — `openPayModal()`
-menyalin ulang `$paySebelumnya`, jadi memanggilnya lagi menghapus titik pulih tombol Batal.
+Sumber kebenaran sisi bayar = `PosTerminal::PINTASAN_BAYAR`
+(`F4`→tunai, `F5`→debit, `F8`→kredit, `F9`→transfer, `F2`→merchant); DP & Voucher tidak di
+situ karena **membuka pemilih**, bukan `bayarPenuh()`.
 
-**AWAS hint tombol yg jadi berbohong.** Urutan pintasan sudah **TIGA KALI** berubah, dan tiap
-kali ada hint `<kbd>` / komentar di tempat lain yg jadi salah — pada perubahan ke-3 ditemukan
-**4 komentar basi sekaligus** (`Modal Pembayaran (F9)`, `Paket (F3)`, `MODAL CARI PELANGGAN
-(F4)`, `Modal cari Promo (F7)`) yang tertinggal dari perubahan ke-2. Tiap mengubah pemetaan,
-**telusuri SEMUA `<kbd>` DAN semua komentar yg menyebut Fn** di komponen + blade-nya. Uji
-otomatisnya sekarang mencocokkan label vs tombol satu per satu **dan** memindai komentar basi.
+**DP tidak disebut user** saat penomoran keempat — F5 yg dulu memegangnya jadi Debit, jadi DP
+ditaruh di **F6**: satu-satunya tombol tersisa yg tidak bentrok, DAN artinya jadi konsisten
+karena di LUAR dialog F6 memang sudah "Cari DP" (F6 juga pemegang DP pada penomoran pertama).
+
+Nama variabel/tabel TETAP `promo`/`paket` — yg berubah hanya **caption & pintasan**, skemanya
+tidak. `hotkeyF11` sengaja DIAM selagi dialog bayar terbuka: memilih paket di tengah dialog akan
+mengubah total sementara isian bayar sudah terkunci di layar. `hotkeyF8` **tidak** membuka ulang
+dialog saat sudah terbuka — `openPayModal()` menyalin ulang `$paySebelumnya`, jadi memanggilnya
+lagi menghapus titik pulih tombol Batal.
+
+**AWAS hint tombol yg jadi berbohong.** Urutan pintasan sudah **EMPAT KALI** berubah, dan tiap
+kali ada hint `<kbd>` / komentar di tempat lain yg jadi salah:
+- perubahan ke-3 menemukan **4 komentar basi** sisa perubahan ke-2 (`Modal Pembayaran (F9)`,
+  `Paket (F3)`, `MODAL CARI PELANGGAN (F4)`, `Modal cari Promo (F7)`);
+- perubahan ke-4 menemukan **2 label tombol basi** yg terlewat lagi: "Cari DP pelanggan…"
+  masih `F5` dan "Cari voucher pelanggan…" masih `F7`.
+
+Tiap mengubah pemetaan, **telusuri SEMUA `<kbd>` DAN semua komentar yg menyebut Fn** di komponen
++ blade-nya (`grep -oE 'F[0-9]+'` pada KEDUA berkas, lalu periksa satu per satu). Uji otomatisnya
+mencocokkan pasangan label–tombol sbg **potongan teks PERSIS** (mis. `Transfer <kbd>F9</kbd>`) —
+**jangan** pakai pola longgar "kbd pertama setelah label": kata spt "Tunai" juga muncul di kode
+JS (`'bayarTunai'`) sehingga pencarian longgar salah sasaran (sudah kejadian).
 
 **`F12` TIDAK BISA DIANDALKAN**: Chrome/Edge membuka DevTools pada F12 dan `preventDefault()`
 tidak bisa mencegahnya. Sempat dipilih karena mengikuti tombol "OK [F12]" di VB6. Jalur simpan

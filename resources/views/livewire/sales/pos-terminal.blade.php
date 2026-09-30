@@ -1,10 +1,10 @@
 <div wire:key="pos-terminal"
-     {{-- F1-F7 punya arti GANDA.
-          Di LUAR dialog bayar : F1 pelanggan, F2 item, F5 voucher, F6 DP.
-                                 (F3 & F4 SENGAJA kosong sejak 2026-09-30 - promo/paket
-                                  pindah ke F10/F11 atas permintaan user.)
-          Di DALAM dialog bayar: F1 Tunai, F2 Debit, F3 Kredit, F4 Transfer, F5 DP,
-                                 F6 Merchant, F7 Voucher.
+     {{-- Tiap Fn punya arti GANDA (penomoran KETIGA, permintaan user 2026-09-30).
+          Di LUAR dialog bayar : F1 pelanggan, F2 item, F5 voucher, F6 DP, F8 buka dialog,
+                                 F10 Harga Khusus, F11 Daftar Paket.
+          Di DALAM dialog bayar: F4 Tunai, F5 Debit, F8 Kredit, F9 Transfer, F2 Merchant,
+                                 F10 Voucher, F6 DP.
+          F3 & F7 sengaja KOSONG di kedua keadaan. Tabel lengkapnya di CLAUDE.md.
           Pengikatnya HARUS satu per tombol dgn percabangan di PHP (`hotkeyFn`) - kalau dipasang
           dua `wire:keydown.fN.window` (satu di root, satu di dalam dialog), KEDUANYA ikut jalan
           dan modal pencarian ikut terbuka bersamaan dgn terisinya nilai bayar. --}}
@@ -15,16 +15,17 @@
      wire:keydown.f5.window.prevent="hotkeyF5"
      wire:keydown.f6.window.prevent="hotkeyF6"
      wire:keydown.f7.window.prevent="hotkeyF7"
-     {{-- F10 Harga Khusus & F11 Daftar Paket - HANYA berlaku di luar dialog bayar
-          (percabangannya di `hotkeyF10`/`hotkeyF11`). `.prevent` WAJIB: F11 = layar penuh,
-          F10 = bilah menu di Firefox. Keduanya masih bisa dicegah - beda dari F12 (DevTools)
-          yg TIDAK bisa, lihat catatan di `hotkeyCtrlEnter()`. --}}
+     {{-- F9 Transfer (hanya di dalam dialog). F10 = Harga Khusus di luar / Voucher di dalam.
+          F11 Daftar Paket (hanya di luar). `.prevent` WAJIB: F11 = layar penuh, F10 = bilah
+          menu di Firefox. Keduanya masih bisa dicegah - beda dari F12 (DevTools) yg TIDAK
+          bisa, lihat catatan di `hotkeyCtrlEnter()`. --}}
+     wire:keydown.f9.window.prevent="hotkeyF9"
      wire:keydown.f10.window.prevent="hotkeyF10"
      wire:keydown.f11.window.prevent="hotkeyF11"
-     {{-- F8 & Ctrl+Enter BUKA dialog bayar, BUKAN langsung menyimpan - mengikuti alur VB6:
-          susun keranjang, buka dialog, baru OK. Pemicu simpan (F12) sengaja dipasang DI DALAM
-          dialog, jadi hanya hidup selama dialog terbuka - supaya tidak ada transaksi tersimpan
-          tanpa kasir sempat melihat rincian bayarnya. --}}
+     {{-- F8 di LUAR dialog & Ctrl+Enter BUKA dialog bayar, BUKAN langsung menyimpan - mengikuti
+          alur VB6: susun keranjang, buka dialog, baru OK. Pemicu simpan (F12) sengaja dipasang
+          DI DALAM dialog, jadi hanya hidup selama dialog terbuka - supaya tidak ada transaksi
+          tersimpan tanpa kasir sempat melihat rincian bayarnya. --}}
      wire:keydown.f8.window.prevent="hotkeyF8"
      wire:keydown.enter.ctrl.window.prevent="hotkeyCtrlEnter">
     @if ($lastReceipt)
@@ -393,10 +394,10 @@
             <x-lw-modal :show="$showPayModal" size="lg" title="Pembayaran" close="closePayModal">
                 <div class="modal-body">
                     <p class="small text-muted border-bottom pb-2 mb-3">
-                        <kbd>F1</kbd> Tunai &middot; <kbd>F2</kbd> Debit &middot; <kbd>F3</kbd> Kredit &middot;
-                        <kbd>F4</kbd> Transfer &middot; <kbd>F6</kbd> Merchant —
+                        <kbd>F4</kbd> Tunai &middot; <kbd>F5</kbd> Debit &middot; <kbd>F8</kbd> Kredit &middot;
+                        <kbd>F9</kbd> Transfer &middot; <kbd>F2</kbd> Merchant —
                         <strong>mengosongkan semua nilai bayar</strong> lalu mengisi penuh di kolom itu.<br>
-                        <kbd>F5</kbd> DP &middot; <kbd>F7</kbd> Voucher — <strong>membuka pilihannya</strong>
+                        <kbd>F6</kbd> DP &middot; <kbd>F10</kbd> Voucher — <strong>membuka pilihannya</strong>
                         (nilainya dari saldo yang dipilih, metode lain tidak dikosongkan).<br>
                         <kbd>Ctrl</kbd>+<kbd>Enter</kbd> = OK. <strong>OK hanya mengisi pembayaran,
                         transaksi belum tersimpan</strong> — simpan lewat tombol
@@ -406,12 +407,12 @@
                         {{-- ---------- KOLOM KIRI: tunai + kartu ---------- --}}
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label small mb-1 fw-semibold">Tunai <kbd>F1</kbd></label>
+                                <label class="form-label small mb-1 fw-semibold">Tunai <kbd>F4</kbd></label>
                                 <input type="number" min="0" class="form-control text-end" x-ref="bayarTunai"
                                        wire:model.live.debounce.400ms="pay.tunai">
                             </div>
 
-                            @foreach (['debit' => ['Kartu Debit', 'F2'], 'kredit' => ['Kartu Kredit', 'F3']] as $key => [$label, $tombol])
+                            @foreach (['debit' => ['Kartu Debit', 'F5'], 'kredit' => ['Kartu Kredit', 'F8']] as $key => [$label, $tombol])
                                 <div class="border rounded p-2 mb-3">
                                     <div class="small fw-semibold mb-1">{{ $label }} <kbd>{{ $tombol }}</kbd></div>
                                     <input type="number" min="0" class="form-control form-control-sm text-end mb-1"
@@ -457,7 +458,7 @@
                         {{-- ---------- KOLOM KANAN: transfer, DP, merchant, voucher ---------- --}}
                         <div class="col-md-6">
                             <div class="border rounded p-2 mb-3">
-                                <div class="small fw-semibold mb-1">Transfer <kbd>F4</kbd></div>
+                                <div class="small fw-semibold mb-1">Transfer <kbd>F9</kbd></div>
                                 <input type="number" min="0" class="form-control form-control-sm text-end mb-1"
                                        placeholder="jumlah" wire:model.live.debounce.400ms="pay.transfer.jumlah">
                                 <div class="row g-1">
@@ -488,7 +489,7 @@
                                 {{-- F6 tetap membuka rincian DP dari dalam dialog ini (tidak bentrok
                                      dgn pintasan bayar), baik saat DP belum dipilih maupun saat
                                      mau menggantinya - karena pengikatnya di <div> root. --}}
-                                <span class="small fw-semibold">DP <kbd>F5</kbd></span>
+                                <span class="small fw-semibold">DP <kbd>F6</kbd></span>
                                 @if ($pay['dp']['sdid'])
                                     <div class="d-flex justify-content-between align-items-start border rounded p-2 my-1">
                                         <div class="small">
@@ -509,14 +510,14 @@
                                 @else
                                     <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start mt-1" wire:click="openDpModal">
                                         <i class="fas fa-money-bill-wave me-1"></i> Cari DP pelanggan…
-                                        <kbd class="float-end">F5</kbd>
+                                        <kbd class="float-end">F6</kbd>
                                     </button>
                                     @error('pay.dp.jumlah') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
                                 @endif
                             </div>
 
                             <div class="border rounded p-2 mb-3">
-                                <div class="small fw-semibold mb-1">Merchant <kbd>F6</kbd></div>
+                                <div class="small fw-semibold mb-1">Merchant <kbd>F2</kbd></div>
                                 <input type="number" min="0" class="form-control form-control-sm text-end mb-1"
                                        placeholder="nilai" wire:model.live.debounce.400ms="pay.merchant.jumlah">
                                 <div class="row g-1">
@@ -536,7 +537,7 @@
                             </div>
 
                             <div class="border rounded p-2">
-                                <span class="small fw-semibold">Voucher <kbd>F7</kbd></span>
+                                <span class="small fw-semibold">Voucher <kbd>F10</kbd></span>
                                 @if ($pay['voucher']['vid'])
                                     <div class="d-flex justify-content-between align-items-start border rounded p-2 my-1">
                                         <div class="small">
@@ -551,7 +552,7 @@
                                 @else
                                     <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start mt-1" wire:click="openVoucherModal">
                                         <i class="fas fa-ticket me-1"></i> Cari voucher pelanggan…
-                                        <kbd class="float-end">F7</kbd>
+                                        <kbd class="float-end">F10</kbd>
                                     </button>
                                     @error('pay.voucher.jumlah') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
                                 @endif

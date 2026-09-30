@@ -1037,15 +1037,20 @@ class PosTerminal extends Component
     }
 
     /**
-     * Pintasan bayar di dalam dialog, urut sesuai kolomnya (permintaan user 2026-09-28):
+     * Pintasan bayar di dalam dialog (permintaan user 2026-09-30, penomoran KETIGA):
      *
-     *   F1 Tunai · F2 Debit · F3 Kredit · F4 Transfer · F5 DP · F6 Merchant · F7 Voucher
+     *   F4 Tunai · F5 Debit · F8 Kredit · F9 Transfer · F2 Merchant · F10 Voucher · F6 DP
+     *
+     * **DP tidak disebut user** - F5 yg dulu memegangnya kini jadi Debit, jadi DP ditaruh di
+     * F6: satu-satunya tombol tersisa yg tidak bentrok, DAN artinya jadi konsisten karena di
+     * LUAR dialog F6 memang sudah "Cari DP". (F6 juga pemegang DP pada penomoran PERTAMA,
+     * permintaan user 2026-09-28 "F6 tampil rincian DP".)
      *
      * DUA PERILAKU BERBEDA, karena memang beda sifatnya:
      *
-     *  - F1/F2/F3/F4/F6 -> `bayarPenuh()`: semua NILAI bayar dikosongkan, lalu metode itu
+     *  - F4/F5/F8/F9/F2 -> `bayarPenuh()`: semua NILAI bayar dikosongkan, lalu metode itu
      *    diisi sebesar total transaksi.
-     *  - F5 (DP) & F7 (Voucher) -> MEMBUKA PEMILIHNYA. Keduanya tidak bisa "diisi penuh":
+     *  - F6 (DP) & F10 (Voucher) -> MEMBUKA PEMILIHNYA. Keduanya tidak bisa "diisi penuh":
      *    nilainya berasal dari saldo DP/voucher yg dipilih (`pickDp()` mengisi sebesar sisa
      *    saldo), dan sisa itu sering TIDAK menutup seluruh transaksi - jadi metode lain
      *    SENGAJA TIDAK dikosongkan, karena biasanya masih dibutuhkan untuk menutup sisanya.
@@ -1055,11 +1060,11 @@ class PosTerminal extends Component
      * keduanya saat jumlah 0), tapi kasir tidak perlu mencarinya ulang kalau berubah pikiran.
      */
     public const PINTASAN_BAYAR = [
-        'F1' => 'tunai',
-        'F2' => 'debit',
-        'F3' => 'kredit',
-        'F4' => 'transfer',
-        'F6' => 'merchant',
+        'F4' => 'tunai',
+        'F5' => 'debit',
+        'F8' => 'kredit',
+        'F9' => 'transfer',
+        'F2' => 'merchant',
     ];
 
     public function bayarPenuh(string $key): void
@@ -1084,79 +1089,81 @@ class PosTerminal extends Component
         $this->dispatch('fokus-bayar', key: $key);
     }
 
-    /* Pengalih tombol pintas. F1-F7 SEMUANYA punya arti ganda: di luar dialog = pintasan lama,
-     | di dalam dialog = pintasan bayar. Satu pengikat per tombol dgn percabangan DI SINI -
+    /* Pengalih tombol pintas. Tiap Fn punya arti GANDA: di luar dialog bayar = pintasan layar
+     | utama, di dalam dialog = pintasan bayar. Satu pengikat per tombol dgn percabangan DI SINI -
      | kalau dipasang dua `wire:keydown.fN.window` (satu di root, satu di dalam dialog),
-     | KEDUANYA ikut jalan (mis. nilai bayar terisi TAPI modal cari item ikut terbuka). */
+     | KEDUANYA ikut jalan (mis. nilai bayar terisi TAPI modal cari item ikut terbuka).
+     |
+     | TABEL LENGKAPNYA ada di CLAUDE.md - rujuk ke sana, jangan menyimpulkan dari satu method. */
 
+    /** Di DALAM dialog TIDAK berarti apa-apa lagi - Tunai pindah ke F4 (2026-09-30). */
     public function hotkeyF1(): void
     {
-        $this->showPayModal ? $this->bayarPenuh('tunai') : $this->openCustModal();
+        if (! $this->showPayModal) {
+            $this->openCustModal();
+        }
     }
 
     public function hotkeyF2(): void
     {
-        $this->showPayModal ? $this->bayarPenuh('debit') : $this->openItemModal();
+        $this->showPayModal ? $this->bayarPenuh('merchant') : $this->openItemModal();
     }
 
-    /**
-     * Di LUAR dialog sengaja TIDAK melakukan apa pun - "Harga Khusus" (dulu Cari Promo)
-     * pindah ke F10 (permintaan user 2026-09-30).
-     */
+    /** Kosong di KEDUA keadaan sejak 2026-09-30 - satu-satunya Fn yg benar-benar menganggur. */
     public function hotkeyF3(): void
     {
+        // sengaja kosong
+    }
+
+    /** Di LUAR dialog kosong - "Daftar Paket" (dulu Cari Paket) pindah ke F11 (2026-09-30). */
+    public function hotkeyF4(): void
+    {
         if ($this->showPayModal) {
-            $this->bayarPenuh('kredit');
+            $this->bayarPenuh('tunai');
         }
     }
 
-    /** Idem F3 - "Daftar Paket" (dulu Cari Paket) pindah ke F11 (2026-09-30). */
-    public function hotkeyF4(): void
+    public function hotkeyF5(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('debit') : $this->openVoucherModal();
+    }
+
+    /** DP: di KEDUA keadaan membuka pemilih DP - di dalam dialog inilah "rincian DP"-nya. */
+    public function hotkeyF6(): void
+    {
+        $this->openDpModal();
+    }
+
+    /** Kosong di KEDUA keadaan sejak 2026-09-30 - Voucher pindah ke F10. */
+    public function hotkeyF7(): void
+    {
+        // sengaja kosong
+    }
+
+    /**
+     * Di LUAR dialog: membuka dialog Pembayaran (permintaan user 2026-09-30, sebelumnya F9).
+     * Dijaga supaya tidak jalan saat dialognya SUDAH terbuka - `openPayModal()` menyalin ulang
+     * nilai bayar ke `$paySebelumnya`, jadi memanggilnya lagi akan menghapus titik pulih Batal.
+     * Di DALAM dialog: Kartu Kredit.
+     */
+    public function hotkeyF8(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('kredit') : $this->openPayModal();
+    }
+
+    /** Di LUAR dialog kosong - F9 dulu pembuka dialog bayar, sekarang F8 (2026-09-30). */
+    public function hotkeyF9(): void
     {
         if ($this->showPayModal) {
             $this->bayarPenuh('transfer');
         }
     }
 
-    /** DP: di KEDUA keadaan membuka pemilih DP - di dalam dialog inilah "rincian DP"-nya. */
-    public function hotkeyF5(): void
-    {
-        $this->showPayModal ? $this->openDpModal() : $this->openVoucherModal();
-    }
-
-    public function hotkeyF6(): void
-    {
-        $this->showPayModal ? $this->bayarPenuh('merchant') : $this->openDpModal();
-    }
-
     /**
-     * Voucher: di dalam dialog membuka pemilih voucher (nilainya dari saldo voucher).
-     * Di LUAR dialog sengaja tidak melakukan apa pun - promo pindah ke F3 (2026-09-29).
-     */
-    public function hotkeyF7(): void
-    {
-        if ($this->showPayModal) {
-            $this->openVoucherModal();
-        }
-    }
-
-    /**
-     * F8 membuka dialog Pembayaran (permintaan user 2026-09-30, sebelumnya F9). Dijaga supaya
-     * tidak jalan saat dialognya SUDAH terbuka - `openPayModal()` menyalin ulang nilai bayar
-     * ke `$paySebelumnya`, jadi memanggilnya lagi akan menghapus titik pulih untuk Batal.
-     */
-    public function hotkeyF8(): void
-    {
-        if (! $this->showPayModal) {
-            $this->openPayModal();
-        }
-    }
-
-    /**
-     * F10 "Harga Khusus" & F11 "Daftar Paket" (permintaan user 2026-09-30; dulu F3 & F4, dan
-     * captionnya dulu "Cari Promo"/"Cari Paket"). **Hanya di LUAR dialog bayar** - memilih
-     * promo/paket di tengah dialog akan mengubah total sementara isian bayar sudah terkunci
-     * di layar.
+     * F10: di LUAR dialog "Harga Khusus" (dulu Cari Promo), di DALAM dialog **Voucher**
+     * (pindah dari F7, permintaan user 2026-09-30). F11 "Daftar Paket" (dulu Cari Paket)
+     * **hanya di LUAR dialog** - memilih paket di tengah dialog akan mengubah total sementara
+     * isian bayar sudah terkunci di layar.
      *
      * CATATAN BROWSER: F11 = layar penuh dan F10 = bilah menu (Firefox). Keduanya MASIH bisa
      * dicegah `preventDefault()` - beda dari **F12** yg TIDAK bisa (DevTools dipegang browser,
@@ -1165,9 +1172,7 @@ class PosTerminal extends Component
      */
     public function hotkeyF10(): void
     {
-        if (! $this->showPayModal) {
-            $this->openPromoModal();
-        }
+        $this->showPayModal ? $this->openVoucherModal() : $this->openPromoModal();
     }
 
     public function hotkeyF11(): void
@@ -1198,7 +1203,7 @@ class PosTerminal extends Component
     }
 
     /* `payExact()`, `payExactMethod()` & `totalBayarExcept()` DIHAPUS 2026-09-29 - tautan
-     | "uang pas" di dialog bayar dihapus atas permintaan user karena sudah ada pintasan F1-F7.
+     | "uang pas" di dialog bayar dihapus atas permintaan user karena sudah ada pintasan bayar.
      |
      | BEDANYA, kalau nanti dibutuhkan lagi: "uang pas" mengisi SISA yg belum terbayar,
      | sedangkan `bayarPenuh()` mengosongkan semua lalu mengisi TOTAL PENUH. Jadi sekarang

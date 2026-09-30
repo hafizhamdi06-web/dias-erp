@@ -123,6 +123,17 @@ CREATE TABLE IF NOT EXISTS `lv_activity_log` (
   KEY `lv_activity_log_created_at_index` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Preferensi tampilan/cetak per user. Kebutuhan pertama: ukuran struk POS
+-- ('58' = termal 58mm, 'a5' = setengah A4/LX300). NULL = ikut default aplikasi
+-- (`config('pos.struk_default')`). Preferensi baru ditambah sbg KOLOM di tabel ini.
+CREATE TABLE IF NOT EXISTS `lv_user_pref` (
+  `user_id`    int(10) unsigned NOT NULL,
+  `struk_pos`  varchar(10) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- =============================================================================
 --  BAGIAN 2 — KONFIGURASI NOMOR TRANSAKSI (tabel legacy `aanomor`)
@@ -209,7 +220,8 @@ SELECT m.migration, 1 FROM (
   SELECT '2026_09_21_000001_seed_aanomor_kmb'                         UNION ALL
   SELECT '2026_09_21_000002_seed_aanomor_tmb'                         UNION ALL
   SELECT '2026_09_23_000001_seed_aanomor_jop'                         UNION ALL
-  SELECT '2026_09_23_000002_seed_aanomor_pro'
+  SELECT '2026_09_23_000002_seed_aanomor_pro'                         UNION ALL
+  SELECT '2026_09_30_000001_create_lv_user_pref_table'
 ) m
 WHERE NOT EXISTS (
   SELECT 1 FROM `lv_migrations` x WHERE x.migration = m.migration

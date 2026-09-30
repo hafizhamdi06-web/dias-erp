@@ -78,6 +78,13 @@ class CoaManager extends Component
     /** Tipe yg saldo normalnya DEBIT (VB6 baris 570). Sisanya kredit. */
     public const TIPE_DEBIT = [0, 1, 2, 3, 4, 5, 6, 12, 13, 15];
 
+    /**
+     * Tipe yang tergolong "akun biaya": Harga Pokok Penjualan, Biaya, Biaya Lain-Lain.
+     * Dipakai `LookupController::coaBiaya()` membatasi baris detail Kas/Bank KELUAR
+     * (permintaan user 2026-09-30) - lihat docblock method itu.
+     */
+    public const TIPE_BIAYA = [12, 13, 15];
+
     public string $search = '';
     public string $fTipe = '';
     public string $fAktif = '1';
@@ -98,6 +105,20 @@ class CoaManager extends Component
     public string $CGD = 'D';
     public bool $CACTIVE = true;
 
+    /**
+     * Ceklist "Dipakai di Kas Masuk / Kas Keluar" (`bcoa.CKASMASUK` / `CKASKELUAR`).
+     *
+     * INI BUKAN penanda akun kas/bank. Akun kas/bank ditentukan `CTIPE` (0=Kas, 1=Bank)
+     * lewat `LookupController::coaRekening()`. Dua ceklist ini menyaring **AKUN LAWAN**
+     * (baris detail) di form Kas/Bank Masuk & Keluar - `LookupController::coaBiaya()`,
+     * pola sama CI3 `view_coa_kasmasuk()` / `view_coa_kaskeluar()`.
+     *
+     * Filternya SUDAH jalan sejak awal; yg belum ada cuma cara menyuntingnya dari
+     * aplikasi - sebelum ini daftarnya cuma bisa diubah langsung di DB.
+     */
+    public bool $CKASMASUK = false;
+    public bool $CKASKELUAR = false;
+
     protected function rules(): array
     {
         return [
@@ -111,6 +132,8 @@ class CoaManager extends Component
             'CBANK'    => ['nullable', 'integer'],
             'CGD'      => ['required', 'in:D,G'],
             'CACTIVE'  => ['boolean'],
+            'CKASMASUK'  => ['boolean'],
+            'CKASKELUAR' => ['boolean'],
         ];
     }
 
@@ -147,6 +170,8 @@ class CoaManager extends Component
         ]);
         $this->CGD = 'D';
         $this->CACTIVE = true;
+        $this->CKASMASUK = false;
+        $this->CKASKELUAR = false;
         // VB6 default mata uang "Rp" (baris 745).
         $this->CUANG = (int) DB::table('buang')->where('UKODE', 'Rp')->value('UID') ?: null;
         $this->resetErrorBag();
@@ -171,6 +196,8 @@ class CoaManager extends Component
         $this->CBANK      = $c->CBANK ? (int) $c->CBANK : null;
         $this->CGD        = in_array($c->CGD, ['D', 'G'], true) ? $c->CGD : 'D';
         $this->CACTIVE    = (int) $c->CACTIVE === 1;
+        $this->CKASMASUK  = (int) $c->CKASMASUK === 1;
+        $this->CKASKELUAR = (int) $c->CKASKELUAR === 1;
         $this->parentLabel = $this->CPARENT
             ? (string) DB::table('bcoa')->where('CID', $this->CPARENT)
                 ->selectRaw("CONCAT(CNOCOA, ' — ', CNAMA) as t")->value('t')
@@ -230,6 +257,8 @@ class CoaManager extends Component
             'CBANK'    => $this->CBANK ?: null,
             'CGD'      => $this->CGD,
             'CACTIVE'  => $this->CACTIVE ? 1 : 0,
+            'CKASMASUK'  => $this->CKASMASUK ? 1 : 0,
+            'CKASKELUAR' => $this->CKASKELUAR ? 1 : 0,
             'CMODIFU'  => auth()->id(),
             'CMODIFD'  => now(),
         ];

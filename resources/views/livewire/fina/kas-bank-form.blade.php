@@ -10,9 +10,17 @@
                     <span class="badge text-bg-success ms-2">Tersimpan</span>
                 @endif
             </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="closeTab">
-                <i class="fas fa-xmark me-1"></i> Tutup
-            </button>
+            <div class="d-flex gap-2">
+                {{-- `$printRoute` null utk modul yg blm py cetakan (Bank Masuk/Keluar). --}}
+                @if ($id && $printRoute && can_do($abilityPath, 'print'))
+                    <a href="{{ route($printRoute, $id) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-print me-1"></i> Cetak
+                    </a>
+                @endif
+                <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="closeTab">
+                    <i class="fas fa-xmark me-1"></i> Tutup
+                </button>
+            </div>
         </div>
         <div class="card-body">
             @if ($errors->has('lines'))
@@ -39,7 +47,10 @@
                     @if ($locked)
                         <input type="text" class="form-control" value="{{ $rekeningLabel }}" disabled>
                     @else
-                        <x-search-select model="rekening" :endpoint="route('lookup.coa.rekening', ['tipe' => $isBank ? 'bank' : 'kas'])"
+                        {{-- `arah` menyaring ke COA yg berceklist "Dipakai di Kas Masuk/Keluar"
+                             di Master COA (permintaan user 2026-09-30) - `CTIPE` saja tidak
+                             cukup, di data nyata CTIPE=0 berisi Persediaan & baris "none". --}}
+                        <x-search-select model="rekening" :endpoint="route('lookup.coa.rekening', ['tipe' => $isBank ? 'bank' : 'kas', 'arah' => $isMasuk ? 'masuk' : 'keluar'])"
                                           :value="$rekening" :selectedText="$rekeningLabel" placeholder="cari akun…" />
                         @error('rekening') <div class="text-danger small">{{ $message }}</div> @enderror
                     @endif
@@ -119,8 +130,13 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end"
-                                           wire:model="lines.{{ $i }}.jumlah" {{ $locked ? 'disabled' : '' }}>
+                                    {{-- Berformat ribuan setelah selesai diketik (permintaan user
+                                         2026-09-30). JANGAN `:live` - itu memicu round-trip tiap
+                                         ketikan & bikin tersendat; komponennya mengirim sendiri
+                                         sekali saat isian ditinggalkan, jadi Total tetap ikut
+                                         terbarui. --}}
+                                    <x-uang-input :model="'lines.'.$i.'.jumlah'" :value="$l['jumlah']"
+                                                  :disabled="$locked" />
                                 </td>
                                 <td>
                                     <input type="text" class="form-control form-control-sm" wire:model="lines.{{ $i }}.catatan" {{ $locked ? 'disabled' : '' }}>

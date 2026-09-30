@@ -44,6 +44,16 @@ abstract class KasBankFormBase extends Component
 
     abstract public function abilityPath(): string;
 
+    /**
+     * Nama rute cetak, atau `null` kalau modulnya belum py cetakan - tombol Cetak lalu
+     * disembunyikan. Bank Masuk/Keluar sengaja masih `null`, lihat
+     * `KasBankPrintController`.
+     */
+    public function printRoute(): ?string
+    {
+        return null;
+    }
+
     public function mount(?int $id = null): void
     {
         $this->tanggal = now()->toDateString();
@@ -53,8 +63,30 @@ abstract class KasBankFormBase extends Component
         if ($id) {
             $this->load($id);
         } else {
+            $this->uraian = $this->uraianBawaan();
             $this->addLine();
         }
+    }
+
+    /**
+     * Uraian bawaan dokumen BARU, diambil dari `aanomor.NKETERANGAN` - mis. "Bukti Kas
+     * Keluar". Pola sama CI3: `Fina_Kas_Keluar::getketerangan()` mengambil kolom yg sama lalu
+     * mengisi field Uraian saat form dibuka/dikosongkan.
+     *
+     * Dicocokkan `NKODE` = `sumber()` ('KM'/'KK'/'BM'/'BK') DAN `NTABEL='ctransaksiu'`.
+     * `NTABEL` ikut dipakai walau keempat kode itu terbukti unik di data sekarang - `NKODE`
+     * tidak dijamin unik lintas tabel oleh skemanya.
+     *
+     * Dokumen LAMA tidak disentuh: `load()` memakai `CUURAIAN` yang tersimpan.
+     */
+    private function uraianBawaan(): ?string
+    {
+        $ket = DB::table('aanomor')
+            ->where('NKODE', $this->sumber())
+            ->where('NTABEL', 'ctransaksiu')
+            ->value('NKETERANGAN');
+
+        return $ket !== null && trim((string) $ket) !== '' ? trim((string) $ket) : null;
     }
 
     private function load(int $id): void
@@ -208,9 +240,11 @@ abstract class KasBankFormBase extends Component
     public function render()
     {
         return view('livewire.fina.kas-bank-form', [
-            'judul'    => $this->judul(),
-            'isBank'   => $this->isBank(),
-            'isMasuk'  => $this->isMasukArah(),
+            'judul'      => $this->judul(),
+            'isBank'     => $this->isBank(),
+            'isMasuk'    => $this->isMasukArah(),
+            'printRoute' => $this->printRoute(),
+            'abilityPath' => $this->abilityPath(),
             'total'    => array_sum(array_map(fn ($l) => (float) $l['jumlah'], $this->lines)),
         ]);
     }

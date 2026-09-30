@@ -173,17 +173,142 @@ window.posFieldKey = function (e) {
     }
 };
 
-/* <x-search-select> */
+/* <x-uang-input> - isian angka rupiah berformat ribuan.
+ *
+ * `<input type="number">` TIDAK BISA menampilkan pemisah ribuan sama sekali - peramban
+ * menolak karakter non-angka di dalamnya. Jadi ini `type="text"` + format sendiri:
+ *
+ *   - saat DIKETIK   : dibiarkan apa adanya supaya kursor tidak melompat-lompat
+ *   - saat KELUAR    : diformat `1.234.567,89` (gaya Indonesia)
+ *   - saat MASUK     : dikembalikan ke angka mentah supaya gampang disunting/ditimpa
+ *
+ * Yang dikirim ke Livewire SELALU angka (lewat `x-modelable="value"`), bukan teks
+ * berformat - jadi hitungan di server tidak perlu mengurai apa pun.
+ */
+window.uangInput = function (cfg) {
+    return {
+        value: Number(cfg.initial) || 0,
+        tampil: '',
+        mengetik: false,
+        desimal: Number(cfg.desimal) || 0,
+        init() {
+            this.tampil = this.format(this.value);
+            // Nilai bisa berubah dari SERVER (mis. dokumen dimuat, baris dihapus) - tampilan
+            // ikut diperbarui, TAPI jangan saat user sedang mengetik.
+            this.$watch('value', function (v) {
+                if (!this.mengetik) { this.tampil = this.format(v); }
+            }.bind(this));
+        },
+        /**
+         * Kirim nilai ke server SEKALI, hanya saat isian ditinggalkan.
+         *
+         * Versi pertama memakai `wire:model.live` -> TIAP KETIKAN memicu round-trip Livewire,
+         * dan setiap balasan me-morph ulang barisnya. Hasilnya mengetik terasa tersendat &
+         * kursor bisa meloncat (dilaporkan user: "belum lancar"). Sekarang `wire:model` biasa
+         * (tertunda) + `$commit()` di sini - jadi tepat satu permintaan per isian.
+         */
+        kirim() {
+            if (this.$wire && typeof this.$wire.$commit === 'function') {
+                this.$wire.$commit();
+            }
+        },
+        format(v) {
+            var n = Number(v);
+            if (!isFinite(n)) { return ''; }
+
+            return n.toLocaleString('id-ID', {
+                minimumFractionDigits: this.desimal,
+                maximumFractionDigits: this.desimal,
+            });
+        },
+        /** '1.234.567,89' -> 1234567.89. Titik = pemisah ribuan, koma = desimal. */
+        urai(s) {
+            var bersih = String(s == null ? '' : s).replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '');
+            var n = parseFloat(bersih);
+
+            return isFinite(n) ? n : 0;
+        },
+        fokus(e) {
+            this.mengetik = true;
+            this.tampil = this.value ? String(this.value).replace('.', ',') : '';
+            this.$nextTick(function () { if (e && e.target.select) { e.target.select(); } });
+        },
+        /**
+         * Selama mengetik TIDAK ada apa pun yang dikirim & teks TIDAK diformat ulang -
+         * memformat per ketikan membuat kursor meloncat ke ujung tiap kali panjang teks
+         * berubah. Isian dibiarkan apa adanya sampai ditinggalkan.
+         */
+        keluar() {
+            this.mengetik = false;
+
+            var baru = this.urai(this.tampil);
+            this.tampil = this.format(baru);
+
+            if (baru !== this.value) {
+                this.value = baru;   // x-modelable -> wire:model (tertunda)
+                this.kirim();        // ...baru dikirim di sini
+            }
+        },
+    };
+};
+
+/* <x-search-select>
+ *
+ * Panel hasil pencarian dipasang `position: fixed` dan diposisikan lewat JS, BUKAN
+ * `position: absolute`. Alasannya (dilaporkan user 2026-09-30 di form Kas Keluar): tabel
+ * baris detail dibungkus `.table-responsive` yang ber-`overflow-x: auto` - itu membuat
+ * konteks pemotongan, sehingga panel absolute TERPOTONG footer/tepi tabel dan hasil
+ * pencarian tidak terlihat. `fixed` lepas dari pemotongan induk mana pun.
+ *
+ * Konsekuensinya posisi HARUS dihitung sendiri & diperbarui saat halaman di-scroll/resize -
+ * itu tugas `_ukur()`. Panel juga otomatis DIBALIK KE ATAS kalau ruang di bawah kurang.
+ */
 window.searchSelect = function (cfg) {
     return {
         open: false, loading: false, q: '',
         value: cfg.initialId || null,
         label: cfg.initialText || '',
         options: [],
+        /* Nilai awal = posisi ABSOLUTE seperti versi lama. Ini jaring pengaman: kalau
+           `_ukur()` gagal (mis. ref hilang), panel tetap tampil di bawah pemicu spt dulu -
+           terpotong induk ber-overflow, TAPI tidak lebih rusak dari sebelumnya. */
+        gaya: 'position:absolute; z-index:1060; width:100%; left:0; top:100%; margin-top:4px;',
+        _pasang: null,     // pelepas listener scroll/resize
         init() {
             if (this.value && !this.label) { this.resolveLabel(); }
             this.$watch('value', function (v) { if (!v) { this.label = ''; } }.bind(this));
+            this.$watch('open', function (v) { v ? this._ikat() : this._lepas(); }.bind(this));
         },
+        /** Hitung posisi panel dari kotak pemicunya (koordinat viewport, krn `fixed`). */
+        _ukur() {
+            var el = this.$refs.pemicu;
+            if (!el) { return; }
+            var r = el.getBoundingClientRect();
+            var tinggi = 300;                        // perkiraan tinggi panel (kotak cari + daftar)
+            var ruangBawah = window.innerHeight - r.bottom;
+            var keAtas = ruangBawah < tinggi && r.top > ruangBawah;
+            var maks = Math.max(150, (keAtas ? r.top : ruangBawah) - 12);
+
+            this.gaya = 'position:fixed; z-index:1080; width:' + r.width + 'px; left:' + r.left + 'px; '
+                + (keAtas ? 'bottom:' + (window.innerHeight - r.top + 4) + 'px;' : 'top:' + (r.bottom + 4) + 'px;')
+                + ' --ss-maks:' + (maks - 46) + 'px;';
+        },
+        _ikat() {
+            this._ukur();
+            var f = this._ukur.bind(this);
+            // `true` = fase capture, supaya scroll di dalam .table-responsive ikut tertangkap
+            // (event scroll TIDAK menggelembung ke window).
+            window.addEventListener('scroll', f, true);
+            window.addEventListener('resize', f);
+            this._pasang = function () {
+                window.removeEventListener('scroll', f, true);
+                window.removeEventListener('resize', f);
+            };
+        },
+        _lepas() {
+            if (this._pasang) { this._pasang(); this._pasang = null; }
+        },
+        destroy() { this._lepas(); },
         _url(param, val) {
             return cfg.endpoint + (cfg.endpoint.indexOf('?') !== -1 ? '&' : '?') + param + '=' + encodeURIComponent(val);
         },

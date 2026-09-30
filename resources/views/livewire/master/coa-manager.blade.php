@@ -206,6 +206,23 @@
                                 <label class="form-check-label" for="coa-aktif">Aktif</label>
                             </div>
                             <div class="form-text">COA nonaktif tidak muncul lagi di pilihan rekening modul Finance.</div>
+
+                            {{-- Dua ceklist ini menyaring AKUN LAWAN (baris detail) di form
+                                 Kas/Bank Masuk & Keluar - BUKAN penanda akun kas/bank.
+                                 Akun kas/bank ditentukan Tipe (Kas/Bank). --}}
+                            <div class="form-check mt-2">
+                                <input type="checkbox" class="form-check-input" id="coa-kasmasuk" wire:model="CKASMASUK">
+                                <label class="form-check-label" for="coa-kasmasuk">Dipakai di Kas Masuk</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="coa-kaskeluar" wire:model="CKASKELUAR">
+                                <label class="form-check-label" for="coa-kaskeluar">Dipakai di Kas Keluar</label>
+                            </div>
+                            <div class="form-text">
+                                Menentukan COA ini muncul atau tidak sebagai <strong>akun lawan</strong>
+                                (baris detail) di form Kas/Bank Masuk &amp; Keluar — bukan sebagai
+                                rekening kas/bank-nya.
+                            </div>
                         </div>
                     </div>
                 </div>

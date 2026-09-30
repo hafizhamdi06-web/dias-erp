@@ -24,6 +24,16 @@ class PosDataList extends Component
 {
     use WithPagination;
 
+    /** Diteruskan Workspace ke tiap tab. */
+    public ?string $tabKey = null;
+
+    /**
+     * Path hak akses SENDIRI, terpisah dari `sales/pos`. Sejak 2026-09-28 layar ini jadi menu
+     * sidebar sendiri (dulu hanya tombol di dalam layar kasir), jadi supervisor bisa diberi
+     * akses melihat & cetak ulang transaksi TANPA diberi akses layar kasir.
+     */
+    private const ACL = 'sales/pos-data';
+
     public string $fNomor = '';
     public string $fPasien = '';
     public string $fStatus = '1'; // '' = semua, '1' = aktif (default), '0' = batal
@@ -36,6 +46,10 @@ class PosDataList extends Component
 
     public function mount(): void
     {
+        // Sidebar sudah menyaring lewat `view` (Acl::sidebarTree), ini defense-in-depth spt
+        // list modul lain - `openFromSidebar()` menerima segment_key dari klien.
+        abort_unless(can_do(self::ACL, 'view'), 403);
+
         $this->fTanggalDari = now()->toDateString();
         $this->fTanggalSampai = now()->toDateString();
 

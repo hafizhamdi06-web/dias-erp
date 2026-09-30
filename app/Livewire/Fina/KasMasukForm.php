@@ -10,4 +10,5 @@ class KasMasukForm extends KasBankFormBase
     public function judul(): string { return 'Kas Masuk'; }
     public function isBank(): bool { return false; }
     public function abilityPath(): string { return 'finance/kas-masuk'; }
+    public function printRoute(): ?string { return 'finance.kas-masuk.print'; }
 }

@@ -156,6 +156,23 @@
                                 <label class="form-check-label" for="u-active">Aktif</label>
                             </div>
                         </div>
+
+                        {{-- Ukuran struk POS per user (2026-09-30). Kosong = ikut default
+                             aplikasi, barisnya tidak disimpan sama sekali. --}}
+                        <div class="col-md-4">
+                            <label class="form-label" for="u-struk">Struk POS</label>
+                            <select class="form-select @error('struk_pos') is-invalid @enderror"
+                                    id="u-struk" wire:model="struk_pos">
+                                <option value="">
+                                    Ikut default ({{ config('pos.struk_pilihan')[config('pos.struk_default')] ?? config('pos.struk_default') }})
+                                </option>
+                                @foreach (config('pos.struk_pilihan', []) as $kode => $label)
+                                    <option value="{{ $kode }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                            @error('struk_pos') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            <div class="form-text">Dipakai saat user ini mencetak struk dari POS.</div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">

@@ -273,15 +273,35 @@ class LookupController extends Controller
         return response()->json($rows);
     }
 
+    /**
+     * Rekening kas/bank (header form Kas/Bank).
+     *
+     * `?tipe=kas|bank` -> `CTIPE` 0/1.
+     *
+     * `?arah=masuk|keluar` -> WAJIB berceklist `CKASMASUK`/`CKASKELUAR` di Master COA
+     * (permintaan user 2026-09-30). Tanpa `arah`, penyaringan ceklist TIDAK dipakai -
+     * itu yang menjaga Pengajuan Dana (memanggil tanpa `arah`) tetap seperti sebelumnya.
+     *
+     * Alasannya: `CTIPE` saja tidak bisa dipercaya sbg penentu "rekening kas". Di data nyata
+     * CTIPE=0 berisi **Persediaan Bahan Baku**, **Persediaan Bahan Jadi** dan satu baris
+     * bernama **"none"** - jelas salah tipe, tapi ikut muncul di dropdown. Ceklist di Master
+     * COA memberi daftar putih yang dikurasi manusia.
+     *
+     * CI3 tidak punya ini: di sana field COA Kas form Kas Keluar malah DIKUNCI ke satu
+     * `<option value="5">Kas Kecil</option>` + `disabled` - tidak ada pilihan sama sekali.
+     */
     public function coaRekening(Request $r)
     {
         $tipe = $r->query('tipe');
+        $arah = $r->query('arah');
         $q = trim((string) $r->query('q', ''));
 
         $rows = DB::table('bcoa')
             ->selectRaw("CID AS id, CONCAT(CNOCOA, ' — ', CNAMA) AS text")
             ->when($tipe === 'kas', fn ($b) => $b->where('CTIPE', 0))
             ->when($tipe === 'bank', fn ($b) => $b->where('CTIPE', 1))
+            ->when($arah === 'masuk', fn ($b) => $b->where('CKASMASUK', 1))
+            ->when($arah === 'keluar', fn ($b) => $b->where('CKASKELUAR', 1))
             ->where('CGD', 'D')->where('CACTIVE', 1)
             ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w
                 ->where('CNOCOA', 'like', "%{$q}%")->orWhere('CNAMA', 'like', "%{$q}%")))
@@ -302,12 +322,27 @@ class LookupController extends Controller
      */
     public function coaBiaya(Request $r)
     {
-        $kolom = $r->query('arah') === 'keluar' ? 'CKASKELUAR' : 'CKASMASUK';
+        $keluar = $r->query('arah') === 'keluar';
+        $kolom = $keluar ? 'CKASKELUAR' : 'CKASMASUK';
         $q = trim((string) $r->query('q', ''));
 
         $rows = DB::table('bcoa')
             ->selectRaw("CID AS id, CONCAT(CNOCOA, ' — ', CNAMA) AS text")
             ->where($kolom, 1)->where('CGD', 'D')->where('CACTIVE', 1)
+            /*
+             * Arah KELUAR: baris detail HANYA akun berjenis biaya - Harga Pokok Penjualan,
+             * Biaya, Biaya Lain-Lain (permintaan user 2026-09-30).
+             *
+             * Ini WAJIB sejak `CKASKELUAR` juga dipakai menyaring dropdown REKENING: begitu
+             * user mencentang akun Kas (mis. "Kas Kecil") supaya muncul sbg rekening, akun itu
+             * IKUT BOCOR ke dropdown Detail Biaya - persis yg dilaporkan. Satu ceklist untuk
+             * dua keperluan, dipisahkan lewat TIPE akun.
+             *
+             * Arah MASUK sengaja TIDAK dibatasi tipe: lawan Kas Masuk bukan biaya, dan di data
+             * nyata `CKASMASUK=1` justru 2 akun BANK (pemindahan antar rekening). Membatasi ke
+             * tipe pendapatan akan mengosongkan dropdown-nya.
+             */
+            ->when($keluar, fn ($b) => $b->whereIn('CTIPE', \App\Livewire\Master\CoaManager::TIPE_BIAYA))
             ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w
                 ->where('CNOCOA', 'like', "%{$q}%")->orWhere('CNAMA', 'like', "%{$q}%")))
             ->when($id = $r->query('id'), fn ($b) => $b->orWhere('CID', $id))

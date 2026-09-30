@@ -1478,6 +1478,585 @@ satu baris Masuk 10 + Keluar 4; **trigger menaikkan stok netto +6 (134->140) lal
 134 setelah dibatalkan**; mode view read-only + badge Batal; filter Jenis jalan; tab terbuka
 dari sidebar.
 
+## POS: Pembayaran jadi dialog (modal) (2026-09-28)
+
+Permintaan user + screenshot dialog Pembayaran VB6 sbg **gambaran tata letak saja** -
+**BUKAN menambah jenis bayar** (VB6 punya Medika Apps, Piutang Surgery, Cicilan; **ketiganya
+SENGAJA tidak dibuat**). Isinya persis **7 jenis yg sudah ada**: tunai, debit, kredit,
+transfer, merchant, voucher, DP - `wire:model` & validasinya tidak disentuh, cuma pindah
+tempat, jadi perilaku simpan tidak berubah.
+
+**Panel bayar lama DIHAPUS** dari kolom kanan (dulu memanjang dgn `<details>` bertumpuk).
+Diganti: **ringkasan** (rincian jenis bayar yg terisi + Dibayar + Kurang/Kembalian, atau
+"Belum ada pembayaran") + tombol. Dialog `size="lg"` dua kolom spt VB6 - kiri tunai + dua
+kartu, kanan transfer/DP/merchant/voucher; ringkasan bawah memakai istilah VB6
+**Sub Total / Total Bayar / Sisa**.
+
+### Kas/Bank: Uraian bawaan dari `aanomor.NKETERANGAN` (2026-09-30)
+
+Dokumen **BARU** mengisi Uraian otomatis dari `aanomor.NKETERANGAN` - "Bukti Kas Masuk",
+"Bukti Kas Keluar", "Bukti Bank Masuk", "Bukti Bank Keluar". Pola SAMA CI3
+`Fina_Kas_Keluar::getketerangan()` yg mengambil kolom yg sama lalu mengisi field Uraian.
+
+Dicocokkan `NKODE` = `sumber()` ('KM'/'KK'/'BM'/'BK') **DAN** `NTABEL='ctransaksiu'`. `NTABEL`
+ikut dipakai walau keempat kode itu terbukti unik di data sekarang - skemanya tidak menjamin
+`NKODE` unik lintas tabel. Dokumen **LAMA tidak disentuh**: `load()` tetap memakai `CUURAIAN`
+yg tersimpan.
+
+**`ctransaksiu` SUDAH TIDAK KOSONG lagi sejak 2026-09-30** - user mulai memakai form ini
+sungguhan (`PG-KK26090001`). Uji yang mengasumsikan tabel ini kosong akan gagal & bisa
+menyesatkan: sempat terbaca spt "rollback gagal" & "uraian ditimpa writer", padahal yg terbaca
+dokumen ASLI user. **Kenali baris uji lewat penanda unik dan bandingkan jumlah baris sbg
+SELISIH**, jangan angka mutlak.
+
+## `public/js/dias-helpers.js` WAJIB ber-`?v=` (2026-09-30)
+
+`<script src="{{ asset('js/dias-helpers.js') }}">` tanpa penanda versi -> **peramban
+menyajikan versi CACHE**, jadi perbaikan JS apa pun tidak pernah sampai ke user.
+
+**Sudah memakan dua perbaikan berturut-turut dalam satu hari**: panel `<x-search-select>`
+(`position: fixed`) dan komponen `uangInput` yg sama sekali baru. Keduanya dilaporkan user
+"masih tertutup" / "belum lancar" - padahal kodenya benar, berkas JS-nya yg lama yang dimuat.
+`uangInput` bahkan `undefined` di peramban, jadi isian uangnya tidak berfungsi sama sekali.
+
+Sekarang: `?v={{ @filemtime(public_path('js/dias-helpers.js')) ?: 1 }}` - berubah otomatis tiap
+berkasnya disimpan, tidak perlu diingat. **Kalau nanti menambah berkas JS/CSS lokal sendiri,
+beri penanda versi yang sama.** Berkas vendor (AdminLTE) tidak perlu - isinya tidak pernah
+berubah.
+
+**PELAJARAN UMUM**: kalau perbaikan JS dilaporkan "tidak ada efeknya", **curigai cache dulu**
+sebelum mengubah kodenya lagi. Dua kali saya langsung menduga logikanya yang salah dan
+mengubah kode yang sebenarnya sudah benar.
+
+## `<x-uang-input>`: isian rupiah berformat ribuan (2026-09-30)
+
+Permintaan user di form Kas Keluar: jumlah yang diketik jadi berformat ribuan setelah selesai.
+
+**`<input type="number">` TIDAK BISA menampilkan pemisah ribuan** - peramban menolak karakter
+non-angka di dalamnya. Jadi dibuat komponen `<x-uang-input>` (`type="text"` +
+`inputmode="decimal"` supaya ponsel tetap memunculkan papan ketik angka) dgn Alpine
+`uangInput()` di `dias-helpers.js`:
+
+| Saat | Perilaku |
+|---|---|
+| render / kehilangan fokus | diformat `1.234.567,89` (gaya Indonesia) |
+| mendapat fokus | dikembalikan ke angka mentah + `select()` - gampang ditimpa; nilai 0 jadi KOSONG |
+| sedang diketik | dibiarkan apa adanya, supaya kursor tidak melompat |
+
+Yang dikirim ke Livewire **SELALU angka** lewat `x-modelable="value"` (pola sama
+`<x-search-select>`), jadi hitungan di server tidak perlu mengurai teks apa pun. Penjaga
+`mengetik` mencegah `$watch('value')` menimpa isian saat user sedang mengetik - tanpa itu
+tiap round-trip Livewire akan mengacak isian yg belum selesai.
+
+### JANGAN pakai `.live` di sini - versi pertama tersendat
+
+Versi pertama memakai `wire:model.live` + `@input` yg mengurai tiap ketikan. Akibatnya
+**setiap huruf memicu round-trip Livewire**, dan tiap balasan me-morph ulang barisnya -
+user melaporkan **"belum lancar"**. Prop `live` sekarang **sengaja DIHAPUS** dari komponen
+supaya tidak bisa dipakai lagi, dan `@input` dibuang.
+
+Aturannya: **selama mengetik TIDAK ada yg dikirim maupun diformat ulang** (memformat per
+ketikan juga membuat kursor meloncat ke ujung tiap kali panjang teks berubah). Semua terjadi
+di `keluar()`: urai -> format -> `this.value = baru` -> `$wire.$commit()` **sekali**, dan
+hanya kalau nilainya benar-benar berubah. Jadi Total di server tetap ikut terbarui dgn tepat
+satu permintaan per isian.
+
+Dipakai di baris detail Kas/Bank. **Belum diterapkan ke isian uang lain** (~100 input
+`type="number"` di modul lain) - tinggal ganti tag-nya kalau diminta.
+
+Diuji di **Node** (menjalankan `dias-helpers.js` apa adanya dgn `window`/`document` palsu &
+`$wire.$commit` palsu utk MENGHITUNG berapa kali kirim): **0 kirim selama mengetik**, tepat
+**1 kirim** saat ditinggalkan, **0 kirim** kalau nilainya tidak berubah, isian dikosongkan ->
+0 & dikirim, user mengetik sendiri `1.250.000,75`, isian ngawur (`''`, `abc`, `Rp 5.000`,
+negatif) tidak jadi NaN, dan nilai dari server **tidak menimpa** isian yg sedang diketik tapi
+**memang** memperbarui tampilan saat tidak difokus. Sisi Livewire diuji terpisah: `initial`
+per baris benar, Total berformat, validasi baris kosong tetap jalan.
+
+**Jebakan uji yg kena 2x**: (1) `preg_match` mengambil kemunculan PERTAMA - baris indeks 0
+memang bernilai 0, jadi terlihat spt `initial` tidak diteruskan; pakai `preg_match_all`.
+(2) `save()` berhenti di validasi **kontak & rekening** sebelum sampai ke pemeriksaan baris -
+isi keduanya dulu kalau mau menguji pesan "Minimal 1 baris".
+
+## Pencarian kontak: 70 detik -> 0,1 detik + hasilnya diperbaiki (2026-09-30)
+
+Dilaporkan user: cari kontak di Kas Keluar **"diam saja"**. Bukan bug UI - `lookup.kontak`
+memang butuh **69.723 ms**. Diukur langsung ke endpoint:
+
+| q | hasil | SEBELUM | SESUDAH |
+|---|---|---|---|
+| `''` | 30 | 25 ms | 26 ms |
+| `'nmw'` | 30 | 7 ms | 51 ms |
+| `'Effendi'` | 30 | **16.543 ms** | 31 ms |
+| `'petogogan'` | 4 | **69.723 ms** | **6 ms** |
+| `'nmw petogogan'` | 1 | **67.774 ms** | **4 ms** |
+
+### Sebab 1 - `MATCH() OR LIKE` mematikan index FULLTEXT
+
+`Contact::applySearch()` dulu menyusun satu `WHERE MATCH(KNAMA) AGAINST(...) OR KKODE LIKE
+'q%' OR ...`. `EXPLAIN` membuktikan MySQL memakai `key: idx_bkontak_knama` `type: index` -
+memindai index KNAMA berurutan demi `ORDER BY KNAMA LIMIT 30` sambil **menghitung MATCH per
+baris**. **Makin SEDIKIT hasilnya makin LAMBAT**, karena LIMIT tidak pernah terpenuhi - itu
+sebabnya 'nmw' (banyak hasil di awal abjad) cepat tapi 'petogogan' (4 hasil) 70 detik.
+
+Diganti **DUA TAHAP**: tahap 1 `Contact::kandidatId()` mengambil KID lewat query terpisah per
+sumber (masing-masing pakai index-nya sendiri) digabung `UNION`, diurut KNAMA, dipotong 300;
+tahap 2 `whereIn(KID)` di query pemanggil (primary key). Tiap cabang UNION diberi LIMIT juga -
+tanpa itu satu cabang bisa menyumbang ratusan ribu baris ke penggabungan.
+
+### Sebab 2 - kolom kode cocok ke HAMPIR SELURUH TABEL
+
+Ini memperbaiki **HASIL**, bukan cuma kecepatan. Di data nyata `KKODE LIKE 'nmw%'` cocok ke
+**204.777** baris dan `KIDPASIEN LIKE 'nmw%'` ke **315.168** dari 321.768 baris - jadi mencari
+"nmw" dulu mengembalikan 30 kontak **ACAK**, bukan hasil pencarian. Sekarang kolom kode hanya
+dicari kalau kata kuncinya **mengandung angka** (kode/no member/telepon praktis selalu
+berangka); kata huruf-semua = pencarian NAMA saja lewat FULLTEXT.
+
+### Sebab 3 - `addcslashes()` TIDAK menetralkan operator boolean
+
+MySQL tidak mengenal backslash sbg escape di BOOLEAN MODE. Mencari `NMW-NH07941` terbaca
+`+NMW` DAN **`-NH07941` (minus = KECUALIKAN)**, sehingga semua nama ber-"NMW" terbawa dan
+baris yg dicari tenggelam - ketahuan dari uji. Sekarang karakter operator `+-<>()~*"@`
+**DIBUANG jadi spasi**, bukan di-escape.
+
+Berdampak ke **6 pemanggil** `applySearch()`, termasuk **pencarian pelanggan POS** - ikut
+terbukti cepat (`'petogogan'` 20 ms). Kontrak `applySearch($query,$q,$alias,$extraColumns)`
+TIDAK berubah, jadi semua pemanggil aman; diuji utk alias `'k'` (PosTerminal) & `'A'`+KNOKTP
+(PasienManager), dan `q` kosong tetap tidak menyaring apa pun (321.768 baris).
+
+**Jebakan uji**: membandingkan urutan hasil dgn `sort()` PHP SALAH - collation MySQL
+(`utf8mb4_general_ci`) beda perlakuannya pada huruf besar/kecil & spasi awal (ada nama diawali
+TAB di data nyata). Bandingkan ke `ORDER BY KNAMA` dari DB itu sendiri.
+
+## `<x-search-select>`: panel hasil pakai `position: fixed` (2026-09-30)
+
+Dilaporkan user: di form **Kas Keluar**, daftar hasil "cari akun biaya" **terpotong footer**.
+Sebabnya bukan z-index - baris detail dibungkus **`.table-responsive`** (Bootstrap
+`overflow-x: auto`), dan itu membuat **konteks pemotongan**: anak ber-`position: absolute`
+tidak bisa keluar dari kotak induknya, ke samping MAUPUN ke bawah.
+
+Diperbaiki di **komponennya**, bukan di satu form - `grep` menemukan **16 dari 20** layar
+pemakai `<x-search-select>` juga punya `.table-responsive`, jadi bug yang sama laten di
+semuanya.
+
+Panel sekarang `position: fixed` dgn koordinat dihitung `_ukur()` dari
+`getBoundingClientRect()` pemicunya (`x-ref="pemicu"`). `fixed` lepas dari pemotongan induk
+mana pun. Konsekuensi yg WAJIB diurus & sudah:
+- posisi dihitung ulang saat **scroll & resize**; listener scroll dipasang dgn
+  **`capture = true`** - event `scroll` TIDAK menggelembung, jadi tanpa itu scroll DI DALAM
+  `.table-responsive`/`.modal-body` tidak tertangkap dan panel "melayang" di tempat lama;
+- panel **dibalik ke atas** kalau ruang di bawah kurang, dan tinggi maksimumnya menyesuaikan
+  ruang tersisa (CSS var `--ss-maks`);
+- listener DILEPAS saat panel ditutup (`$watch('open')` + `destroy()`);
+- `z-index: 1080` - di atas modal Bootstrap (1055).
+
+**Jaring pengaman**: nilai awal `gaya` = persis posisi absolute versi lama. Kalau `_ukur()`
+gagal, perilakunya kembali seperti sebelumnya (terpotong) - bukan jadi lebih rusak.
+
+**Di dalam modal**: aman karena `.modal.show .modal-dialog { transform: none }` (Bootstrap
+5.3) - `transform` pada leluhur akan membuat containing block dan merusak `fixed`. **Kalau
+suatu saat modal dikasih animasi/transform sendiri, panel ini ikut rusak.**
+
+**BELUM DIUJI DI BROWSER** - perubahan murni tata letak, tidak bisa dibuktikan dari
+`Livewire::test()`/PHP. Yang sudah dicek cuma sintaks JS (`node --check`) & blade ter-compile.
+12 layar memakainya di dalam modal, 16 di dalam `.table-responsive` - keduanya perlu dicoba.
+
+## Master COA: ceklist "Dipakai di Kas Masuk / Kas Keluar" (2026-09-30)
+
+`bcoa.CKASMASUK` / `CKASKELUAR` (smallint 0/1) kini bisa disunting dari form Master COA -
+sebelumnya hanya bisa diubah langsung di DB.
+
+**YANG SERING SALAH DIPAHAMI - ini BUKAN penanda akun kas/bank.** Dua ceklist ini menyaring
+**AKUN LAWAN** (baris detail) di form Kas/Bank Masuk & Keluar. Akun kas/bank-nya sendiri
+ditentukan **`CTIPE`** (0=Kas, 1=Bank). Dibuktikan dari CI3 & data nyata:
+
+| | Sumber | Filter |
+|---|---|---|
+| Rekening kas/bank (header) | `LookupController::coaRekening()` · CI3 `view_coa_kas`/`view_coa_bank` | `CTIPE` 0/1 |
+| **Akun lawan (baris)** | `LookupController::coaBiaya()` · CI3 `view_coa_kasmasuk`/`view_coa_kaskeluar` | **`CKASMASUK`/`CKASKELUAR`** |
+
+Bukti di data: `CKASMASUK=1` cuma **2 akun BANK**, `CKASKELUAR=1` **24 akun BIAYA** - persis
+pola "lawan jurnal", bukan daftar kas/bank. Di CI3, `.coakredit` kas-masuk.js pakai
+`view_coa_kasmasuk` dan `.coadebet` kas-keluar.js pakai `view_coa_kaskeluar`.
+
+**Filternya SUDAH ada & benar sejak awal** di `coaBiaya()` - yang kurang cuma ceklist di master.
+Form **Bank** Masuk/Keluar di dias-laravel ikut memakai filter yang sama; CI3 justru TIDAK
+memfilter versi Bank (`view_coa` polos) - perbedaan yang disengaja & sudah didokumentasikan di
+docblock `coaBiaya()`. Baris **Pengajuan Dana** read-only (ditarik dari dokumen Kas Keluar),
+jadi COA-nya otomatis sudah tersaring - tidak ada yang perlu diubah.
+
+### Detail Biaya Kas KELUAR dibatasi ke akun berjenis biaya (2026-09-30)
+
+`coaBiaya()` dgn `arah=keluar` kini juga mewajibkan `CTIPE IN (12,13,15)` - Harga Pokok
+Penjualan, Biaya, Biaya Lain-Lain (`CoaManager::TIPE_BIAYA`).
+
+**Ini WAJIB, bukan kosmetik.** Sejak `CKASKELUAR` dipakai menyaring dropdown REKENING juga
+(lihat bagian di bawah), begitu user mencentang akun **Kas** supaya muncul sbg rekening,
+akun itu **IKUT BOCOR ke dropdown Detail Biaya** - dilaporkan user beberapa jam setelah
+fitur ceklist rekening dipasang, setelah mereka mencentang "Kas Kecil". Satu ceklist untuk
+dua keperluan, **dipisahkan lewat TIPE akun**.
+
+Arah **MASUK sengaja TIDAK dibatasi tipe**: lawan Kas Masuk bukan biaya, dan di data nyata
+`CKASMASUK=1` justru 2 akun **BANK** (pemindahan antar rekening). Membatasi ke tipe pendapatan
+akan mengosongkan dropdown-nya.
+
+Diuji: Detail Biaya keluar = 24 baris, tipe yg muncul persis {12,13,15}; **Kas Kecil tidak
+muncul lagi padahal `CKASKELUAR=1`**, TAPI tetap muncul sbg Rekening Kas Keluar; arah masuk
+tetap 2 akun bank.
+
+### Ceklist juga menyaring REKENING kas/bank (2026-09-30, permintaan lanjutan user)
+
+`coaRekening()` menerima **`?arah=masuk|keluar`** -> mewajibkan `CKASMASUK`/`CKASKELUAR`.
+**Tanpa `arah`, penyaringan ceklist TIDAK dipakai** - itulah yang menjaga **Pengajuan Dana**
+(memanggil tanpa `arah`) tetap seperti sebelumnya.
+
+Kenapa perlu: **`CTIPE` saja tidak bisa dipercaya**. Di data nyata CTIPE=0 (Kas) berisi
+**Persediaan Bahan Baku**, **Persediaan Bahan Jadi**, dan satu baris bernama **"none"** -
+salah tipe tapi ikut muncul di dropdown. Ceklist memberi daftar putih yang dikurasi manusia.
+
+**CI3 tidak punya padanannya**: di sana field COA Kas form Kas Keluar malah **DIKUNCI** ke
+`<option value="5">Kas Kecil</option>` + `disabled` - tidak ada pilihan sama sekali. Jadi ini
+perbaikan atas CI3, bukan penyalinan.
+
+**AKIBAT YANG HARUS DISADARI**: belum ada satu pun akun **Kas** yang diceklist, jadi dropdown
+Rekening di **Kas Masuk, Kas Keluar, dan Bank Keluar KOSONG** sampai diceklist di Master COA.
+Bank Masuk sudah ada 2 (Bank BCA 2500, BANK MANDIRI 101 - `CKASMASUK=1` dari data lama).
+Aman dilakukan sekarang krn **`ctransaksiu` masih 0 baris** - belum ada dokumen Kas/Bank sama
+sekali, jadi tidak ada data lama yang terdampak.
+
+Diuji 20 asersi (dibungkus transaksi & di-rollback): form memuat/menyimpan kedua ceklist,
+mencentang langsung menambah pilihan di dropdown arah yang benar dan **tidak** bocor ke arah
+lain, melepas ceklist menghilangkannya lagi, dan **jumlah rekening Kas (5) / Bank (11) tidak
+berubah sama sekali** - membuktikan ceklist tidak menyentuh daftar kas/bank.
+
+## Struk POS: DUA ukuran + preferensi per user (2026-09-30)
+
+Permintaan user: struk termal **58 mm** dan **setengah A4 / LX300** (yg setengah A4 dibuat
+"seperti CI3"), plus setelan default per user. Keadaan berjalan: **hanya user cabang
+Marketplace yg mencetak 58 mm**, sisanya setengah A4 - karena itu default aplikasi `a5`.
+
+| Berkas | Isi | Keluaran |
+|---|---|---|
+| `resources/views/pos-receipt-58.blade.php` | termal 58mm (`@page size:58mm auto`, badan 48mm) | **HTML auto-print** |
+| `resources/views/pos-receipt-a5.blade.php` | setengah A4, layout CI3 | **PDF** (mpdf, A5-L, inline) |
+| `config/pos.php` | `struk_default` + `struk_pilihan` | |
+| `lv_user_pref` (tabel BARU) | `user_id` + `struk_pos` | |
+
+**A5 = PDF, 58mm = HTML** (keputusan user 2026-09-30: *"dikasir sudah jarang print ke fisik,
+lebih banyak screenshot kirim WA dan email"*). A5 lewat `PdfReport::preview()` -> inline di tab
+browser, nama berkas `Struk <no>.pdf`. 58mm TETAP halaman HTML auto-print: printer termal
+dicetak langsung & PDF selebar 58mm merepotkan.
+
+**Blade A5 harus ramah mpdf**: ukuran/orientasi dari opsi `['size'=>'A5','orientasi'=>'L']` -
+**`@page` DIABAIKAN mpdf**; hindari flexbox/grid & `rem`, pakai tabel + `pt`. Tidak ada
+`window.print()` di versi PDF.
+
+`pos-receipt.blade.php` yg lama **DIHAPUS** (tidak dirujuk lagi).
+
+**Urutan penentuan**: `?struk=58|a5` (menimpa SEKALI JALAN, tidak mengubah setelan - utk cetak
+ulang saat kertas termal habis) -> `lv_user_pref.struk_pos` -> `config('pos.struk_default')`.
+Nilai tak dikenal DIABAIKAN, bukan error: struk gagal tampil di kasir jauh lebih mahal.
+Di POS ada tombol utama (ikut preferensi) + dua tombol kecil "58 mm" / "½ A4".
+
+**Preferensi disimpan di `lv_user_pref`, BUKAN kolom baru di `auser`** - `auser` dipakai
+bersama CI3/CI4 dan `2026-09-28_01_struktur.sql` berjanji tidak mengubah tabel legacy.
+Preferensi berikutnya (mis. kepadatan tampilan) ditambah sbg KOLOM di tabel yg sama.
+Disetel di **Administrasi User**; dikosongkan = **barisnya DIHAPUS**, bukan disimpan string
+kosong, supaya "belum disetel" dan "sengaja default" tidak jadi dua keadaan berbeda.
+
+**Isi struk setengah A4 disalin dari CI3** `formulir-penjualan-tunai.php`: nama PT per cabang
+(26/28/48 = DAPS, 32 = NATIONAL HOSPITAL - DAPS, sisanya NMW), IG+WA, kolom
+`Ref-IC-Dokt-Perawat` (`CONCAT_WS` SDNOREF-SDLANTAI2-dokter-perawat), blok bayar 3x2, no+jenis
+kartu kalau nilainya ≠ 0, dan **Jumlah Point** (hanya kalau `SUSTATUSTADA=1` DAN
+`SUTOTALTADA>=100.000`, 1 poin per 10.000). **Penggabungan baris paket**: baris dari paket
+ber-`PUCETAKHEADERSAJA=1` tidak dicetak satu per satu - subtotalnya dijumlah jadi satu baris
+"Paket <kode>", dikelompokkan per **kodePaket + kedatangan** (bukan kode paket saja), supaya
+paket sama pada kedatangan berbeda tidak tergabung.
+
+### JEBAKAN: `array_keys()` mengubah kunci '58' jadi INTEGER 58
+
+Kunci array numeric-string SELALU di-cast PHP jadi integer. Akibatnya
+`in_array('58', array_keys(config('pos.struk_pilihan')), true)` bernilai **FALSE** dan
+preferensi 58mm diam-diam jatuh ke default - **sudah kena, ditangkap uji**. Dua tempat yg
+terdampak & sudah diperbaiki: `User::strukPos()` (pakai `array_map('strval', ...)`) dan label
+tombol di blade POS (pakai `(string) $kode === '58'`). `array_key_exists()` dan `Rule::in()`
+TIDAK terdampak (keduanya menormalkan sendiri). **Tiap menambah kunci config yang berupa angka,
+ingat ini.**
+
+### Jebakan uji
+
+`auth()->user()` mengembalikan **objek yang sama** selama satu proses, jadi relasi `pref` yg
+sudah ter-cache membuat uji salah baca (terlihat spt preferensi tidak berfungsi padahal
+`strukPos()` benar). Di produksi tidak jadi masalah - tiap request HTTP memuat user dari awal.
+Di uji: `auth()->setUser(User::find($id))` sebelum tiap request.
+
+### Jebakan uji PDF: JANGAN cari teks di dalam byte PDF
+
+mpdf memakai **font SUBSET** - teks tersimpan sebagai indeks glyph, bukan ASCII, jadi
+`str_contains($pdf, 'Invoice Penjualan')` SELALU false walau isinya benar (sudah kena).
+Cara yang benar: isi diperiksa dari **HTML hasil `view(...)->render()`**, sedangkan PDF-nya
+diperiksa secara berkas saja (`%PDF`, ukuran wajar, `Content-Type`, `Content-Disposition`
+inline). Pola yang sama dipakai laporan lain (isi diverifikasi lewat keluaran Excel-nya).
+
+Diuji 30 asersi (perubahan `lv_user_pref` dibungkus transaksi & di-rollback): default -> a5 &
+isinya benar; preferensi 58 -> struk termal; `?struk=` menimpa tanpa mengubah setelan; nilai
+rusak di DB -> jatuh ke default & halaman tetap 200; admin menyetel/mengosongkan lewat
+Administrasi User; nilai tak sah ditolak validasi. Setelah A5 jadi PDF, diuji ulang: A5
+`application/pdf` + inline + `%PDF`, 58mm tetap HTML ber-`window.print()`, `?struk=a5` dari
+user 58mm tetap dapat PDF tanpa mengubah setelan. `2026-09-28_01_struktur.sql` sudah memuat
+`lv_user_pref` + catatan migrasinya, diuji idempoten 2x jalan (6 tabel lv_, 10 migrasi).
+
+## Laporan POS-IP "Daftar Penjualan Tunai" (2026-09-29)
+
+Port dari CI3 `views/modul/laporan/xlap-daftar-penjualan-tunai.php` (dicari lewat
+**riwayat git** CI3 - judulnya tidak ada di working tree, cuma di pesan commit). Satu baris per
+transaksi POS (`fstoku` `SUSUMBER='IP'`, `SUSTATUS<>9`), 18 kolom, 2 baris total. PDF landscape
++ Excel, menu **Laporan > POS > Daftar Penjualan Tunai** (`laporan.penjualan-tunai`).
+
+**Rumus kolom** (semua sudah dicocokkan ke PDF contoh user, 01-06-2026 cabang PG):
+```
+Kas Nett    = SUTOTALKAS - SUTOTALSISA          Cash Back = SUTOTALSISA
+Total Real  = KasNett + Debit + Kredit + Transfer + Merchant
+Total Semua = TotalReal + DP + Voucher + Piutang + DPSurgery + Surgery - TarikDP
+- Tarik DP  = F_DP_PERHARI(SUID), DISIMPAN positif tapi DITAMPILKAN negatif
+```
+Baris total kedua ("Total TANPA Piutang Surgery") hanya menjumlah baris dgn
+`SUNILAIPIUTANGBAYAR = 0`, dan dua kolom terakhirnya sengaja kosong (sama spt CI3 & PDF).
+
+**Dua kejanggalan CI3 yg ditemukan waktu port:**
+1. Alias `dpjumlah` ditulis DUA KALI di SELECT (`sutotaldp` lalu `sudp1`) sehingga yg menang
+   `sudp1`. **Tidak berdampak** - diperiksa ke DB: kedua kolom identik di SELURUH 25.220 baris
+   IP. Di sini dipakai `SUTOTALDP` (nama yg lebih jelas).
+2. **BUG**: `Total Semua` pada baris total KEDUA tidak menambahkan Piutang (`$webpiutang` lupa
+   dimasukkan ke `$totalweb`), padahal baris per-transaksi & baris total pertama
+   menambahkannya. **Di sini SENGAJA DIPERBAIKI** (Piutang ikut dijumlah). Terdampak **9
+   transaksi** di produksi - semua baris ber-Piutang kebetulan `SUNILAIPIUTANGBAYAR=0`, jadi
+   angka baris kedua bisa beda dari CI3 pada rentang yg memuatnya, selisihnya persis
+   sebesar Piutang-nya. **Sudah diberitahukan ke user.**
+
+Filter: Tanggal s/d Tanggal, Cabang (default cabang aktif, disaring `cabangLaporan()`),
+Jenis Merchant (`SUMERCHANTJENIS` = MCKODE teks, bukan MCID). **Filter Kontak yg ada di CI3
+belum dibuat** - butuh pencarian `bkontak` (315rb+ baris) lewat `<x-search-select>`.
+
+Diuji: 16 angka dicocokkan satu per satu ke PDF contoh (baris & KEDUA baris total) - semuanya
+**persis sama**; PDF benar-benar terbentuk (`%PDF`, >20KB); Excel memuat judul, kedua baris
+total, angka 40.009.848 dan Tarik DP negatif; cabang di luar hak akses -> 0 baris.
+
+## POS: tombol "Ganti" langsung membuka pencarian (2026-09-29)
+
+Tombol **Ganti** di kartu Pelanggan dulu `clearCustomer()` - menghapus dulu, baru kasir menekan
+"Cari pelanggan": dua langkah. Sekarang langsung `openCustModal()`.
+
+Efek samping yg justru **lebih baik**: batal mencari (Esc/tutup) berarti **pelanggan lama tetap
+terpilih** - sebelumnya sudah terlanjur terhapus & harus dicari ulang. Aman karena
+`pickCustomer()` sudah membersihkan voucher/DP milik pelanggan lama begitu ada pelanggan baru
+(`clearVoucher()` + `clearDp()` di dalamnya) - jadi tidak ada voucher/DP nyangkut lintas
+pelanggan. `clearCustomer()` TETAP ADA & dipakai setelah checkout sukses dan di
+`editTransaction()`.
+
+Pola yg sama sudah dipakai tombol "Ganti" DP di dialog bayar. **Kalau ada tombol "Ganti" lain
+yg masih memanggil `clear*()`, itu kandidat perbaikan yg sama.**
+
+### POS: Catatan Rekam Medis WAJIB (2026-09-29)
+
+Input baru di kartu Pelanggan, **di bawah Cari Pelanggan** -> `fstoku.SUREKAMMEDIS`
+(varchar 255), properti `$rekamMedis`. **Bukan kolom baru & bukan aturan baru**: kolomnya sudah
+terisi di **26.314 dari 26.322** transaksi POS produksi (99,97%), jadi mewajibkannya mengikuti
+kebiasaan yg sudah berjalan. BEDA dari `$catatan` (`SUCATATAN`, catatan bebas di "Data Lainnya").
+
+Diperiksa di `checkout()` **SEBELUM validasi pembayaran**, supaya kasir tidak sempat mengisi
+dialog bayar lalu ditolak gara-gara field di layar utama. Dua pemeriksaan: kosong/spasi saja
+ditolak, dan **>255 huruf ditolak** - `strict => false` di `config/database.php` akan MEMOTONG
+DIAM-DIAM kalau tidak dijaga. Nilainya `trim()` saat disimpan, dikosongkan setelah checkout,
+dan ikut dimuat lagi oleh `editTransaction()`.
+
+**DUA jebakan `<textarea>` + Livewire yg sudah kena di sini:**
+- **Livewire TIDAK mengisi sendiri isi `<textarea>` saat render pertama** - isi awal HARUS
+  dicetak di antara tag (`>{{ $rekamMedis }}</textarea>`), kalau tidak catatan lama tampak
+  KOSONG waktu transaksi dibuka lewat Edit (padahal propertinya terisi).
+- Dipakai `.live.debounce.400ms`, **bukan `.blur`** - ini field WAJIB, dan satu ketikan yg
+  belum tersinkron saat tombol Simpan diklik akan jadi penolakan palsu.
+
+### MENGISI pembayaran ≠ MENYIMPAN transaksi (2026-09-28)
+
+Permintaan user: **"ketika save pembayaran jangan save transaksi, itu hanya mengisi
+pembayaran"**. Jadi dialog bayar **tidak punya jalur simpan sama sekali**:
+
+| Tindakan | Akibat |
+|---|---|
+| Tombol **OK** di dialog (`simpanPembayaran()`) | validasi isian -> tutup dialog. **Transaksi TIDAK disimpan.** |
+| Tombol **Batal** (`closePayModal()`) | **kembalikan** isian spt saat dialog dibuka, lalu tutup |
+| Tombol **Simpan Transaksi** di layar utama (`checkout()`) | satu-satunya yg menyimpan |
+
+Layar utama sekarang punya **dua tombol**: "Isi/Ubah Pembayaran" (buka dialog, `F9`) dan
+"Simpan Transaksi" (`checkout`, `Ctrl+Enter`). `Ctrl+Enter` = "setujui yg di layar": dialog
+terbuka -> OK, tertutup -> simpan.
+
+**Batal benar-benar membatalkan**: `openPayModal()` menyimpan salinan `$pay` ke
+`$paySebelumnya`, `closePayModal()` memulihkannya. Tanpa itu Batal & OK sama saja (dua-duanya
+cuma menutup dialog) - dan itu keadaan sebelum perubahan ini.
+
+**Validasi pembayaran diangkat jadi `validasiPembayaran(): bool`** (kartu no/bank, kepemilikan
+& sisa saldo voucher/DP) supaya dipakai OK **dan** `checkout()`. **TETAP diulang di
+`checkout()`** - bukan pemborosan: isian bisa diubah lagi setelah dialog ditutup, dan
+pemeriksaan voucher/DP menembak DB (saldo bisa berubah di sela itu, anti-race).
+
+**Alur mengikuti VB6**: susun keranjang -> `F9` buka dialog -> isi -> OK -> Simpan Transaksi.
+- `F9` membuka dialog (`openPayModal()`).
+- `Ctrl+Enter` -> `hotkeyCtrlEnter()`: dialog terbuka = OK, tertutup = simpan transaksi.
+- `F12` = OK juga, pemicunya DI DALAM `@if ($showPayModal)` jadi hanya hidup selama dialog
+  terbuka - tapi **tidak bisa diandalkan**, lihat catatan F12 di bawah.
+- `Escape` **tidak** menutup dialog (lihat bagian pintasan).
+
+**`openPayModal()` memeriksa keranjang & pelanggan lebih dulu** supaya kasir tidak membuka
+dialog lalu langsung ditolak; validasi sebenarnya tetap di `checkout()` (satu-satunya gerbang).
+**`showPayModal` HANYA di-false-kan di blok sukses `checkout()`** - kalau validasi gagal dialog
+sengaja dibiarkan terbuka supaya pesannya terbaca di sebelah isiannya.
+
+### Pintasan bayar di dalam dialog - urut sesuai kolom (2026-09-28)
+
+Penomoran LUAR dialog diurutkan ulang user 2026-09-29 (pelanggan ke F1, promo F3, paket F4):
+
+| Tombol | Di DALAM dialog bayar | Di LUAR dialog |
+|---|---|---|
+| `F1` | Tunai - bayar penuh | **cari pelanggan** |
+| `F2` | Kartu Debit - bayar penuh | cari item |
+| `F3` | Kartu Kredit - bayar penuh | **cari promo** |
+| `F4` | Transfer - bayar penuh | **cari paket** |
+| `F5` | **DP - buka pemilih** | cari voucher |
+| `F6` | Merchant - bayar penuh | cari DP |
+| `F7` | **Voucher - buka pemilih** | tidak melakukan apa pun |
+
+**DUA perilaku berbeda, sengaja**: F1/F2/F3/F4/F6 -> `bayarPenuh($key)` mengosongkan **semua
+NILAI bayar** lalu mengisi metode itu sebesar total transaksi, dan kursor pindah ke isian yg
+masih perlu dilengkapi (`fokus-bayar` + `x-ref`). **F5 (DP) & F7 (Voucher) hanya MEMBUKA
+pemilihnya** - keduanya tidak bisa "diisi penuh" karena nilainya berasal dari saldo yg dipilih
+(`pickDp()` mengisi sebesar sisa saldo), dan sisa itu sering tidak menutup seluruh transaksi,
+jadi metode lain **TIDAK dikosongkan** karena biasanya masih dibutuhkan menutup sisanya.
+`bayarPenuh()` MENOLAK key `dp`/`voucher` (dijaga daftar `PINTASAN_BAYAR`).
+
+Voucher/DP yg sudah dipilih **tidak dilepas** oleh `bayarPenuh()`, hanya nilainya jadi 0
+(`checkout()` mengabaikan keduanya saat jumlah 0) - supaya kasir tidak perlu mencarinya ulang.
+
+**Tautan "uang pas" DIHAPUS 2026-09-29** atas permintaan user ("sudah ada shortcut key F"),
+beserta `payExact()`, `payExactMethod()` dan `totalBayarExcept()` yg jadi tidak terpakai. F1 di
+LUAR dialog ikut dimatikan - dulu mengisi tunai diam-diam padahal tidak ada isian yg terlihat
+di layar utama.
+**KONSEKUENSI yg perlu diingat**: "uang pas" mengisi SISA yg belum terbayar, `bayarPenuh()`
+mengisi TOTAL PENUH. Jadi **tidak ada lagi cara satu-klik mengisi sisa pada PEMBAYARAN
+TERBAGI** (mis. debit 20rb dulu, lalu tunai sisanya) - kasir mengetik sendiri sisanya. Kalau
+nanti dikeluhkan, rumus lamanya ada di komentar `PosTerminal` (bekas blok `payExact`).
+
+Modal DP/voucher berada SETELAH dialog bayar di urutan blade sehingga tampil di atasnya;
+menutupnya mengembalikan ke dialog bayar dgn isian utuh. Tombol "Ganti" DP langsung
+`openDpModal()` (dulu `clearDp()`, yg memaksa 2 langkah).
+
+**`Esc` SENGAJA TIDAK menutup dialog bayar** (permintaan user) - isian bayar terlalu mahal utk
+hilang gara-gara Esc kepencet. Hanya lewat tombol Batal / (x). Esc TETAP menutup sub-dialog di
+atasnya karena pengikatnya ada di badan modal masing-masing dan **bukan `.window`** - kalau
+dipasang `.window`, satu Esc akan menutup keduanya sekaligus.
+
+**SELURUH F1-F7 BENTROK dgn pintasan global.** Solusinya **satu pengikat per tombol di `<div>`
+root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF7`): dialog terbuka -> arti bayar, tertutup
+-> arti lamanya. **JANGAN memasang `wire:keydown.fN.window` kedua di dalam modal** - keduanya
+akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
+`hotkeyCtrlEnter()`. `F8` tidak dipakai lagi.
+
+**AWAS hint tombol yg jadi berbohong.** Urutan pintasan sudah DUA KALI berubah, dan tiap kali
+ada hint `<kbd>` di tombol lain yg jadi salah (mis. tombol "Cari voucher" sempat berhint `F5`
+padahal F5 berarti Kartu Debit). Tiap mengubah pemetaan, **telusuri SEMUA `<kbd>` di layar itu**
+- uji otomatisnya sekarang mencocokkan label vs tombol satu per satu.
+
+
+**`F12` TIDAK BISA DIANDALKAN**: Chrome/Edge membuka DevTools pada F12 dan `preventDefault()`
+tidak bisa mencegahnya (beda dgn F1-F9 yg bisa). Sempat saya pilih karena mengikuti tombol
+"OK [F12]" di VB6. Jalur simpan yg dipakai sekarang: **`Ctrl+Enter`** (dan tombol OK). Kalau
+nanti ada pintasan lain yg dipilih, hindari F12 - dan ingat **F11 (fullscreen)** juga.
+
+**Diuji** (Livewire::test, bagian yg menulis dibungkus `beginTransaction()`/`rollBack()`,
+item+pelanggan diambil dari transaksi POS NYATA terakhir): keranjang kosong -> dialog tidak
+terbuka; `pay.tunai` tidak ada di HTML saat dialog tertutup; ketujuh jenis bayar ada &
+Medika Apps/Piutang Surgery/Cicilan TIDAK ada; debit diisi tanpa no/bank -> dialog TETAP
+terbuka + 2 pesan galat + belum tersimpan; tunai pas -> struk terbit, dialog tertutup,
+keranjang kosong; rollback bersih. **SEMUA LULUS.**
+
+Jebakan uji: **`json_encode()` meng-escape `/`** jadi pesan `No. kartu/ref` tersimpan sbg
+`No. kartu\/ref` - cocokkan dgn `JSON_UNESCAPED_SLASHES`. Dan **blok Voucher/DP belum memuat
+`wire:model` sebelum ada yg dipilih** (yg tampil tombol carinya), jadi jangan mencari string
+`pay.voucher`/`pay.dp` utk membuktikan bloknya ada. Nama method: `pickCustomer()` &
+`pickItemById()` (bukan `pickCust`/`pickItem`); `bitem` TIDAK punya `IAKTIF`/`IHARGAJUAL`.
+
+## POS: Cari Paket dipindah + "Data Transaksi" jadi menu sendiri (2026-09-28)
+
+Dua permintaan user:
+1. **Cari Paket dipindah ke BAWAH Cari promo** - dari toolbar header kolom kiri ke kartu
+   Promo di kolom kanan, digayakan sama (`w-100 text-start` + `kbd` rata kanan). Pemicu **F3**
+   tetap di `<div>` terluar `pos-terminal.blade.php`, jadi tombolnya pindah TANPA menyentuh
+   shortcut.
+2. **Tombol "Data Transaksi" DIHAPUS dari POS, jadi menu sidebar sendiri**: Penjualan >
+   **Data Transaksi POS** (`sales.pos-data` -> `sales/pos-data` -> `sales.pos-data-list`).
+   `PosTerminal::openPosDataTab()` dihapus (tidak ada pemanggil lain).
+
+**Path ACL `sales/pos-data` SENGAJA terpisah dari `sales/pos`** - supervisor bisa diberi akses
+melihat & cetak ulang transaksi TANPA diberi akses layar kasir. `PosDataList` dapat
+`const ACL`, `abort_unless(can_do(self::ACL,'view'), 403)` di `mount()` (defense-in-depth:
+`openFromSidebar()` menerima segment_key dari klien) dan tombol Cetak digating
+`can_do('sales/pos-data','print')`.
+
+Yang harus diubah bersamaan kalau menambah menu baru: **(1)** `MenuSeeder` (sumber kebenaran),
+**(2)** `Workspace::listRegistry()` - tanpa ini klik menu tidak melakukan apa pun karena
+`openFromSidebar()` langsung `return`, **(3)** jalankan `db:seed --class=MenuSeeder`,
+**(4)** bangkitkan ulang `database/production/2026-09-28_02_menu.sql` (lihat bawah).
+Sidebar sendiri sudah otomatis menyaring `view` lewat `Acl::sidebarTree()`.
+
+**`sort_order` bisa bertabrakan** - `sales.order` sudah memakai 32, jadi grup Penjualan
+dinomori ulang 31..40 (pos 31, pos-data 32, order 33, sj 34, invoice 35, invoice-mutasi 36,
+return 37, alkes 38, promo 39, paket 40). Aman: `sort_order` hanya urutan tampilan.
+
+**`2026-09-28_02_menu.sql` sekarang DIBANGKITKAN**, jangan disunting tangan:
+`2026-09-28_02_menu.gen.php` (jalankan SETELAH menyeed). Diuji idempoten: dijalankan 2x di DB
+terpisah tetap 59 baris.
+
+### Jebakan uji Livewire yang baru ketemu - hemat waktu nanti
+- **`Livewire::test()` MENANGKAP `HttpException` dari `abort()` dan mengubahnya jadi STATUS
+  RESPONS.** `try/catch` di sekitar `Livewire::test()` TIDAK akan pernah kena, dan "render
+  lolos" BUKAN berarti izinnya bocor - saya sempat salah menyimpulkan ACL bocor karena ini.
+  Pakai **`->assertForbidden()`** (jalan di tinker) untuk membuktikannya.
+- **`assertOk()` / `assertSee()` TIDAK bisa di tinker** - `assert(self::$instance instanceof
+  Configuration)`, butuh PHPUnit (sama spt `assertHasErrors`). Pakai `->html()` + `str_contains`.
+- **`app('acl')` singleton MENYIMPAN user saat pertama di-boot.** `auth()->login($userLain)`
+  di tengah proses tinker memberi izin BASI (super user terbaca `can_do = false`). Uji tiap
+  user di **proses tinker terpisah**.
+- **Tombol yang ada di dalam `@forelse` tidak akan muncul kalau hasilnya 0 baris.** Filter
+  default `PosDataList` = HARI INI, dan transaksi POS terakhir 2026-09-25, jadi `fa-print`
+  tidak ketemu - terlihat spt gating print rusak padahal tidak. Lebarkan rentang tanggalnya
+  dulu sebelum menyimpulkan.
+
+## DITUNDA: titik masuk menu = daftar atau form baru? (2026-09-28)
+
+User bertanya apakah menu sebaiknya langsung membuka **form input baru** spt aplikasi lama,
+supaya user tidak terlalu jauh berbeda. **Diputuskan DISKIP dulu** - tidak ada perubahan kode.
+Simpan temuannya supaya tidak digali ulang:
+
+- **CI3 `dias-online-app` memang berkebalikan**: `Page.php` punya DUA route per modul -
+  `bkk` -> `kas-keluar.php` (form kosong) & `bkkData` -> `table-kas-keluar.php` (daftar).
+  Menu sidebar menunjuk ke FORM; daftar dicapai dari tombol **"Cari"** di dalam form
+  (`location.href = page/bkkData`). Dari 110 loader di `Page.php`, **60 adalah `table-*`** -
+  jadi daftarnya ada & dipakai, hanya bukan titik masuk.
+- **dias-laravel**: menu -> `*-list`, tombol "Baru" -> `dispatch('open-tab', cmp: '*-form')`
+  (tab terpisah). Sudah ada preseden menu yg langsung ke layar entri: `sales.pos`.
+- **PENGHALANG UTAMA kalau mau ditukar - ACL**: `view` dan `add` kewenangan TERPISAH, dan 17
+  blade daftar menyembunyikan tombol Baru kalau user tak punya `add`. Menu = form baru berarti
+  user `view`-saja dan **approver (`view`+`approve`, TANPA `add`)** mendarat di form yg tidak
+  boleh dia simpan. Di CI3 ini tidak terasa krn `ausermenu` hanya per-menu, bukan 6 kewenangan.
+- Kalau nanti dikerjakan, **jangan sapu rata**: tambah `formRegistry()` di `Workspace` +
+  preferensi per user, dan buka form langsung HANYA kalau preferensi ON **dan** user punya
+  `add` (kalau tidak, jatuh ke daftar) - itu sekaligus menyelesaikan masalah ACL di atas.
+- Dugaan saya sumber "terasa jauh beda" yg sebenarnya: **toolbar**. CI3 punya deretan tombol
+  tetap dgn posisi/urutan sama di semua modul (Baru · Simpan · Hapus · Cari · Cetak) + tombol
+  hidup bertahap (`btn-step1`/`btn-step2`). Di app ini tombolnya beda-beda ("PB Baru",
+  "Penyesuaian Baru") & posisinya tidak konsisten. Menyeragamkan itu lebih terasa & jauh lebih
+  kecil risikonya drpd menukar titik masuk.
+
 ## Stok per gudang: kolom dipisah + trigger dirapikan (2026-09-28)
 
 **Dikerjakan atas permintaan eksplisit user** ("tolong kamu rapihkan trigger itu", lalu
@@ -1948,6 +2527,49 @@ contoh; **terbilang identik kalimat contoh**; **rekap 3 COA cocok contoh sampai 
 (1.696.323,00 / 888.019,00 / 384.275,00) DAN nama akunnya cocok ("Biaya Kebutuhan kantor",
 "Biaya ATK, FC, Materai, Cetakan", "Biaya Transport & Akomodasi") - konfirmasi kuat pemetaan
 COA benar; jumlah rekap = Total; banner pembatalan; **rollback bersih, 0 PDN tertinggal**.
+
+**Judul kolom Inggris DI BAWAH yg Indonesia pakai `<br>`, BUKAN `display:block`** (diperbaiki
+2026-09-30 atas laporan user). Semula CSS-nya `table.items th small { display: block }` - **mpdf
+TIDAK menghormati `display:block` pada elemen inline** spt `<small>`, jadi teks Inggrisnya
+menempel sebaris. `display:block` malah DIHAPUS dari CSS supaya jaraknya tidak dobel kalau
+suatu hari mpdf mendukungnya. **Berlaku umum utk SEMUA cetakan mpdf**: mau menaruh sesuatu di
+baris baru di dalam `<th>`/`<td>`, pakai `<br>` - jangan andalkan `display`.
+
+## Kas Masuk & Kas Keluar: cetakan bukti (2026-09-30)
+
+`KasBankPrintController` + `reports/kas-bank-print.blade.php`, route
+`finance/kas-{masuk,keluar}/{id}/print` (ACL `finance/kas-masuk`|`finance/kas-keluar` ability
+`print`). Tombol Cetak di daftar + form. Tabel `ctransaksiu`/`ctransaksid`, lihat docblock
+`KasBankWriter`.
+
+**SATU blade & SATU query utk kedua arah** - permintaan user: *"untuk kas masuk di samakan saja
+dengan kas keluar, yang beda debit kreditnya dan judul"*. Jadi **TIDAK ADA percabangan layout**:
+yg beda cuma `$judul` ("Bukti Kas Masuk"/"Bukti Kas Keluar") dan angkanya jatuh di kolom Debit
+atau Kredit - dan itu terjadi **sendiri** karena `CDDEBIT`/`CDKREDIT` dicetak APA ADANYA dari DB
+(writer-lah yg menaruh angka di sisi benar: MASUK rekening=debit, KELUAR rekening=kredit).
+**JANGAN tambahkan `if ($masuk)` utk menukar kolom** - itu justru merusaknya.
+
+**Baris urutan 1 (rekening kas) IKUT DICETAK** - **beda dari `pengajuan-dana-print` yg
+mengecualikannya**. Ini bukti jurnal, harus berimbang Debit = Kredit di mata pemeriksa. Rekap
+bawah juga memuat semua baris, jadi total Debit = Kredit - itu sengaja, bukan duplikasi angka.
+
+Layout mengikuti rumah gaya `pengajuan-dana-print` (kop berulang, judul kolom dwibahasa pakai
+`<br>`, terbilang menyatu di bingkai) + blok identitas (Kontak/Rekening Kas/Uraian) dan kotak
+ttd **4 sel** (Dibuat/Diperiksa/Disetujui/**Diterima**) - sel Diterima khas bukti kas, tidak ada
+di Petty Cash.
+
+**Bank Masuk/Keluar BELUM** - dokumen Bank py field tambahan (`CUTIPE` Tunai/Giro/Transfer,
+`CUBANK`, `CUNOGIRO`, `CUTGLTEMPO`) yg harus tampil, jadi tidak bisa sekadar ikut layout ini.
+`KasBank{Form,List}Base::printRoute()` mengembalikan `null` utk keduanya -> tombol Cetak
+otomatis disembunyikan.
+
+Verifikasi (45 asersi LULUS, dokumen uji KK+KM di transaksi + rollback): data view **ditangkap
+lewat `View::composer`** (bukan query tiruan) jadi yg diuji benar-benar yg dikirim controller;
+3 baris tercetak (rekening + 2 biaya); **berimbang debit=kredit=200.000** di kedua arah;
+**rekening di KREDIT utk KK & DEBIT utk KM**, baris biaya sebaliknya; rekap = total baris; 5
+judul kolom dwibahasa pakai `<br>`; CSS tanpa `display:block`; **kerangka HTML KK vs KM identik
+byte-per-byte** setelah judul & angka dinormalkan (bukti klaim "cuma beda judul & debit/kredit");
+rollback bersih, 0 dokumen uji tertinggal.
 
 ## JOP: cetakan "Job Order Produksi" (2026-09-27)
 

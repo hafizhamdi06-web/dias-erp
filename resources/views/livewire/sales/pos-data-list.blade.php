@@ -68,10 +68,12 @@
                                 <button type="button" class="btn btn-outline-primary btn-sm" wire:click="openDetailModal({{ $r->SUID }})" title="Detail">
                                     <i class="fas fa-list"></i>
                                 </button>
-                                <a href="{{ route('sales.pos.receipt', $r->SUID) }}" target="_blank"
-                                   class="btn btn-outline-secondary btn-sm" title="Cetak">
-                                    <i class="fas fa-print"></i>
-                                </a>
+                                @if (can_do('sales/pos-data', 'print'))
+                                    <a href="{{ route('sales.pos.receipt', $r->SUID) }}" target="_blank"
+                                       class="btn btn-outline-secondary btn-sm" title="Cetak">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                             </td>
                         </tr>
                     @empty

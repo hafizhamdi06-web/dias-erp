@@ -78,6 +78,16 @@ class PosTerminal extends Component
     public ?string $catatan = null;
 
     /**
+     * Catatan Rekam Medis -> `fstoku.SUREKAMMEDIS` (varchar 255). WAJIB diisi, diperiksa saat
+     * simpan (permintaan user 2026-09-29).
+     *
+     * Kolomnya SUDAH ADA & memang dipakai: terisi di **26.314 dari 26.322** transaksi POS
+     * (99,97%) di data produksi - jadi mewajibkannya mengikuti kebiasaan yg sudah berjalan,
+     * bukan aturan baru. BEDA dari `$catatan` (`SUCATATAN`, catatan bebas di "Data Lainnya").
+     */
+    public ?string $rekamMedis = null;
+
+    /**
      * Modal "Data Lainnya" - field header `fstoku` tambahan di luar form utama. Pemetaan
      * kolom dikonfirmasi user via tabel excel (2026-09-15), lalu diverifikasi ke `SHOW COLUMNS
      * FROM fstoku` (semua 14 kolom ADA) - TAPI SEMUA kolom ini 0 baris terisi di data produksi
@@ -162,6 +172,16 @@ class PosTerminal extends Component
      */
     public ?int $editingFromId = null;
     public ?string $editingFromNomor = null;
+
+    /**
+     * Modal Pembayaran (F9) - mengikuti alur VB6: keranjang disusun dulu, baru dialog bayar
+     * dibuka, lalu OK menyimpan. Sebelumnya panel bayar selalu tampil memanjang di kolom kanan
+     * (permintaan user 2026-09-28: "untuk pembayaran dibuat form modal").
+     *
+     * TIDAK menambah jenis bayar - isinya persis 7 jenis yg sudah ada (tunai, debit, kredit,
+     * transfer, merchant, voucher, DP), cuma ditata dua kolom spt dialog lama.
+     */
+    public bool $showPayModal = false;
 
     /** Modal cari voucher (F5) - hanya vocher milik pelanggan yg sudah dipilih, sisa saldo > 0. */
     public bool $showVoucherModal = false;
@@ -947,27 +967,196 @@ class PosTerminal extends Component
         ];
     }
 
-    /** Total pembayaran yg SUDAH terisi di metode LAIN (bukan $exclude) - dipakai "uang pas" supaya tidak menghitung dobel metode yg sudah otomatis terisi (mis. DP hasil autoPullDp()). */
-    private function totalBayarExcept(string $exclude): float
-    {
-        $current = $exclude === 'tunai' ? (float) $this->pay['tunai'] : (float) ($this->pay[$exclude]['jumlah'] ?? 0);
+    /* ---------------- Modal Pembayaran ---------------- */
 
-        return round($this->totalBayar() - $current, 2);
-    }
+    /**
+     * Salinan isian bayar saat dialog DIBUKA - dipakai tombol Batal untuk mengembalikan
+     * keadaan semula. Tanpa ini Batal & OK sama saja (dua-duanya cuma menutup dialog).
+     *
+     * @var array<string,mixed>
+     */
+    public array $paySebelumnya = [];
 
-    public function payExact(): void
+    /**
+     * Buka dialog bayar. Syarat yg BISA dicek murah dicek di sini supaya kasir tidak membuka
+     * dialog lalu langsung ditolak; sisanya tetap divalidasi `checkout()` (satu-satunya
+     * gerbang sebelum simpan).
+     */
+    public function openPayModal(): void
     {
-        $this->pay['tunai'] = max(0.0, round($this->grandTotal() - $this->totalBayarExcept('tunai'), 2));
-    }
+        $this->resetErrorBag();
 
-    /** "uang pas" utk kartu debit/kredit/transfer/dp - isi SISA yg belum terbayar via metode lain, bukan total penuh lagi (supaya tidak dobel dgn metode yg sudah terisi, mis. DP autoPullDp()). */
-    public function payExactMethod(string $key): void
-    {
-        if (! isset($this->pay[$key]) || ! is_array($this->pay[$key])) {
+        if ($this->cart === []) {
+            $this->addError('cart', 'Keranjang kosong.');
+
             return;
         }
-        $this->pay[$key]['jumlah'] = max(0.0, round($this->grandTotal() - $this->totalBayarExcept($key), 2));
+        if (! $this->custId) {
+            $this->addError('cust', 'Pelanggan/pasien wajib dipilih.');
+            $this->openCustModal();
+
+            return;
+        }
+
+        $this->paySebelumnya = $this->pay;
+        $this->showPayModal = true;
     }
+
+    /**
+     * Tombol OK - HANYA menyimpan isian pembayaran ke layar, **TIDAK menyimpan transaksi**
+     * (permintaan user 2026-09-28). Transaksi baru tersimpan lewat tombol Simpan di layar
+     * utama / `checkout()`.
+     *
+     * Isiannya divalidasi lebih dulu supaya salahnya ketahuan selagi dialog masih terbuka;
+     * kalau salah, dialog TIDAK ditutup.
+     */
+    public function simpanPembayaran(): void
+    {
+        $this->resetErrorBag();
+
+        if (! $this->validasiPembayaran()) {
+            return;
+        }
+
+        $this->paySebelumnya = [];
+        $this->showPayModal = false;
+    }
+
+    /** Batal - kembalikan isian bayar seperti saat dialog dibuka, lalu tutup. */
+    public function closePayModal(): void
+    {
+        if ($this->paySebelumnya !== []) {
+            $this->pay = $this->paySebelumnya;
+        }
+
+        $this->paySebelumnya = [];
+        $this->resetErrorBag();
+        $this->showPayModal = false;
+    }
+
+    /**
+     * Pintasan bayar di dalam dialog, urut sesuai kolomnya (permintaan user 2026-09-28):
+     *
+     *   F1 Tunai · F2 Debit · F3 Kredit · F4 Transfer · F5 DP · F6 Merchant · F7 Voucher
+     *
+     * DUA PERILAKU BERBEDA, karena memang beda sifatnya:
+     *
+     *  - F1/F2/F3/F4/F6 -> `bayarPenuh()`: semua NILAI bayar dikosongkan, lalu metode itu
+     *    diisi sebesar total transaksi.
+     *  - F5 (DP) & F7 (Voucher) -> MEMBUKA PEMILIHNYA. Keduanya tidak bisa "diisi penuh":
+     *    nilainya berasal dari saldo DP/voucher yg dipilih (`pickDp()` mengisi sebesar sisa
+     *    saldo), dan sisa itu sering TIDAK menutup seluruh transaksi - jadi metode lain
+     *    SENGAJA TIDAK dikosongkan, karena biasanya masih dibutuhkan untuk menutup sisanya.
+     *
+     * Yang dikosongkan `bayarPenuh()` hanya NILAI bayarnya. Voucher & DP yg terlanjur dipilih
+     * TIDAK dilepas - nilainya jadi 0 sehingga tidak ikut terpakai (`checkout()` mengabaikan
+     * keduanya saat jumlah 0), tapi kasir tidak perlu mencarinya ulang kalau berubah pikiran.
+     */
+    public const PINTASAN_BAYAR = [
+        'F1' => 'tunai',
+        'F2' => 'debit',
+        'F3' => 'kredit',
+        'F4' => 'transfer',
+        'F6' => 'merchant',
+    ];
+
+    public function bayarPenuh(string $key): void
+    {
+        if (! in_array($key, self::PINTASAN_BAYAR, true)) {
+            return;
+        }
+
+        $this->pay['tunai'] = 0;
+        foreach (['debit', 'kredit', 'transfer', 'merchant', 'voucher', 'dp'] as $k) {
+            $this->pay[$k]['jumlah'] = 0;
+        }
+
+        $total = $this->grandTotal();
+        if ($key === 'tunai') {
+            $this->pay['tunai'] = $total;
+        } else {
+            $this->pay[$key]['jumlah'] = $total;
+        }
+
+        // Kursor pindah ke isian yg masih perlu dilengkapi (no. kartu / no. merchant).
+        $this->dispatch('fokus-bayar', key: $key);
+    }
+
+    /* Pengalih tombol pintas. F1-F7 SEMUANYA punya arti ganda: di luar dialog = pintasan lama,
+     | di dalam dialog = pintasan bayar. Satu pengikat per tombol dgn percabangan DI SINI -
+     | kalau dipasang dua `wire:keydown.fN.window` (satu di root, satu di dalam dialog),
+     | KEDUANYA ikut jalan (mis. nilai bayar terisi TAPI modal cari item ikut terbuka). */
+
+    public function hotkeyF1(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('tunai') : $this->openCustModal();
+    }
+
+    public function hotkeyF2(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('debit') : $this->openItemModal();
+    }
+
+    public function hotkeyF3(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('kredit') : $this->openPromoModal();
+    }
+
+    public function hotkeyF4(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('transfer') : $this->openPaketModal();
+    }
+
+    /** DP: di KEDUA keadaan membuka pemilih DP - di dalam dialog inilah "rincian DP"-nya. */
+    public function hotkeyF5(): void
+    {
+        $this->showPayModal ? $this->openDpModal() : $this->openVoucherModal();
+    }
+
+    public function hotkeyF6(): void
+    {
+        $this->showPayModal ? $this->bayarPenuh('merchant') : $this->openDpModal();
+    }
+
+    /**
+     * Voucher: di dalam dialog membuka pemilih voucher (nilainya dari saldo voucher).
+     * Di LUAR dialog sengaja tidak melakukan apa pun - promo pindah ke F3 (2026-09-29).
+     */
+    public function hotkeyF7(): void
+    {
+        if ($this->showPayModal) {
+            $this->openVoucherModal();
+        }
+    }
+
+    /**
+     * Ctrl+Enter = "setujui yang sedang di layar":
+     *  - dialog bayar terbuka -> OK (simpan ISIAN BAYAR saja, dialog ditutup);
+     *  - dialog tertutup      -> SIMPAN TRANSAKSI.
+     *
+     * Ini jalur andal untuk keduanya. `F12` (mengikuti tombol OK di VB6) tetap dipasang di
+     * dalam dialog, tapi Chrome/Edge MEMBUKA DEVTOOLS pada F12 dan `preventDefault()` tidak
+     * bisa mencegahnya - jadi F12 tidak bisa diandalkan di semua browser.
+     */
+    public function hotkeyCtrlEnter(): void
+    {
+        if ($this->showPayModal) {
+            $this->simpanPembayaran();
+
+            return;
+        }
+
+        $this->checkout(app(PosSaleWriter::class));
+    }
+
+    /* `payExact()`, `payExactMethod()` & `totalBayarExcept()` DIHAPUS 2026-09-29 - tautan
+     | "uang pas" di dialog bayar dihapus atas permintaan user karena sudah ada pintasan F1-F7.
+     |
+     | BEDANYA, kalau nanti dibutuhkan lagi: "uang pas" mengisi SISA yg belum terbayar,
+     | sedangkan `bayarPenuh()` mengosongkan semua lalu mengisi TOTAL PENUH. Jadi sekarang
+     | TIDAK ADA lagi cara satu-klik mengisi sisa pada PEMBAYARAN TERBAGI (mis. debit 20rb
+     | dulu, lalu tunai sisanya) - kasir mengetik sendiri sisanya. Rumus lamanya:
+     |     $sisa = grandTotal() - (totalBayar() - nilai metode yg sedang diisi); */
 
     /* ---------------- Hitung ---------------- */
 
@@ -2317,6 +2506,117 @@ class PosTerminal extends Component
 
     /* ---------------- Checkout ---------------- */
 
+    /**
+     * Validasi ISIAN PEMBAYARAN saja (kartu, voucher, DP). Dipakai DUA kali:
+     *  - tombol OK di dialog bayar (`simpanPembayaran()`) supaya salahnya ketahuan selagi
+     *    dialognya masih terbuka & isiannya kelihatan;
+     *  - `checkout()` sebelum menyimpan - TETAP diulang di sana, karena isian bisa berubah
+     *    lagi setelah dialog ditutup, dan saldo voucher/DP bisa berubah di sela itu
+     *    (pemeriksaannya menembak DB, bukan cuma bentuk isian).
+     *
+     * @return bool false kalau ada yang salah; pesannya sudah masuk error bag.
+     */
+    private function validasiPembayaran(): bool
+    {
+        // Kartu debit/kredit/transfer diisi jumlah -> no. kartu/ref & bank wajib diisi juga.
+        $payLabels = ['debit' => 'Kartu Debit', 'kredit' => 'Kartu Kredit', 'transfer' => 'Transfer'];
+        $payInvalid = false;
+        foreach ($payLabels as $key => $label) {
+            $p = $this->pay[$key];
+            if ((float) $p['jumlah'] <= 0) {
+                continue;
+            }
+            if (trim((string) $p['no']) === '') {
+                $this->addError("pay.{$key}.no", "No. kartu/ref {$label} wajib diisi.");
+                $payInvalid = true;
+            }
+            if (empty($p['bank'])) {
+                $this->addError("pay.{$key}.bank", "Bank {$label} wajib dipilih.");
+                $payInvalid = true;
+            }
+        }
+        if ($payInvalid) {
+            return false;
+        }
+
+        // Voucher diisi jumlah -> harus dari voucher yg benar2 dipilih (bukan diketik bebas),
+        // masih milik pelanggan yg sekarang, dan tidak melebihi sisa saldo saat ini (anti race).
+        $vc = $this->pay['voucher'];
+        if ((float) $vc['jumlah'] > 0) {
+            $vRow = $vc['vid'] ? DB::table('bvoucher')->where('VID', $vc['vid'])
+                ->first(['VKONTAK', DB::raw('(VNILAI - VNILAIPAKAI) as sisa')]) : null;
+
+            if (! $vRow) {
+                $this->addError('pay.voucher.jumlah', 'Voucher belum dipilih.');
+
+                return false;
+            }
+            if ((int) $vRow->VKONTAK !== (int) $this->custId) {
+                $this->addError('pay.voucher.jumlah', 'Voucher bukan milik pelanggan ini.');
+                $this->clearVoucher();
+
+                return false;
+            }
+
+            // Sedang edit transaksi lama yg belum dibatalkan -> kalau voucher yg SAMA sudah
+            // dipakai di sana, pemakaiannya belum "dikembalikan" ke sisa saldo live (baru
+            // dibalik saat replace() disimpan). Kompensasi supaya tidak salah ditolak.
+            $sisaTersedia = (float) $vRow->sisa;
+            if ($this->editingFromId) {
+                $vcLama = (float) DB::table('fstoku')->where('SUID', $this->editingFromId)
+                    ->where('SUSTATUSKIRIM', $vc['vid'])->value('SUTOTALVOUCHER');
+                $sisaTersedia += $vcLama;
+            }
+
+            if ((float) $vc['jumlah'] > $sisaTersedia + 0.001) {
+                $this->addError('pay.voucher.jumlah', 'Sisa saldo voucher tinggal ' . number_format($sisaTersedia, 0, ',', '.') . '.');
+
+                return false;
+            }
+        }
+
+        // DP diisi jumlah -> harus dari baris DP yg benar2 dipilih, item-nya benar2 salah satu
+        // dari 5 item DP resmi (whitelist yg sama dipakai trigger DB), masih milik pelanggan yg
+        // sekarang, dan tidak melebihi sisa saldo saat ini.
+        $dp = $this->pay['dp'];
+        if ((float) $dp['jumlah'] > 0) {
+            $dRow = $dp['sdid'] ? DB::table('fstokd as d')
+                ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+                ->where('d.SDID', $dp['sdid'])
+                ->first(['d.SDITEM', 'u.SUKONTAK', DB::raw('((d.SDHARGA - d.SDDISKON) * d.SDKELUAR - d.SDBAYARDP) as sisa')]) : null;
+
+            if (! $dRow || ! in_array((int) $dRow->SDITEM, self::ITEM_DP, true)) {
+                $this->addError('pay.dp.jumlah', 'DP belum dipilih.');
+                $this->clearDp();
+
+                return false;
+            }
+            if ((int) $dRow->SUKONTAK !== (int) $this->custId) {
+                $this->addError('pay.dp.jumlah', 'DP bukan milik pelanggan ini.');
+                $this->clearDp();
+
+                return false;
+            }
+
+            // Sedang edit transaksi lama yg belum dibatalkan -> kompensasi spt voucher/stok.
+            $sisaDpTersedia = (float) $dRow->sisa;
+            if ($this->editingFromId) {
+                $dpLama = (float) DB::table('fstoku')->where('SUID', $this->editingFromId)
+                    ->where('SUDPID', $dp['sdid'])->value('SUTOTALDP');
+                $sisaDpTersedia += $dpLama;
+            }
+
+            if ((float) $dp['jumlah'] > $sisaDpTersedia + 0.001) {
+                $this->addError('pay.dp.jumlah', 'Sisa saldo DP tinggal ' . number_format($sisaDpTersedia, 0, ',', '.') . '.');
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+
     public function checkout(PosSaleWriter $writer): void
     {
         $this->resetErrorBag();
@@ -2339,99 +2639,24 @@ class PosTerminal extends Component
             return;
         }
 
-        // Kartu debit/kredit/transfer diisi jumlah -> no. kartu/ref & bank wajib diisi juga.
-        $payLabels = ['debit' => 'Kartu Debit', 'kredit' => 'Kartu Kredit', 'transfer' => 'Transfer'];
-        $payInvalid = false;
-        foreach ($payLabels as $key => $label) {
-            $p = $this->pay[$key];
-            if ((float) $p['jumlah'] <= 0) {
-                continue;
-            }
-            if (trim((string) $p['no']) === '') {
-                $this->addError("pay.{$key}.no", "No. kartu/ref {$label} wajib diisi.");
-                $payInvalid = true;
-            }
-            if (empty($p['bank'])) {
-                $this->addError("pay.{$key}.bank", "Bank {$label} wajib dipilih.");
-                $payInvalid = true;
-            }
+        // Catatan Rekam Medis wajib (permintaan user 2026-09-29). Diperiksa SEBELUM pembayaran
+        // supaya kasir tidak sempat mengisi dialog bayar lalu ditolak karena field di layar
+        // utama. Dipotong 255 krn `SUREKAMMEDIS` varchar(255) - `strict => false` di config DB
+        // akan MEMOTONG DIAM-DIAM kalau lebih, jadi dibatasi di sini supaya ketahuan kasir.
+        $rm = trim((string) $this->rekamMedis);
+        if ($rm === '') {
+            $this->addError('rekamMedis', 'Catatan Rekam Medis wajib diisi.');
+
+            return;
         }
-        if ($payInvalid) {
+        if (mb_strlen($rm) > 255) {
+            $this->addError('rekamMedis', 'Catatan Rekam Medis maksimal 255 huruf (sekarang ' . mb_strlen($rm) . ').');
+
             return;
         }
 
-        // Voucher diisi jumlah -> harus dari voucher yg benar2 dipilih (bukan diketik bebas),
-        // masih milik pelanggan yg sekarang, dan tidak melebihi sisa saldo saat ini (anti race).
-        $vc = $this->pay['voucher'];
-        if ((float) $vc['jumlah'] > 0) {
-            $vRow = $vc['vid'] ? DB::table('bvoucher')->where('VID', $vc['vid'])
-                ->first(['VKONTAK', DB::raw('(VNILAI - VNILAIPAKAI) as sisa')]) : null;
-
-            if (! $vRow) {
-                $this->addError('pay.voucher.jumlah', 'Voucher belum dipilih.');
-
-                return;
-            }
-            if ((int) $vRow->VKONTAK !== (int) $this->custId) {
-                $this->addError('pay.voucher.jumlah', 'Voucher bukan milik pelanggan ini.');
-                $this->clearVoucher();
-
-                return;
-            }
-
-            // Sedang edit transaksi lama yg belum dibatalkan -> kalau voucher yg SAMA sudah
-            // dipakai di sana, pemakaiannya belum "dikembalikan" ke sisa saldo live (baru
-            // dibalik saat replace() disimpan). Kompensasi supaya tidak salah ditolak.
-            $sisaTersedia = (float) $vRow->sisa;
-            if ($this->editingFromId) {
-                $vcLama = (float) DB::table('fstoku')->where('SUID', $this->editingFromId)
-                    ->where('SUSTATUSKIRIM', $vc['vid'])->value('SUTOTALVOUCHER');
-                $sisaTersedia += $vcLama;
-            }
-
-            if ((float) $vc['jumlah'] > $sisaTersedia + 0.001) {
-                $this->addError('pay.voucher.jumlah', 'Sisa saldo voucher tinggal ' . number_format($sisaTersedia, 0, ',', '.') . '.');
-
-                return;
-            }
-        }
-
-        // DP diisi jumlah -> harus dari baris DP yg benar2 dipilih, item-nya benar2 salah satu
-        // dari 5 item DP resmi (whitelist yg sama dipakai trigger DB), masih milik pelanggan yg
-        // sekarang, dan tidak melebihi sisa saldo saat ini.
-        $dp = $this->pay['dp'];
-        if ((float) $dp['jumlah'] > 0) {
-            $dRow = $dp['sdid'] ? DB::table('fstokd as d')
-                ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
-                ->where('d.SDID', $dp['sdid'])
-                ->first(['d.SDITEM', 'u.SUKONTAK', DB::raw('((d.SDHARGA - d.SDDISKON) * d.SDKELUAR - d.SDBAYARDP) as sisa')]) : null;
-
-            if (! $dRow || ! in_array((int) $dRow->SDITEM, self::ITEM_DP, true)) {
-                $this->addError('pay.dp.jumlah', 'DP belum dipilih.');
-                $this->clearDp();
-
-                return;
-            }
-            if ((int) $dRow->SUKONTAK !== (int) $this->custId) {
-                $this->addError('pay.dp.jumlah', 'DP bukan milik pelanggan ini.');
-                $this->clearDp();
-
-                return;
-            }
-
-            // Sedang edit transaksi lama yg belum dibatalkan -> kompensasi spt voucher/stok.
-            $sisaDpTersedia = (float) $dRow->sisa;
-            if ($this->editingFromId) {
-                $dpLama = (float) DB::table('fstoku')->where('SUID', $this->editingFromId)
-                    ->where('SUDPID', $dp['sdid'])->value('SUTOTALDP');
-                $sisaDpTersedia += $dpLama;
-            }
-
-            if ((float) $dp['jumlah'] > $sisaDpTersedia + 0.001) {
-                $this->addError('pay.dp.jumlah', 'Sisa saldo DP tinggal ' . number_format($sisaDpTersedia, 0, ',', '.') . '.');
-
-                return;
-            }
+        if (! $this->validasiPembayaran()) {
+            return;
         }
 
         // Baris asal-paket (sddaripaket=1): (a) tolak kalau pelanggan sudah diganti sejak baris
@@ -2591,6 +2816,7 @@ class PosTerminal extends Component
             'SUKONTAK'           => $this->custId,
             'SUKARYAWAN'         => $this->kasirId,
             'SUCATATAN'          => trim((string) $this->catatan) ?: null,
+            'SUREKAMMEDIS'       => trim((string) $this->rekamMedis),
             'SUCABANG'           => (int) $branch->GID,
             'SUTOTALTRANSAKSI'   => $subtotal,
             'SUTOTALBAYAR'       => $bayar,
@@ -2684,6 +2910,7 @@ class PosTerminal extends Component
         $this->clearCustomer();
         $this->resetPayments();
         $this->catatan = null;
+        $this->rekamMedis = null;
         $this->resetPromoState();
         $this->editingFromId = null;
         $this->editingFromNomor = null;
@@ -2694,6 +2921,9 @@ class PosTerminal extends Component
         $this->showPaketNomorModal = false;
         $this->showPaketTarikModal = false;
         $this->resetPaketState();
+        // Dialog bayar ditutup HANYA di sini - kalau checkout() berhenti karena validasi, dialog
+        // sengaja dibiarkan terbuka supaya pesan kesalahannya terbaca di tempat isiannya.
+        $this->showPayModal = false;
         // kasirId/kasirLabel TIDAK direset - melekat ke user login, bukan per transaksi.
     }
 
@@ -2739,11 +2969,6 @@ class PosTerminal extends Component
      * yg sudah dipunya siapapun yg bisa buka layar ini (tidak ada lapisan hak akses tambahan).
      * Konvensi tombol serupa ini akan diulang di form2 lain nanti (per permintaan user).
      */
-    public function openPosDataTab(): void
-    {
-        $this->dispatch('open-tab', cmp: 'sales.pos-data-list', args: [], label: 'Data Transaksi', icon: 'fas fa-table-list');
-    }
-
     public function newTransaction(): void
     {
         $this->lastReceipt = [];
@@ -2896,6 +3121,7 @@ class PosTerminal extends Component
         }
 
         $this->catatan = $header->SUCATATAN;
+        $this->rekamMedis = $header->SUREKAMMEDIS;
 
         // "Data Lainnya" - muat ulang 6 field FK (bkontak) + sisanya, lihat komentar
         // $showOtherDataModal. Label resolve 1x query utk keenamnya.

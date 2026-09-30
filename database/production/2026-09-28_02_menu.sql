@@ -8,15 +8,17 @@
 --      php artisan db:seed --class=MenuSeeder
 --
 --  MenuSeeder adalah sumber kebenaran daftar menu dan selalu ikut terbarui saat
---  ada menu baru. File SQL ini hanya salinan keadaan per 2026-09-28, dipakai
---  kalau di server tidak memungkinkan menjalankan artisan.
+--  ada menu baru. File SQL ini hanya salinan keadaannya, dipakai kalau di server
+--  tidak memungkinkan menjalankan artisan. Dibangkitkan oleh
+--  2026-09-28_02_menu.gen.php — jangan disunting tangan, jalankan ulang
+--  pembangkitnya setelah menyeed.
 --
 --  AMAN DIULANG: dikunci `segment_key` yang unik — baris yang sudah ada akan
 --  diperbarui judul/route/ikon/urutannya, bukan digandakan.
 --
 --  Pemeriksaan foreign key dimatikan sementara karena tabel ini menunjuk dirinya
---  sendiri (`parent_id`), dan ada satu baris yang induknya ber-ID lebih besar
---  sehingga urutan insert biasa akan ditolak.
+--  sendiri (`parent_id`), dan ada baris yang induknya ber-ID lebih besar sehingga
+--  urutan insert biasa akan ditolak.
 -- =============================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
@@ -97,17 +99,17 @@ ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (16, 14, 'sales.order', 'Sales Order', 'sales/order', 'fas fa-file-invoice', 'link', 32, 1)
+VALUES (16, 14, 'sales.order', 'Sales Order', 'sales/order', 'fas fa-file-invoice', 'link', 33, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (17, 14, 'sales.invoice', 'Invoice Penjualan', 'sales/invoice', 'fas fa-file-invoice-dollar', 'link', 34, 1)
+VALUES (17, 14, 'sales.invoice', 'Invoice Penjualan', 'sales/invoice', 'fas fa-file-invoice-dollar', 'link', 35, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (18, 14, 'sales.return', 'Retur Penjualan', 'sales/return', 'fas fa-rotate-left', 'link', 36, 1)
+VALUES (18, 14, 'sales.return', 'Retur Penjualan', 'sales/return', 'fas fa-rotate-left', 'link', 37, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
@@ -187,12 +189,12 @@ ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (38, 14, 'master.promo', 'Master Promo', 'master/promo', 'fas fa-tag', 'link', 38, 1)
+VALUES (38, 14, 'master.promo', 'Master Promo', 'master/promo', 'fas fa-tag', 'link', 39, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (39, 14, 'master.paket', 'Master Paket', 'master/paket', 'fas fa-boxes-packing', 'link', 39, 1)
+VALUES (39, 14, 'master.paket', 'Master Paket', 'master/paket', 'fas fa-boxes-packing', 'link', 40, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
@@ -207,7 +209,7 @@ ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (44, 14, 'sales.sj', 'Surat Jalan', 'sales/sj', 'fas fa-truck-fast', 'link', 33, 1)
+VALUES (44, 14, 'sales.sj', 'Surat Jalan', 'sales/sj', 'fas fa-truck-fast', 'link', 34, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
@@ -282,7 +284,7 @@ ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (59, 14, 'sales.invoice-mutasi', 'Invoice Penjualan Mutasi', 'sales/invoice-mutasi', 'fas fa-truck-arrow-right', 'link', 35, 1)
+VALUES (59, 14, 'sales.invoice-mutasi', 'Invoice Penjualan Mutasi', 'sales/invoice-mutasi', 'fas fa-truck-arrow-right', 'link', 36, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
@@ -297,7 +299,7 @@ ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
-VALUES (62, 14, 'sales.alkes', 'Input Alkes Depo', 'sales/alkes', 'fas fa-syringe', 'link', 37, 1)
+VALUES (62, 14, 'sales.alkes', 'Input Alkes Depo', 'sales/alkes', 'fas fa-syringe', 'link', 38, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
@@ -308,6 +310,16 @@ ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=
 
 INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
 VALUES (64, 58, 'laporan.ip-tindakan-produk', 'IP Tindakan/Produk Per Bulan', 'laporan/ip-tindakan-produk', 'fas fa-calendar-days', 'link', 83, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (65, 14, 'sales.pos-data', 'Data Transaksi POS', 'sales/pos-data', 'fas fa-table-list', 'link', 32, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (66, 58, 'laporan.penjualan-tunai', 'Daftar Penjualan Tunai', 'laporan/penjualan-tunai', 'fas fa-money-bill-wave', 'link', 84, 1)
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 

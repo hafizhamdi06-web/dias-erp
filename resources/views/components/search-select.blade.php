@@ -19,7 +19,7 @@
     @click.outside="open = false"
 >
     <div class="form-control form-control-sm d-flex justify-content-between align-items-center"
-         role="button" @click="toggle()">
+         role="button" x-ref="pemicu" @click="toggle()">
         <span x-text="label || @js($placeholder)" :class="{ 'text-muted': !label }"></span>
         <span class="d-flex gap-1">
             <i class="fas fa-xmark small text-muted" x-show="value" @click.stop="clear()" role="button"></i>
@@ -27,14 +27,16 @@
         </span>
     </div>
 
-    <div x-show="open" x-transition.opacity
-         class="position-absolute w-100 bg-body border rounded shadow-sm mt-1"
-         style="z-index: 1060">
+    {{-- `position: fixed` (lewat :style dari `_ukur()`), BUKAN `position-absolute` - panel
+         absolute TERPOTONG oleh induk ber-overflow, mis. `.table-responsive` di form
+         Kas/Bank (dilaporkan user 2026-09-30). Lihat catatan di `searchSelect()`. --}}
+    <div x-show="open" x-transition.opacity :style="gaya"
+         class="bg-body border rounded shadow">
         <div class="p-1">
             <input type="text" class="form-control form-control-sm" placeholder="ketik untuk cari…"
                    x-model="q" @input.debounce.300ms="search()" x-ref="q">
         </div>
-        <div style="max-height: 220px; overflow-y: auto">
+        <div style="max-height: var(--ss-maks, 220px); overflow-y: auto">
             <template x-if="loading">
                 <div class="px-2 py-1 small text-muted">memuat…</div>
             </template>

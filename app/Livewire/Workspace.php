@@ -55,6 +55,7 @@ class Workspace extends Component
             'master.promo'      => ['master.promo-manager', 'Master Promo', 'fas fa-tag'],
             'master.paket'      => ['master.paket-manager', 'Master Paket', 'fas fa-boxes-packing'],
             'sales.pos'         => ['sales.pos-terminal', 'Kasir / POS', 'fas fa-cash-register'],
+            'sales.pos-data'    => ['sales.pos-data-list', 'Data Transaksi POS', 'fas fa-table-list'],
             'purchase.pkb'      => ['purchase.pkb-list', 'Perintah Kirim Barang', 'fas fa-dolly-flatbed'],
             'purchase.pbc'      => ['purchase.pbc-list', 'Penerimaan Barang Cabang', 'fas fa-box-open'],
             'purchase.po'       => ['purchase.po-list', 'Purchase Order', 'fas fa-file-signature'],
@@ -79,6 +80,7 @@ class Workspace extends Component
             'finance.pengajuan-dana' => ['fina.pengajuan-dana-list', 'Pengajuan Dana', 'fas fa-hand-holding-dollar'],
             'laporan.penjualan-per-barang' => ['reports.penjualan-per-barang', 'IP Per Barang', 'fas fa-box'],
             'laporan.ip-tindakan-produk' => ['reports.ip-tindakan-produk', 'IP Tindakan/Produk Per Bulan', 'fas fa-calendar-days'],
+            'laporan.penjualan-tunai' => ['reports.daftar-penjualan-tunai', 'Daftar Penjualan Tunai', 'fas fa-money-bill-wave'],
         ];
     }
 

@@ -17,7 +17,8 @@
         /* ---------- tabel utama ---------- */
         table.items { border: .8pt solid #000; margin-top: 4pt; }
         table.items th { border-bottom: .8pt solid #000; padding: 4pt 5pt; font-size: 9.5pt; }
-        table.items th small { display: block; font-weight: normal; font-size: 9pt; }
+        /* TANPA `display:block` - pemisah barisnya `<br>` di HTML (lihat komentar di <thead>). */
+        table.items th small { font-weight: normal; font-size: 9pt; }
         table.items td { padding: 3pt 5pt; font-size: 9.5pt; vertical-align: top; }
         table.items .sekat { border-left: .8pt solid #000; }
         table.items tr.terbilang td { border-top: .8pt solid #000; padding: 5pt; }
@@ -76,11 +77,14 @@
 <table class="items">
     <thead>
         <tr>
-            <th align="center">Keterangan<small>Description</small></th>
+            {{-- `<br>` WAJIB, bukan sekadar `display:block` di CSS: mpdf TIDAK menghormati
+                 `display:block` pada elemen inline spt <small>, jadi judul Inggrisnya
+                 menempel sebaris dgn yg Indonesia (dilaporkan user 2026-09-30). --}}
+            <th align="center">Keterangan<br><small>Description</small></th>
             {{-- Kolom tanggal memang TANPA judul di cetakan contoh. --}}
             <th class="sekat" style="width: 13%"></th>
-            <th class="sekat" style="width: 20%">COA<small>Account No.</small></th>
-            <th class="sekat" style="width: 17%">Jumlah<small>Amount</small></th>
+            <th class="sekat" style="width: 20%">COA<br><small>Account No.</small></th>
+            <th class="sekat" style="width: 17%">Jumlah<br><small>Amount</small></th>
         </tr>
     </thead>
     <tbody>

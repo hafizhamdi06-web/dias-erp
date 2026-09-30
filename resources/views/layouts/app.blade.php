@@ -79,7 +79,11 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.0/browser/overlayscrollbars.browser.es6.min.js"></script>
     <script src="{{ asset('vendor/adminlte/dist/js/adminlte.min.js') }}"></script>
-    <script src="{{ asset('js/dias-helpers.js') }}"></script>
+    {{-- `?v=<mtime>` WAJIB: tanpa itu peramban menyajikan versi CACHE dan perbaikan JS apa pun
+         tidak pernah sampai ke user - sudah kejadian 2026-09-30, dua perbaikan berturut-turut
+         (panel `<x-search-select>` & komponen `uangInput`) dikira gagal padahal berkasnya yg
+         lama yang dimuat. Berubah otomatis tiap berkasnya disimpan, jadi tidak perlu diingat. --}}
+    <script src="{{ asset('js/dias-helpers.js') }}?v={{ @filemtime(public_path('js/dias-helpers.js')) ?: 1 }}"></script>
     @livewireScripts
     @stack('scripts')
 </body>

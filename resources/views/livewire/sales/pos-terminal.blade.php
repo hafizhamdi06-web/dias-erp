@@ -1,13 +1,24 @@
 <div wire:key="pos-terminal"
-     wire:keydown.f2.window.prevent="openItemModal"
-     wire:keydown.f3.window.prevent="openPaketModal"
-     wire:keydown.f4.window.prevent="openCustModal"
-     wire:keydown.f5.window.prevent="openVoucherModal"
-     wire:keydown.f6.window.prevent="openDpModal"
-     wire:keydown.f7.window.prevent="openPromoModal"
-     wire:keydown.f1.window.prevent="payExact"
-     wire:keydown.f9.window.prevent="checkout"
-     wire:keydown.enter.ctrl.window.prevent="checkout">
+     {{-- F1-F7 punya arti GANDA.
+          Di LUAR dialog bayar : F1 pelanggan, F2 item, F3 promo, F4 paket, F5 voucher, F6 DP.
+          Di DALAM dialog bayar: F1 Tunai, F2 Debit, F3 Kredit, F4 Transfer, F5 DP,
+                                 F6 Merchant, F7 Voucher.
+          Pengikatnya HARUS satu per tombol dgn percabangan di PHP (`hotkeyFn`) - kalau dipasang
+          dua `wire:keydown.fN.window` (satu di root, satu di dalam dialog), KEDUANYA ikut jalan
+          dan modal pencarian ikut terbuka bersamaan dgn terisinya nilai bayar. --}}
+     wire:keydown.f1.window.prevent="hotkeyF1"
+     wire:keydown.f2.window.prevent="hotkeyF2"
+     wire:keydown.f3.window.prevent="hotkeyF3"
+     wire:keydown.f4.window.prevent="hotkeyF4"
+     wire:keydown.f5.window.prevent="hotkeyF5"
+     wire:keydown.f6.window.prevent="hotkeyF6"
+     wire:keydown.f7.window.prevent="hotkeyF7"
+     {{-- F9 & Ctrl+Enter BUKA dialog bayar, BUKAN langsung menyimpan - mengikuti alur VB6:
+          susun keranjang, buka dialog, baru OK. Pemicu simpan (F12) sengaja dipasang DI DALAM
+          dialog, jadi hanya hidup selama dialog terbuka - supaya tidak ada transaksi tersimpan
+          tanpa kasir sempat melihat rincian bayarnya. --}}
+     wire:keydown.f9.window.prevent="openPayModal"
+     wire:keydown.enter.ctrl.window.prevent="hotkeyCtrlEnter">
     @if ($lastReceipt)
         {{-- ====== STRUK / KONFIRMASI ====== --}}
         <div class="card border-success">
@@ -20,9 +31,19 @@
                     <div class="col-auto"><div class="border rounded p-2"><div class="small text-muted">Bayar</div><div class="fw-bold">{{ number_format($lastReceipt['bayar'], 0, ',', '.') }}</div></div></div>
                     <div class="col-auto"><div class="border rounded p-2 bg-body-secondary"><div class="small text-muted">Kembalian</div><div class="fw-bold">{{ number_format($lastReceipt['kembalian'], 0, ',', '.') }}</div></div></div>
                 </div>
+                {{-- Tombol utama memakai ukuran struk PREFERENSI user; dua tombol kecil di
+                     sebelahnya untuk memaksa ukuran lain sekali jalan (`?struk=`) tanpa
+                     mengubah setelan - mis. kertas termal habis. --}}
                 <a href="{{ route('sales.pos.receipt', $lastReceipt['id']) }}" target="_blank" class="btn btn-outline-secondary">
                     <i class="fas fa-print me-1"></i> Cetak struk
                 </a>
+                @foreach (config('pos.struk_pilihan', []) as $kode => $label)
+                    <a href="{{ route('sales.pos.receipt', ['id' => $lastReceipt['id'], 'struk' => $kode]) }}"
+                       target="_blank" class="btn btn-outline-secondary btn-sm" title="Cetak sebagai {{ $label }}">
+                        {{-- `(string)` WAJIB: PHP mengubah kunci config '58' jadi integer 58. --}}
+                        {{ (string) $kode === '58' ? '58 mm' : '½ A4' }}
+                    </a>
+                @endforeach
                 <button class="btn btn-primary" wire:click="newTransaction">
                     <i class="fas fa-plus me-1"></i> Transaksi baru
                 </button>
@@ -44,19 +65,16 @@
                             <i class="fas fa-barcode me-1"></i> Cari item / scan barcode…
                             <kbd class="float-end">F2</kbd>
                         </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="openPaketModal">
-                            <i class="fas fa-boxes-packing me-1"></i> Cari Paket
-                            <kbd class="ms-1">F3</kbd>
-                        </button>
                         <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="openHistoryModal">
                             <i class="fas fa-clock-rotate-left me-1"></i> Riwayat Hari Ini
                         </button>
                         <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="openOtherDataModal">
                             <i class="fas fa-ellipsis me-1"></i> Data Lainnya
                         </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="openPosDataTab">
-                            <i class="fas fa-table-list me-1"></i> Data Transaksi
-                        </button>
+                        {{-- Tombol "Data Transaksi" DIHAPUS (permintaan user 2026-09-28) - sekarang
+                             jadi menu sidebar sendiri: Penjualan > Data Transaksi POS
+                             (`sales.pos-data`), supaya bisa dibuka tanpa lewat layar kasir dan
+                             hak aksesnya bisa diatur terpisah dari `sales/pos`. --}}
                     </div>
                     <div class="card-body p-0">
                         @if ($editingFromNomor)
@@ -190,19 +208,50 @@
                                         <i class="fas fa-id-card me-1"></i>{{ $memberInfo }}
                                     </div>
                                 </div>
-                                <button class="btn btn-sm btn-outline-secondary" wire:click="clearCustomer">Ganti</button>
+                                {{-- Langsung buka pencarian (permintaan user 2026-09-29), bukan
+                                     `clearCustomer()` yg memaksa 2 langkah. Efek samping yg
+                                     justru lebih baik: batal mencari = pelanggan lama TETAP
+                                     terpilih, dulu sudah terlanjur terhapus. Voucher/DP milik
+                                     pelanggan lama tetap dibersihkan oleh `pickCustomer()`
+                                     begitu ada pelanggan baru yg dipilih. --}}
+                                <button class="btn btn-sm btn-outline-secondary" wire:click="openCustModal">Ganti</button>
                             </div>
                         @else
                             <button type="button" class="btn btn-outline-danger btn-sm w-100 text-start" wire:click="openCustModal">
                                 <i class="fas fa-user me-1"></i> Cari pelanggan <span class="text-danger">*</span> (wajib)
-                                <kbd class="float-end">F4</kbd>
+                                <kbd class="float-end">F1</kbd>
                             </button>
                         @endif
                         @error('cust') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+
+                        {{-- Catatan Rekam Medis -> fstoku.SUREKAMMEDIS. WAJIB, diperiksa saat
+                             Simpan Transaksi (permintaan user 2026-09-29). Bukan field baru:
+                             kolomnya terisi di 99,97% transaksi POS produksi. --}}
+                        <div class="mt-3">
+                            <label class="form-label small fw-semibold mb-1" for="pos-rekam-medis">
+                                Catatan Rekam Medis <span class="text-danger">*</span>
+                            </label>
+                            {{-- Isi awal HARUS dicetak di antara tag: Livewire tidak mengisi
+                                 sendiri `value` <textarea> saat render pertama, jadi tanpa ini
+                                 catatan lama tampak KOSONG waktu transaksi dibuka lewat Edit.
+                                 `.live.debounce` (bukan `.blur`) supaya isian sudah tersinkron
+                                 saat tombol Simpan diklik - ini field WAJIB, satu ketikan yg
+                                 belum terkirim akan jadi penolakan palsu. --}}
+                            <textarea id="pos-rekam-medis" rows="2" maxlength="255"
+                                      class="form-control form-control-sm @error('rekamMedis') is-invalid @enderror"
+                                      placeholder="wajib diisi…"
+                                      wire:model.live.debounce.400ms="rekamMedis">{{ $rekamMedis }}</textarea>
+                            @error('rekamMedis')
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
+                            @enderror
+                        </div>
                     </div>
                 </div>
 
-                {{-- Promo - 1 transaksi boleh pakai lebih dari 1 promo, F7 bisa dipencet berkali-kali --}}
+                {{-- Promo & Paket. Cari Paket DI BAWAH Cari promo (permintaan user 2026-09-28) -
+                     dipindah dari toolbar header kiri supaya kedua pencarian "non-item" berkumpul
+                     di satu tempat. Pemicu F3 tetap global di <div> paling luar, jadi tombolnya
+                     pindah tanpa mengubah shortcut. --}}
                 <div class="card mb-3">
                     <div class="card-body">
                         @if ($promos !== [])
@@ -220,7 +269,12 @@
                         @endif
                         <button type="button" class="btn btn-outline-success btn-sm w-100 text-start" wire:click="openPromoModal">
                             <i class="fas fa-tag me-1"></i> Cari promo{{ $promos !== [] ? ' (tambah lagi)' : ' (opsional)' }}
-                            <kbd class="float-end">F7</kbd>
+                            <kbd class="float-end">F3</kbd>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
+                                wire:click="openPaketModal">
+                            <i class="fas fa-boxes-packing me-1"></i> Cari Paket
+                            <kbd class="float-end">F4</kbd>
                         </button>
                     </div>
                 </div>
@@ -235,55 +289,145 @@
                     </div>
                 </div>
 
-                {{-- Pembayaran --}}
+                {{-- Pembayaran - RINGKASAN saja. Isiannya pindah ke dialog (lihat modal di bawah),
+                     mengikuti alur VB6: susun keranjang dulu, baru buka dialog bayar. --}}
                 <div class="card mb-3">
                     <div class="card-header py-2 small fw-semibold">Pembayaran</div>
                     <div class="card-body">
-                        <div class="mb-2">
-                            <label class="form-label small mb-1 d-flex justify-content-between">
-                                <span>Tunai</span>
-                                <a href="#" class="small" wire:click.prevent="payExact">uang pas <kbd>F1</kbd></a>
-                            </label>
-                            <input type="number" min="0" class="form-control form-control-sm text-end" wire:model.live.debounce.400ms="pay.tunai">
-                        </div>
+                        @php
+                            $rincianBayar = collect([
+                                'Tunai'        => (float) $pay['tunai'],
+                                'Kartu Debit'  => (float) $pay['debit']['jumlah'],
+                                'Kartu Kredit' => (float) $pay['kredit']['jumlah'],
+                                'Transfer'     => (float) $pay['transfer']['jumlah'],
+                                'Merchant'     => (float) $pay['merchant']['jumlah'],
+                                'Voucher'      => (float) $pay['voucher']['jumlah'],
+                                'DP'           => (float) $pay['dp']['jumlah'],
+                            ])->filter(fn ($v) => $v > 0);
+                        @endphp
 
-                        @foreach (['debit' => 'Kartu Debit', 'kredit' => 'Kartu Kredit', 'transfer' => 'Transfer'] as $key => $label)
-                            @php $payErr = $errors->has("pay.{$key}.no") || $errors->has("pay.{$key}.bank"); @endphp
-                            <details class="mb-1" @if ($payErr) open @endif>
-                                <summary class="small text-muted">{{ $label }}
-                                    @if ((float) $pay[$key]['jumlah'] > 0)
-                                        <span class="badge text-bg-info">{{ number_format((float) $pay[$key]['jumlah'], 0, ',', '.') }}</span>
-                                    @endif
-                                    @if ($payErr)
-                                        <i class="fas fa-triangle-exclamation text-danger ms-1"></i>
-                                    @endif
-                                </summary>
-                                <div class="row g-1 mt-1">
-                                    <div class="col-12">
-                                        <div class="d-flex justify-content-between mb-1">
-                                            <span class="small text-muted">Jumlah</span>
-                                            <a href="#" class="small" wire:click.prevent="payExactMethod('{{ $key }}')">uang pas</a>
+                        @forelse ($rincianBayar as $label => $nilai)
+                            <div class="d-flex justify-content-between small">
+                                <span class="text-muted">{{ $label }}</span>
+                                <span>{{ number_format($nilai, 0, ',', '.') }}</span>
+                            </div>
+                        @empty
+                            <p class="small text-muted mb-0">Belum ada pembayaran.</p>
+                        @endforelse
+
+                        @if ($rincianBayar->isNotEmpty())
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between small">
+                                <span class="text-muted">Dibayar</span>
+                                <span>{{ number_format($bayar, 0, ',', '.') }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">{{ $kurang > 0 ? 'Kurang' : 'Kembalian' }}</span>
+                                <span class="fw-semibold {{ $kurang > 0 ? 'text-danger' : 'text-success' }}">
+                                    {{ number_format(abs($kurang), 0, ',', '.') }}
+                                </span>
+                            </div>
+                        @endif
+
+                        {{-- Kesalahan yg muncul SEBELUM dialog dibuka (keranjang kosong / pelanggan
+                             belum dipilih / cabang tidak valid). Kesalahan isian bayar sendiri
+                             tampil di dalam dialog, di sebelah kolomnya. --}}
+                        @error('cart') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+                        @error('pay') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+                        @error('branch') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+                    </div>
+                </div>
+
+                {{-- DUA tombol terpisah (permintaan user 2026-09-28): mengisi pembayaran dan
+                     MENYIMPAN transaksi bukan lagi satu tindakan. Dialog bayar hanya mengisi;
+                     yang menyimpan cuma tombol di bawahnya. --}}
+                <button class="btn btn-outline-primary w-100 mb-2" wire:click="openPayModal"
+                        @disabled(count($cart) === 0 || ! $custId)>
+                    <i class="fas fa-money-bill-wave me-1"></i>
+                    {{ $bayar > 0 ? 'Ubah Pembayaran' : 'Isi Pembayaran' }}
+                    <kbd class="ms-1">F9</kbd>
+                </button>
+
+                <button class="btn btn-success btn-lg w-100" wire:click="checkout"
+                        wire:loading.attr="disabled" wire:target="checkout"
+                        @disabled(count($cart) === 0 || ! $custId)>
+                    <span wire:loading wire:target="checkout" class="spinner-border spinner-border-sm me-1"></span>
+                    <i class="fas fa-cash-register me-1"></i> Simpan Transaksi
+                    <kbd class="ms-1">Ctrl+Enter</kbd>
+                </button>
+            </div>
+        </div>
+
+        {{-- ============ MODAL PEMBAYARAN (F9) ============
+             Tata letak DUA KOLOM mengikuti dialog Pembayaran VB6 (screenshot user 2026-09-28).
+             Jenis bayarnya PERSIS yg sudah ada - tidak ada yg ditambah: kiri tunai + dua kartu,
+             kanan transfer/DP/merchant/voucher. Field & `wire:model` sama persis dgn panel lama,
+             jadi perilaku & validasinya tidak berubah, hanya tempatnya.
+             Dialog ini HANYA MENGISI pembayaran - tidak ada jalur simpan transaksi di dalamnya
+             (tombol OK -> `simpanPembayaran()`). Dialog tidak ditutup kalau isiannya salah. --}}
+        @if ($showPayModal)
+            {{-- F12 & Esc hanya hidup selama dialog terbuka (elemen ini memang cuma ada saat itu).
+                 F1-F7 TIDAK dipasang di sini - lihat catatan di <div> root: pengikatnya
+                 satu per tombol supaya tidak jalan dobel dgn pintasan global. --}}
+            <div wire:key="pay-modal" x-data
+                 @fokus-bayar.window="$nextTick(() => {
+                     const ref = { tunai: 'bayarTunai', debit: 'bayarDebitNo', kredit: 'bayarKreditNo',
+                                   transfer: 'bayarTransferNo', merchant: 'bayarMerchantNo' }[$event.detail.key];
+                     if (ref && $refs[ref]) { $refs[ref].focus(); $refs[ref].select?.(); }
+                 })"
+                 {{-- Escape SENGAJA TIDAK ditutupkan ke dialog ini (permintaan user 2026-09-28):
+                      isian bayar terlalu mahal untuk hilang gara-gara Esc kepencet. Menutupnya
+                      lewat tombol Batal / (x) saja. Esc TETAP menutup sub-dialog di atasnya
+                      (cari DP/voucher) - pengikatnya ada di badan masing-masing modal dan
+                      BUKAN `.window`, jadi tidak saling mengganggu. --}}
+                 wire:keydown.f12.window.prevent="simpanPembayaran">
+            <x-lw-modal :show="$showPayModal" size="lg" title="Pembayaran" close="closePayModal">
+                <div class="modal-body">
+                    <p class="small text-muted border-bottom pb-2 mb-3">
+                        <kbd>F1</kbd> Tunai &middot; <kbd>F2</kbd> Debit &middot; <kbd>F3</kbd> Kredit &middot;
+                        <kbd>F4</kbd> Transfer &middot; <kbd>F6</kbd> Merchant —
+                        <strong>mengosongkan semua nilai bayar</strong> lalu mengisi penuh di kolom itu.<br>
+                        <kbd>F5</kbd> DP &middot; <kbd>F7</kbd> Voucher — <strong>membuka pilihannya</strong>
+                        (nilainya dari saldo yang dipilih, metode lain tidak dikosongkan).<br>
+                        <kbd>Ctrl</kbd>+<kbd>Enter</kbd> = OK. <strong>OK hanya mengisi pembayaran,
+                        transaksi belum tersimpan</strong> — simpan lewat tombol
+                        <em>Simpan Transaksi</em> di layar utama. <kbd>Esc</kbd> tidak menutup dialog.
+                    </p>
+                    <div class="row g-3">
+                        {{-- ---------- KOLOM KIRI: tunai + kartu ---------- --}}
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label small mb-1 fw-semibold">Tunai <kbd>F1</kbd></label>
+                                <input type="number" min="0" class="form-control text-end" x-ref="bayarTunai"
+                                       wire:model.live.debounce.400ms="pay.tunai">
+                            </div>
+
+                            @foreach (['debit' => ['Kartu Debit', 'F2'], 'kredit' => ['Kartu Kredit', 'F3']] as $key => [$label, $tombol])
+                                <div class="border rounded p-2 mb-3">
+                                    <div class="small fw-semibold mb-1">{{ $label }} <kbd>{{ $tombol }}</kbd></div>
+                                    <input type="number" min="0" class="form-control form-control-sm text-end mb-1"
+                                           placeholder="jumlah" wire:model.live.debounce.400ms="pay.{{ $key }}.jumlah">
+                                    <div class="row g-1">
+                                        <div class="col-12">
+                                            <input type="text" class="form-control form-control-sm @error("pay.{$key}.no") is-invalid @enderror"
+                                                   x-ref="bayar{{ ucfirst($key) }}No"
+                                                   placeholder="no. kartu/ref" wire:model="pay.{{ $key }}.no">
+                                            @error("pay.{$key}.no") <div class="invalid-feedback">{{ $message }}</div> @enderror
                                         </div>
-                                        <input type="number" min="0" class="form-control form-control-sm text-end" placeholder="jumlah"
-                                               wire:model.live.debounce.400ms="pay.{{ $key }}.jumlah">
-                                    </div>
-                                    <div class="col-6">
-                                        <input type="text" class="form-control form-control-sm @error("pay.{$key}.no") is-invalid @enderror"
-                                               placeholder="no. kartu/ref" wire:model="pay.{{ $key }}.no">
-                                        @error("pay.{$key}.no") <div class="invalid-feedback">{{ $message }}</div> @enderror
-                                    </div>
-                                    <div class="col-6">
-                                        <select class="form-select form-select-sm @error("pay.{$key}.bank") is-invalid @enderror"
-                                                wire:model="pay.{{ $key }}.bank">
-                                            <option value="">bank…</option>
-                                            @foreach ($banks as $bk)
-                                                <option value="{{ $bk->BID }}">{{ $bk->BNAMA }}</option>
-                                            @endforeach
-                                        </select>
-                                        @error("pay.{$key}.bank") <div class="invalid-feedback">{{ $message }}</div> @enderror
-                                    </div>
-                                    <div class="col-12"><input type="text" class="form-control form-control-sm" placeholder="nama di kartu" wire:model="pay.{{ $key }}.nama"></div>
-                                    @if ($key !== 'transfer')
+                                        <div class="col-12">
+                                            <select class="form-select form-select-sm @error("pay.{$key}.bank") is-invalid @enderror"
+                                                    wire:model="pay.{{ $key }}.bank">
+                                                <option value="">bank…</option>
+                                                @foreach ($banks as $bk)
+                                                    <option value="{{ $bk->BID }}">{{ $bk->BNAMA }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error("pay.{$key}.bank") <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                        </div>
+                                        <div class="col-12">
+                                            <input type="text" class="form-control form-control-sm" placeholder="nama di kartu"
+                                                   wire:model="pay.{{ $key }}.nama">
+                                        </div>
                                         <div class="col-6">
                                             <select class="form-select form-select-sm" wire:model="pay.{{ $key }}.jenis">
                                                 <option value="">jenis kartu…</option>
@@ -293,51 +437,99 @@
                                             </select>
                                         </div>
                                         <div class="col-6">
-                                            <input type="text" class="form-control form-control-sm" placeholder="bank lain…" wire:model="pay.{{ $key }}.bank_lain">
+                                            <input type="text" class="form-control form-control-sm" placeholder="bank lain…"
+                                                   wire:model="pay.{{ $key }}.bank_lain">
                                         </div>
-                                    @endif
-                                </div>
-                            </details>
-                        @endforeach
-
-                        <details class="mb-1">
-                            <summary class="small text-muted">Merchant
-                                @if ((float) $pay['merchant']['jumlah'] > 0)
-                                    <span class="badge text-bg-info">{{ number_format((float) $pay['merchant']['jumlah'], 0, ',', '.') }}</span>
-                                @endif
-                            </summary>
-                            <div class="row g-1 mt-1">
-                                <div class="col-12">
-                                    <div class="d-flex justify-content-between mb-1">
-                                        <span class="small text-muted">Nilai</span>
-                                        <a href="#" class="small" wire:click.prevent="payExactMethod('merchant')">uang pas</a>
                                     </div>
-                                    <input type="number" min="0" class="form-control form-control-sm text-end" placeholder="nilai"
-                                           wire:model.live.debounce.400ms="pay.merchant.jumlah">
                                 </div>
-                                <div class="col-6">
-                                    <input type="text" class="form-control form-control-sm" placeholder="no. merchant" wire:model="pay.merchant.no">
+                            @endforeach
+                        </div>
+
+                        {{-- ---------- KOLOM KANAN: transfer, DP, merchant, voucher ---------- --}}
+                        <div class="col-md-6">
+                            <div class="border rounded p-2 mb-3">
+                                <div class="small fw-semibold mb-1">Transfer <kbd>F4</kbd></div>
+                                <input type="number" min="0" class="form-control form-control-sm text-end mb-1"
+                                       placeholder="jumlah" wire:model.live.debounce.400ms="pay.transfer.jumlah">
+                                <div class="row g-1">
+                                    <div class="col-12">
+                                        <input type="text" class="form-control form-control-sm @error('pay.transfer.no') is-invalid @enderror"
+                                               x-ref="bayarTransferNo"
+                                               placeholder="no. ref" wire:model="pay.transfer.no">
+                                        @error('pay.transfer.no') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                    </div>
+                                    <div class="col-12">
+                                        <select class="form-select form-select-sm @error('pay.transfer.bank') is-invalid @enderror"
+                                                wire:model="pay.transfer.bank">
+                                            <option value="">bank…</option>
+                                            @foreach ($banks as $bk)
+                                                <option value="{{ $bk->BID }}">{{ $bk->BNAMA }}</option>
+                                            @endforeach
+                                        </select>
+                                        @error('pay.transfer.bank') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                    </div>
+                                    <div class="col-12">
+                                        <input type="text" class="form-control form-control-sm" placeholder="nama pengirim"
+                                               wire:model="pay.transfer.nama">
+                                    </div>
                                 </div>
-                                <div class="col-6">
-                                    <select class="form-select form-select-sm" wire:model="pay.merchant.jenis">
-                                        <option value="">jenis merchant…</option>
+                            </div>
+
+                            <div class="border rounded p-2 mb-3">
+                                {{-- F6 tetap membuka rincian DP dari dalam dialog ini (tidak bentrok
+                                     dgn pintasan bayar), baik saat DP belum dipilih maupun saat
+                                     mau menggantinya - karena pengikatnya di <div> root. --}}
+                                <span class="small fw-semibold">DP <kbd>F5</kbd></span>
+                                @if ($pay['dp']['sdid'])
+                                    <div class="d-flex justify-content-between align-items-start border rounded p-2 my-1">
+                                        <div class="small">
+                                            <div class="fw-semibold">No. {{ $pay['dp']['no'] }}</div>
+                                            <div class="text-muted">{{ $pay['dp']['nama_item'] }}</div>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" wire:click="openDpModal">Ganti</button>
+                                    </div>
+                                    <input type="number" min="0" class="form-control form-control-sm text-end mb-1 @error('pay.dp.jumlah') is-invalid @enderror"
+                                           placeholder="nilai DP" wire:model.live.debounce.400ms="pay.dp.jumlah">
+                                    @error('pay.dp.jumlah') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                    <select class="form-select form-select-sm" wire:model="pay.dp.jenis">
+                                        <option value="">jenis DP…</option>
                                         @foreach ($merchants as $mc)
                                             <option value="{{ $mc->MCKODE }}">{{ $mc->MCNAMA }}</option>
                                         @endforeach
                                     </select>
+                                @else
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start mt-1" wire:click="openDpModal">
+                                        <i class="fas fa-money-bill-wave me-1"></i> Cari DP pelanggan…
+                                        <kbd class="float-end">F5</kbd>
+                                    </button>
+                                    @error('pay.dp.jumlah') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+                                @endif
+                            </div>
+
+                            <div class="border rounded p-2 mb-3">
+                                <div class="small fw-semibold mb-1">Merchant <kbd>F6</kbd></div>
+                                <input type="number" min="0" class="form-control form-control-sm text-end mb-1"
+                                       placeholder="nilai" wire:model.live.debounce.400ms="pay.merchant.jumlah">
+                                <div class="row g-1">
+                                    <div class="col-12">
+                                        <input type="text" class="form-control form-control-sm" placeholder="no. merchant"
+                                               x-ref="bayarMerchantNo" wire:model="pay.merchant.no">
+                                    </div>
+                                    <div class="col-12">
+                                        <select class="form-select form-select-sm" wire:model="pay.merchant.jenis">
+                                            <option value="">jenis merchant…</option>
+                                            @foreach ($merchants as $mc)
+                                                <option value="{{ $mc->MCKODE }}">{{ $mc->MCNAMA }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
-                        </details>
 
-                        <details class="mb-1" @if ($errors->has('pay.voucher.jumlah')) open @endif>
-                            <summary class="small text-muted">Voucher
-                                @if ((float) $pay['voucher']['jumlah'] > 0)
-                                    <span class="badge text-bg-info">{{ number_format((float) $pay['voucher']['jumlah'], 0, ',', '.') }}</span>
-                                @endif
-                            </summary>
-                            <div class="mt-1">
+                            <div class="border rounded p-2">
+                                <span class="small fw-semibold">Voucher <kbd>F7</kbd></span>
                                 @if ($pay['voucher']['vid'])
-                                    <div class="d-flex justify-content-between align-items-start border rounded p-2 mb-1">
+                                    <div class="d-flex justify-content-between align-items-start border rounded p-2 my-1">
                                         <div class="small">
                                             <div class="fw-semibold">No. {{ $pay['voucher']['no'] }}</div>
                                             <div class="text-muted">{{ $pay['voucher']['program'] ?: '—' }} &middot; {{ $pay['voucher']['nama'] }}</div>
@@ -348,73 +540,54 @@
                                            placeholder="jumlah dipakai" wire:model.live.debounce.400ms="pay.voucher.jumlah">
                                     @error('pay.voucher.jumlah') <div class="invalid-feedback">{{ $message }}</div> @enderror
                                 @else
-                                    <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start" wire:click="openVoucherModal">
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start mt-1" wire:click="openVoucherModal">
                                         <i class="fas fa-ticket me-1"></i> Cari voucher pelanggan…
-                                        <kbd class="float-end">F5</kbd>
+                                        <kbd class="float-end">F7</kbd>
                                     </button>
                                     @error('pay.voucher.jumlah') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
                                 @endif
                             </div>
-                        </details>
-
-                        <details class="mb-1" @if ($errors->has('pay.dp.jumlah') || $pay['dp']['sdid']) open @endif>
-                            <summary class="small text-muted">DP
-                                @if ((float) $pay['dp']['jumlah'] > 0)
-                                    <span class="badge text-bg-info">{{ number_format((float) $pay['dp']['jumlah'], 0, ',', '.') }}</span>
-                                @endif
-                            </summary>
-                            <div class="mt-1">
-                                @if ($pay['dp']['sdid'])
-                                    <div class="d-flex justify-content-between align-items-start border rounded p-2 mb-1">
-                                        <div class="small">
-                                            <div class="fw-semibold">No. {{ $pay['dp']['no'] }}</div>
-                                            <div class="text-muted">{{ $pay['dp']['nama_item'] }}</div>
-                                        </div>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" wire:click="clearDp">Ganti</button>
-                                    </div>
-                                    <input type="number" min="0" class="form-control form-control-sm text-end mb-1 @error('pay.dp.jumlah') is-invalid @enderror"
-                                           placeholder="jumlah dipakai" wire:model.live.debounce.400ms="pay.dp.jumlah">
-                                    @error('pay.dp.jumlah') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                                    <select class="form-select form-select-sm" wire:model="pay.dp.jenis">
-                                        <option value="">jenis DP…</option>
-                                        @foreach ($merchants as $mc)
-                                            <option value="{{ $mc->MCKODE }}">{{ $mc->MCNAMA }}</option>
-                                        @endforeach
-                                    </select>
-                                @else
-                                    <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start" wire:click="openDpModal">
-                                        <i class="fas fa-money-bill-wave me-1"></i> Cari DP pelanggan…
-                                        <kbd class="float-end">F6</kbd>
-                                    </button>
-                                    @error('pay.dp.jumlah') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
-                                @endif
-                            </div>
-                        </details>
-
-                        <hr class="my-2">
-                        <div class="d-flex justify-content-between small">
-                            <span class="text-muted">Dibayar</span>
-                            <span>{{ number_format($bayar, 0, ',', '.') }}</span>
                         </div>
-                        <div class="d-flex justify-content-between">
-                            <span class="text-muted">{{ $kurang > 0 ? 'Kurang' : 'Kembalian' }}</span>
-                            <span class="fw-semibold {{ $kurang > 0 ? 'text-danger' : 'text-success' }}">
-                                {{ number_format(abs($kurang), 0, ',', '.') }}
-                            </span>
-                        </div>
-                        @error('pay') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
-                        @error('branch') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
                     </div>
-                </div>
 
-                <button class="btn btn-success btn-lg w-100" wire:click="checkout"
-                        wire:loading.attr="disabled" wire:target="checkout"
-                        @disabled(count($cart) === 0 || ! $custId)>
-                    <span wire:loading wire:target="checkout" class="spinner-border spinner-border-sm me-1"></span>
-                    <i class="fas fa-cash-register me-1"></i> Bayar &amp; Simpan <kbd class="ms-1">F9</kbd>
-                </button>
+                    {{-- Ringkasan bawah - istilahnya mengikuti dialog VB6: Sub Total / Total Bayar / Sisa --}}
+                    <hr class="my-3">
+                    <div class="row">
+                        <div class="col-md-6 ms-auto">
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Sub Total</span>
+                                <span>{{ number_format($grand, 0, ',', '.') }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Total Bayar</span>
+                                <span>{{ number_format($bayar, 0, ',', '.') }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between fs-5 fw-bold">
+                                <span>{{ $kurang > 0 ? 'Sisa' : 'Kembalian' }}</span>
+                                <span class="{{ $kurang > 0 ? 'text-danger' : 'text-success' }}">
+                                    {{ number_format(abs($kurang), 0, ',', '.') }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    @error('pay') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror
+                    @error('cart') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror
+                    @error('cust') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror
+                    @error('branch') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" wire:click="closePayModal">
+                        Batal <span class="small opacity-75">(kembalikan seperti semula)</span>
+                    </button>
+                    <button type="button" class="btn btn-primary" wire:click="simpanPembayaran">
+                        <i class="fas fa-check me-1"></i> OK
+                        <kbd class="ms-1">Ctrl+Enter</kbd>
+                    </button>
+                </div>
+            </x-lw-modal>
             </div>
-        </div>
+        @endif
 
         {{-- ============ MODAL CARI ITEM (F2) ============ --}}
         @if ($showItemModal)

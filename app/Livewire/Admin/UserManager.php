@@ -5,6 +5,7 @@ namespace App\Livewire\Admin;
 use App\Models\Branch;
 use App\Models\User;
 use App\Models\UserAuth;
+use App\Models\UserPref;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -42,6 +43,13 @@ class UserManager extends Component
     public ?string $password = null;
     public bool $legacy_login = false;
 
+    /**
+     * Ukuran struk POS user ini (`lv_user_pref.struk_pos`). '' = ikut default aplikasi
+     * (`config('pos.struk_default')`), TIDAK menyimpan baris preferensi.
+     * Keadaan berjalan (user 2026-09-30): hanya user cabang Marketplace yg 58mm.
+     */
+    public string $struk_pos = '';
+
     // Modal reset password
     public bool $showPwModal = false;
     public ?int $pwUserId = null;
@@ -60,6 +68,7 @@ class UserManager extends Component
             'UKID'          => ['nullable', 'integer'],
             'UACTIVE'       => ['boolean'],
             'password'      => [$this->editingId ? 'nullable' : 'required', 'nullable', 'string', 'min:4', 'max:100'],
+            'struk_pos'     => ['nullable', Rule::in(array_merge([''], array_keys(config('pos.struk_pilihan', []))))],
         ];
     }
 
@@ -95,6 +104,7 @@ class UserManager extends Component
         $this->UACTIVE      = (int) $u->UACTIVE === 1;
         $this->password     = null;
         $this->legacy_login = false;
+        $this->struk_pos    = (string) ($u->pref?->struk_pos ?? '');
         $this->showModal    = true;
     }
 
@@ -125,6 +135,15 @@ class UserManager extends Component
                 : '-';
             $user = User::create($payload);
             activity_log('create', 'admin/user', $user->UID, 'Tambah user ' . $user->UKODE);
+        }
+
+        /* Preferensi ukuran struk POS. Kosong = ikut default aplikasi -> barisnya DIHAPUS,
+           bukan disimpan string kosong, supaya "belum disetel" dan "sengaja default" tidak
+           jadi dua keadaan berbeda yang membingungkan. */
+        if ($this->struk_pos === '') {
+            UserPref::where('user_id', $user->UID)->delete();
+        } else {
+            UserPref::updateOrCreate(['user_id' => $user->UID], ['struk_pos' => $this->struk_pos]);
         }
 
         if ($this->password) {
@@ -238,7 +257,7 @@ class UserManager extends Component
     {
         $this->reset([
             'editingId', 'UKODE', 'UNAMA', 'UNAMALENGKAP', 'UCABANG',
-            'branchPilih', 'UKID', 'labels', 'password', 'legacy_login',
+            'branchPilih', 'UKID', 'labels', 'password', 'legacy_login', 'struk_pos',
         ]);
         $this->UACTIVE = true;
         $this->resetErrorBag();

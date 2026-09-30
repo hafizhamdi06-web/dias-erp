@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\InvoiceMutasiPrintController;
 use App\Http\Controllers\InvoicePrintController;
 use App\Http\Controllers\JopPrintController;
+use App\Http\Controllers\KasBankPrintController;
 use App\Http\Controllers\KmbPrintController;
 use App\Http\Controllers\LookupController;
 use App\Http\Controllers\PbcPrintController;
@@ -67,11 +68,17 @@ Route::middleware('auth')->group(function () {
     Route::get('pabrik/produksi/{id}/print', [ProduksiPrintController::class, 'show'])->name('pabrik.produksi.print');
     Route::get('pabrik/jop/{id}/print', [JopPrintController::class, 'show'])->name('pabrik.jop.print');
     Route::get('finance/pengajuan-dana/{id}/print', [PengajuanDanaPrintController::class, 'show'])->name('finance.pengajuan-dana.print');
+    // Kas Masuk & Kas Keluar memakai blade YG SAMA (lihat docblock KasBankPrintController).
+    // Bank Masuk/Keluar belum - dokumen Bank py field giro/transfer yg harus ikut tercetak.
+    Route::get('finance/kas-masuk/{id}/print', [KasBankPrintController::class, 'kasMasuk'])->name('finance.kas-masuk.print');
+    Route::get('finance/kas-keluar/{id}/print', [KasBankPrintController::class, 'kasKeluar'])->name('finance.kas-keluar.print');
 
     Route::get('reports/penjualan-per-barang', [ReportController::class, 'penjualanPerBarang'])->name('reports.penjualan-per-barang');
     Route::get('reports/penjualan-per-barang/excel', [ReportController::class, 'penjualanPerBarangExcel'])->name('reports.penjualan-per-barang.excel');
     Route::get('reports/ip-tindakan-produk', [ReportController::class, 'ipTindakanProduk'])->name('reports.ip-tindakan-produk');
     Route::get('reports/ip-tindakan-produk/excel', [ReportController::class, 'ipTindakanProdukExcel'])->name('reports.ip-tindakan-produk.excel');
+    Route::get('reports/daftar-penjualan-tunai', [ReportController::class, 'daftarPenjualanTunai'])->name('reports.daftar-penjualan-tunai');
+    Route::get('reports/daftar-penjualan-tunai/excel', [ReportController::class, 'daftarPenjualanTunaiExcel'])->name('reports.daftar-penjualan-tunai.excel');
 
     // Lookup JSON untuk <x-search-select> (auth saja, tanpa filter hak menu).
     Route::prefix('lookup')->name('lookup.')->group(function () {

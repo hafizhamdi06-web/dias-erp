@@ -39,19 +39,24 @@ class MenuSeeder extends Seeder
             // ---- Penjualan -----------------------------------------------
             'sales'            => ['Penjualan',         null,               'fas fa-cash-register',      'group', 30, null],
             'sales.pos'        => ['Kasir / POS',       'sales/pos',         'fas fa-cash-register',      'link',  31, 'sales'],
-            'sales.order'      => ['Sales Order',       'sales/order',       'fas fa-file-invoice',       'link',  32, 'sales'],
-            'sales.sj'         => ['Surat Jalan',       'sales/sj',          'fas fa-truck-fast',         'link',  33, 'sales'],
-            'sales.invoice'    => ['Invoice Penjualan', 'sales/invoice',     'fas fa-file-invoice-dollar','link',  34, 'sales'],
-            'sales.invoice-mutasi' => ['Invoice Penjualan Mutasi', 'sales/invoice-mutasi', 'fas fa-truck-arrow-right', 'link', 35, 'sales'],
-            'sales.return'     => ['Retur Penjualan',   'sales/return',      'fas fa-rotate-left',        'link',  36, 'sales'],
+            // Dulu hanya bisa dibuka dari tombol di dalam layar kasir; jadi menu sendiri atas
+            // permintaan user 2026-09-28. Path `sales/pos-data` SENGAJA terpisah dari
+            // `sales/pos` supaya hak aksesnya bisa diatur sendiri - mis. supervisor boleh
+            // melihat & cetak ulang transaksi tanpa diberi akses layar kasir.
+            'sales.pos-data'   => ['Data Transaksi POS', 'sales/pos-data',   'fas fa-table-list',         'link',  32, 'sales'],
+            'sales.order'      => ['Sales Order',       'sales/order',       'fas fa-file-invoice',       'link',  33, 'sales'],
+            'sales.sj'         => ['Surat Jalan',       'sales/sj',          'fas fa-truck-fast',         'link',  34, 'sales'],
+            'sales.invoice'    => ['Invoice Penjualan', 'sales/invoice',     'fas fa-file-invoice-dollar','link',  35, 'sales'],
+            'sales.invoice-mutasi' => ['Invoice Penjualan Mutasi', 'sales/invoice-mutasi', 'fas fa-truck-arrow-right', 'link', 36, 'sales'],
+            'sales.return'     => ['Retur Penjualan',   'sales/return',      'fas fa-rotate-left',        'link',  37, 'sales'],
             // Promo & Paket dipindah dari grup Master Data ke Penjualan (permintaan user
             // 2026-09-25). `segment_key` + `route` SENGAJA tetap `master.*`/`master/*`:
             // hak akses `lv_user_menu` terhubung lewat `menu_id` (aman), tapi path `master/promo`
             // & `master/paket` dipakai ~20 `can_do()`/`activity_log()` di komponen+blade -
             // menggantinya cuma demi kosmetik menu tidak sepadan dgn risikonya.
-            'sales.alkes'      => ['Input Alkes Depo',  'sales/alkes',       'fas fa-syringe',            'link',  37, 'sales'],
-            'master.promo'     => ['Master Promo',      'master/promo',      'fas fa-tag',                'link',  38, 'sales'],
-            'master.paket'     => ['Master Paket',      'master/paket',      'fas fa-boxes-packing',      'link',  39, 'sales'],
+            'sales.alkes'      => ['Input Alkes Depo',  'sales/alkes',       'fas fa-syringe',            'link',  38, 'sales'],
+            'master.promo'     => ['Master Promo',      'master/promo',      'fas fa-tag',                'link',  39, 'sales'],
+            'master.paket'     => ['Master Paket',      'master/paket',      'fas fa-boxes-packing',      'link',  40, 'sales'],
 
             // ---- Pembelian ----------------------------------------------
             'purchase'         => ['Pembelian',         null,               'fas fa-basket-shopping',    'group', 40, null],
@@ -97,6 +102,7 @@ class MenuSeeder extends Seeder
             'laporan.penjualan' => ['POS',              null,               'fas fa-cash-register',      'group', 81, 'laporan'],
             'laporan.penjualan-per-barang' => ['IP Per Barang', 'laporan/penjualan-per-barang', 'fas fa-box', 'link', 82, 'laporan.penjualan'],
             'laporan.ip-tindakan-produk' => ['IP Tindakan/Produk Per Bulan', 'laporan/ip-tindakan-produk', 'fas fa-calendar-days', 'link', 83, 'laporan.penjualan'],
+            'laporan.penjualan-tunai' => ['Daftar Penjualan Tunai', 'laporan/penjualan-tunai', 'fas fa-money-bill-wave', 'link', 84, 'laporan.penjualan'],
         ];
 
         $idBySegment = [];

@@ -36,6 +36,12 @@ abstract class KasBankListBase extends Component
 
     abstract public function formComponent(): string;
 
+    /** Idem `KasBankFormBase::printRoute()` - `null` = tombol Cetak disembunyikan. */
+    public function printRoute(): ?string
+    {
+        return null;
+    }
+
     public function mount(): void
     {
         $this->fFrom = now()->startOfMonth()->toDateString();
@@ -118,6 +124,7 @@ abstract class KasBankListBase extends Component
             'branches' => Branch::options(),
             'judul'    => $this->judul(),
             'abilityPath' => $this->abilityPath(),
+            'printRoute' => $this->printRoute(),
         ]);
     }
 }

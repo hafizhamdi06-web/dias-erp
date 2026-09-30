@@ -290,4 +290,141 @@ class ReportController extends Controller
             'totalNilai' => (float) $rows->sum('nilai'),
         ];
     }
+
+    /**
+     * Laporan POS-IP "Daftar Penjualan Tunai" - port dari CI3
+     * (`views/modul/laporan/xlap-daftar-penjualan-tunai.php`). Satu baris per transaksi POS
+     * (`fstoku` `SUSUMBER='IP'`, `SUSTATUS<>9`), dgn rincian tiap cara bayar.
+     */
+    public function daftarPenjualanTunai(Request $r)
+    {
+        return app(PdfReport::class)->preview(
+            'reports.daftar-penjualan-tunai',
+            $this->dataDaftarPenjualanTunai($r),
+            ['orientasi' => 'L', 'size' => 'A4']
+        );
+    }
+
+    /** Export Excel - pola sama laporan lain (HTML table ber-header .xls). */
+    public function daftarPenjualanTunaiExcel(Request $r)
+    {
+        $data = $this->dataDaftarPenjualanTunai($r);
+
+        return response()
+            ->view('reports.daftar-penjualan-tunai-xls', $data)
+            ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="' . $data['title'] . '.xls"');
+    }
+
+    /**
+     * RUMUS KOLOM - disalin dari CI3 & dicocokkan ke PDF contoh user (01-06-2026, cabang PG):
+     *
+     *   Kas Nett   = SUTOTALKAS - SUTOTALSISA        Cash Back = SUTOTALSISA
+     *   Total Real = KasNett + Debit + Kredit + Transfer + Merchant
+     *   Total Semua= TotalReal + DP + Voucher + Piutang + DPSurgery + Surgery - TarikDP
+     *   - Tarik DP = F_DP_PERHARI(SUID), DITAMPILKAN negatif
+     *
+     * `SUTOTALDP` dipakai untuk kolom DP. Di CI3 alias `dpjumlah` ditulis DUA KALI
+     * (`sutotaldp` lalu `sudp1`) sehingga yg menang `sudp1` - **tidak berdampak**: kedua
+     * kolom itu identik di SELURUH 25.220 baris IP (diperiksa langsung ke DB).
+     *
+     * BARIS TOTAL KEDUA ("Total TANPA Piutang Surgery") hanya menjumlah baris dgn
+     * `SUNILAIPIUTANGBAYAR = 0`.
+     *
+     * **BEDA DISENGAJA DARI CI3**: di CI3 `Total Semua` baris kedua TIDAK ikut menambahkan
+     * Piutang (`$webpiutang` lupa dimasukkan ke `$totalweb`), padahal baris per-transaksi dan
+     * baris total pertama menambahkannya. Di sini Piutang IKUT dijumlah supaya konsisten.
+     * Terdampak 9 transaksi di data produksi (semua baris ber-Piutang kebetulan
+     * `SUNILAIPIUTANGBAYAR=0`), jadi angka baris kedua bisa BEDA dari CI3 pada rentang yg
+     * memuat transaksi itu - selisihnya persis sebesar Piutang-nya.
+     *
+     * @return array{title:string,subtitle:string,company:array,rows:\Illuminate\Support\Collection,total:array,totalTanpa:array}
+     */
+    private function dataDaftarPenjualanTunai(Request $r): array
+    {
+        $r->validate([
+            'from'     => ['required', 'date'],
+            'to'       => ['required', 'date', 'after_or_equal:from'],
+            'cabang'   => ['nullable', 'integer'],
+            'merchant' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $from = $r->query('from');
+        $to = $r->query('to');
+        $gudang = $this->cabangLaporan($r);
+        $merchant = trim((string) $r->query('merchant'));
+
+        $rows = DB::table('fstoku as u')
+            ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
+            ->where('u.SUSUMBER', 'IP')
+            ->where('u.SUSTATUS', '<>', 9)
+            ->whereBetween('u.SUTANGGAL', [$from, $to])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('u.SUCABANG', $gudang))
+            ->when($merchant !== '', fn ($b) => $b->where('u.SUMERCHANTJENIS', $merchant))
+            ->orderBy('u.SUTANGGAL')->orderBy('u.SUNOTRANSAKSI')
+            ->get([
+                DB::raw('u.SUTANGGAL as tanggal'),
+                DB::raw('u.SUNOTRANSAKSI as nomor'),
+                DB::raw('k.KNAMA as kontak'),
+                DB::raw('IFNULL(u.SUTOTALKAS,0) - IFNULL(u.SUTOTALSISA,0) as kas'),
+                DB::raw('IFNULL(u.SUTOTALKARTUDEBIT,0) as debit'),
+                DB::raw('IFNULL(u.SUTOTALKARTUKREDIT,0) as kredit'),
+                DB::raw('IFNULL(u.SUTOTALTRANSFER,0) as transfer'),
+                DB::raw('IFNULL(u.SUMERCHANTJUMLAH,0) as merchant'),
+                DB::raw('IFNULL(u.SUTOTALVOUCHER,0) as voucher'),
+                DB::raw('IFNULL(u.SUNILAIPIUTANG,0) as piutang'),
+                DB::raw('IFNULL(u.SUPENDAPATANDP,0) as dpSurgery'),
+                DB::raw('IFNULL(u.SUSURGERYDPPEMBAYARAN,0) as surgery'),
+                DB::raw('IFNULL(u.SUTOTALDP,0) as dp'),
+                DB::raw('IFNULL(F_DP_PERHARI(u.SUID),0) as tarikDp'),
+                DB::raw('IFNULL(u.SUTOTALSISA,0) as cashback'),
+                DB::raw('IFNULL(u.SUNILAIPIUTANGBAYAR,0) as piutangBayar'),
+            ])
+            ->map(function ($x) {
+                foreach (['kas', 'debit', 'kredit', 'transfer', 'merchant', 'voucher', 'piutang',
+                    'dpSurgery', 'surgery', 'dp', 'tarikDp', 'cashback', 'piutangBayar'] as $f) {
+                    $x->$f = (float) $x->$f;
+                }
+                $x->totalReal = $x->kas + $x->debit + $x->kredit + $x->transfer + $x->merchant;
+                $x->totalSemua = $x->totalReal + $x->dp + $x->voucher + $x->piutang
+                    + $x->dpSurgery + $x->surgery - $x->tarikDp;
+
+                return $x;
+            });
+
+        $jumlahkan = fn ($kumpulan) => [
+            'kas'          => (float) $kumpulan->sum('kas'),
+            'debit'        => (float) $kumpulan->sum('debit'),
+            'kredit'       => (float) $kumpulan->sum('kredit'),
+            'transfer'     => (float) $kumpulan->sum('transfer'),
+            'merchant'     => (float) $kumpulan->sum('merchant'),
+            'totalReal'    => (float) $kumpulan->sum('totalReal'),
+            'voucher'      => (float) $kumpulan->sum('voucher'),
+            'piutang'      => (float) $kumpulan->sum('piutang'),
+            'dpSurgery'    => (float) $kumpulan->sum('dpSurgery'),
+            'surgery'      => (float) $kumpulan->sum('surgery'),
+            'dp'           => (float) $kumpulan->sum('dp'),
+            'tarikDp'      => (float) $kumpulan->sum('tarikDp'),
+            'totalSemua'   => (float) $kumpulan->sum('totalSemua'),
+            'cashback'     => (float) $kumpulan->sum('cashback'),
+            'piutangBayar' => (float) $kumpulan->sum('piutangBayar'),
+        ];
+
+        $namaCabang = count($gudang) === 1 && $gudang !== [0]
+            ? (string) DB::table('bgudang')->where('GID', $gudang[0])->value('GNAMA')
+            : null;
+
+        return [
+            'title'    => 'Daftar Penjualan Tunai',
+            'subtitle' => \Carbon\Carbon::parse($from)->format('d-m-Y') . ' s/d '
+                . \Carbon\Carbon::parse($to)->format('d-m-Y')
+                . ($namaCabang ? ' — ' . $namaCabang : '')
+                . ($merchant !== '' ? ' — Merchant: ' . $merchant : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => $jumlahkan($rows),
+            // Baris kedua: hanya transaksi TANPA pembayaran piutang.
+            'totalTanpa' => $jumlahkan($rows->filter(fn ($x) => $x->piutangBayar == 0.0)),
+        ];
+    }
 }

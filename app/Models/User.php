@@ -158,4 +158,34 @@ class User extends Authenticatable
 
         return \App\Models\Branch::query()->where('GID', $this->UCABANG)->value('GNAMA') ?: 'Semua Cabang';
     }
+
+    /** Preferensi user (`lv_user_pref`) - satu baris per user, dibuat saat pertama disetel. */
+    public function pref()
+    {
+        return $this->hasOne(UserPref::class, 'user_id', 'UID');
+    }
+
+    /**
+     * Ukuran struk POS yang dipakai user ini: '58' (termal 58mm) atau 'a5' (setengah A4/LX300).
+     *
+     * Urutan: preferensi user -> default aplikasi (`config('pos.struk_default')`). Nilai yang
+     * tidak dikenal DIABAIKAN (jatuh ke default) - kolomnya varchar bebas, dan struk yang
+     * gagal tampil di kasir jauh lebih mahal daripada struk yang ukurannya bukan pilihan.
+     */
+    public function strukPos(): string
+    {
+        /* `array_map('strval', ...)` WAJIB: kunci config '58' dijadikan INTEGER 58 oleh PHP
+           (kunci array numeric-string selalu di-cast), sehingga `in_array('58', [58,'a5'], true)`
+           bernilai FALSE dan preferensi 58mm diam-diam jatuh ke default. Sudah kena sekali. */
+        $pilihan = array_map('strval', array_keys(config('pos.struk_pilihan', [])));
+        $pref = $this->pref?->struk_pos;
+
+        if ($pref !== null && in_array($pref, $pilihan, true)) {
+            return $pref;
+        }
+
+        $default = (string) config('pos.struk_default', 'a5');
+
+        return in_array($default, $pilihan, true) ? $default : 'a5';
+    }
 }

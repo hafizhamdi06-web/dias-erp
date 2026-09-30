@@ -48,6 +48,12 @@
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editTransaksi({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
                                 </button>
+                                @if ($printRoute && can_do($abilityPath, 'print'))
+                                    <a href="{{ route($printRoute, $r->id) }}" target="_blank"
+                                       class="btn btn-outline-primary btn-sm" title="Cetak {{ $judul }}">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                @endif
                                 @if (can_do($abilityPath, 'delete'))
                                     <button class="btn btn-outline-danger btn-sm" wire:click="hapus({{ $r->id }})"
                                             data-confirm="Hapus {{ $judul }} {{ $r->nomor }}? Tidak bisa dibatalkan." title="Hapus"><i class="fas fa-trash"></i></button>

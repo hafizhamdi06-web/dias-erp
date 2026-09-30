@@ -1971,6 +1971,18 @@ root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF11`): dialog terbuka -> arti 
 akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
 `hotkeyCtrlEnter()`.
 
+### Pencarian "Daftar Paket" menampilkan Total (2026-09-30)
+
+Kolom Total = **`epaketu.PUTOTALHARGA`**, kolom yang SAMA dipakai VB6 di layar yang sama
+(`bFrmCariPaket.frm` baris 331: `select PUID,PUKODE,PUNAMA,PUTOTALHARGA from epaketu ...`).
+
+**BUKAN `SUM(epaketd.PDSUBTOTAL)`** — keduanya TIDAK selalu sama. Dari 1.783 paket aktif:
+5 terisi keduanya tapi berbeda, 6 header-nya 0 padahal detailnya berisi, 24 sebaliknya,
+58 nol di kedua sisi. Dipakai `PUTOTALHARGA` supaya angkanya sama dengan yang selama ini
+dilihat user di VB6. **Paket ber-Total 0 (64 paket) itu masalah DATA MASTER, bukan bug** —
+jangan "diperbaiki" dengan diam-diam menghitung dari detail, karena hasilnya akan beda dari
+aplikasi lama tanpa user tahu. Nol ditampilkan apa adanya, bukan `—`, sesuai VB6.
+
 ### Pencarian "Harga Khusus" menampilkan Minimal Qty (2026-09-30)
 
 Tiga kolom qty di modal, dari `PosTerminal::minimalQtyPerPromo()`. **Qty ada di baris DETAIL

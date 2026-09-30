@@ -1036,8 +1036,17 @@
                            wire:keydown.arrow-up.prevent="movePaketHighlight(-1)"
                            wire:keydown.enter.prevent="pickPaketHighlighted"
                            wire:keydown.escape="closePaketModal">
+                    {{-- Kolom Total = `epaketu.PUTOTALHARGA`, kolom yg SAMA dipakai VB6 di layar
+                         ini (permintaan user 2026-09-30) - lihat `paketSearchResults()`. --}}
                     <div class="table-responsive" style="max-height: 360px; overflow-y:auto">
                         <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Paket</th>
+                                    <th class="text-end" style="width:130px">Total</th>
+                                    <th class="text-end" style="width:120px"></th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 @forelse ($paketResults as $i => $p)
                                     <tr wire:key="pkr-{{ $p->id }}"
@@ -1045,6 +1054,11 @@
                                         style="cursor: pointer" wire:click="pickPaket({{ $p->id }})">
                                         <td>
                                             <span class="fw-semibold">{{ $p->kode }}</span> — {{ $p->nama }}
+                                        </td>
+                                        <td class="text-end text-nowrap">
+                                            {{-- Total 0 ditampilkan apa adanya (bukan "—"): itu memang
+                                                 isi master datanya & sama dgn tampilan VB6. --}}
+                                            {{ number_format((float) $p->total, 0, ',', '.') }}
                                         </td>
                                         <td class="text-end text-nowrap">
                                             @if ((float) $p->jumlah > 1)
@@ -1055,7 +1069,7 @@
                                         </td>
                                     </tr>
                                 @empty
-                                    <tr><td class="text-center text-muted py-4">
+                                    <tr><td colspan="3" class="text-center text-muted py-4">
                                         {{ mb_strlen(trim($paketQ)) < 2 ? 'Ketik minimal 2 huruf…' : 'Tidak ada hasil.' }}
                                     </td></tr>
                                 @endforelse

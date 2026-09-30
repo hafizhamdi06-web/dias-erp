@@ -2144,6 +2144,16 @@ class PosTerminal extends Component
      * PUSEMUACABANG=1 -> semua cabang (epaketc diabaikan); =0 -> hanya cabang di epaketc, KOSONG
      * = tidak aktif di cabang manapun. Paket tanpa PUTANGGAL1/2 (NULL) otomatis tersaring keluar -
      * konsisten dgn konvensi PaketManager sendiri ("kosong = tidak jelas kapan berlaku").
+     *
+     * **Kolom Total** (permintaan user 2026-09-30) = `epaketu.PUTOTALHARGA`, kolom yg SAMA
+     * dipakai VB6 di layar yg sama (`bFrmCariPaket.frm` baris 331:
+     * `select PUID,PUKODE,PUNAMA,PUTOTALHARGA from epaketu ...`). **Bukan** `SUM(epaketd.PDSUBTOTAL)`
+     * - keduanya TIDAK selalu sama: dari 1.783 paket aktif, 5 terisi keduanya tapi berbeda,
+     * 6 header-nya 0 padahal detailnya berisi, 24 sebaliknya, dan 58 nol di kedua sisi.
+     * Dipakai `PUTOTALHARGA` supaya angkanya SAMA dgn yg selama ini dilihat user di VB6;
+     * paket ber-Total 0 itu masalah DATA MASTER (64 paket), bukan bug di sini - jangan
+     * "diperbaiki" dgn diam-diam menghitung dari detail, karena hasilnya akan beda dari
+     * aplikasi lama tanpa user tahu.
      */
     private function paketSearchResults()
     {
@@ -2162,7 +2172,8 @@ class PosTerminal extends Component
                     ->whereColumn('c.PCIDU', 'u.PUID')->where('c.PCCABANG', $this->branchId)))
             ->orderBy('u.PUNAMA')
             ->limit(20)
-            ->get(['u.PUID as id', 'u.PUKODE as kode', 'u.PUNAMA as nama', 'u.PUJUMLAH as jumlah']);
+            ->get(['u.PUID as id', 'u.PUKODE as kode', 'u.PUNAMA as nama', 'u.PUJUMLAH as jumlah',
+                'u.PUTOTALHARGA as total']);
     }
 
     public function movePaketHighlight(int $delta): void

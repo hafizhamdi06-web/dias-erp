@@ -152,7 +152,7 @@ class PosTerminal extends Component
     public string $itemQ = '';
     public string $custQ = '';
 
-    // modal pencarian (F2 item, F4 pelanggan) + navigasi keyboard
+    // modal pencarian (F2 item, F1 pelanggan) + navigasi keyboard
     public bool $showItemModal = false;
     public bool $showCustModal = false;
     public int $itemHighlight = 0;
@@ -174,7 +174,7 @@ class PosTerminal extends Component
     public ?string $editingFromNomor = null;
 
     /**
-     * Modal Pembayaran (F9) - mengikuti alur VB6: keranjang disusun dulu, baru dialog bayar
+     * Modal Pembayaran (F8) - mengikuti alur VB6: keranjang disusun dulu, baru dialog bayar
      * dibuka, lalu OK menyimpan. Sebelumnya panel bayar selalu tampil memanjang di kolom kanan
      * (permintaan user 2026-09-28: "untuk pembayaran dibuat form modal").
      *
@@ -192,8 +192,10 @@ class PosTerminal extends Component
     public int $dpHighlight = 0;
 
     /**
-     * Modal cari Promo (F7) - cari master promo (emasterpromou) yg aktif & berlaku hari ini.
-     * SATU transaksi boleh pakai LEBIH DARI SATU promo (F7 bisa dipencet berkali-kali) - tiap
+     * Modal "Harga Khusus" (F10) - cari master promo (emasterpromou) yg aktif & berlaku hari
+     * ini. Label di layar "Harga Khusus", tapi nama variabel/tabel TETAP promo - yg berubah
+     * cuma captionnya (permintaan user 2026-09-30), skemanya tidak.
+     * SATU transaksi boleh pakai LEBIH DARI SATU promo (F10 bisa dipencet berkali-kali) - tiap
      * kode yg dipilih dikumpulkan ke $promos (list teks, dedup), digabung jadi LABEL referensi
      * di fstoku.SUPROMO (kolom varchar tunggal legacy, dipisah ", " - bukan mesin hitung diskon
      * otomatis utk promo tipe "Biasa" dst). Utk Kombinasi 1 yg punya baris `emasterpromod`,
@@ -251,7 +253,7 @@ class PosTerminal extends Component
     public ?string $activeBiasaKode = null;
 
     /**
-     * Modal cari/tarik Paket (F3) - epaketu/epaketd/epaketc. Model bisnis digali lewat diskusi
+     * Modal "Daftar Paket" (F11, dulu "Cari Paket") - epaketu/epaketd/epaketc. Model bisnis digali lewat diskusi
      * panjang dgn user + diverifikasi silang ke data transaksi produksi nyata (lihat plan
      * "Tarik Paket (Package Redemption) di POS" utk rincian lengkap) - BUKAN dugaan dari kode
      * CI3 semata (CI3 sendiri TIDAK PUNYA layar/fitur ini, cuma baca read-only).
@@ -400,7 +402,7 @@ class PosTerminal extends Component
         $this->pickItemById((int) $row->id);
     }
 
-    /* ---------------- Modal pelanggan (F4) ---------------- */
+    /* ---------------- Modal pelanggan (F1) ---------------- */
 
     public function openCustModal(): void
     {
@@ -1097,14 +1099,23 @@ class PosTerminal extends Component
         $this->showPayModal ? $this->bayarPenuh('debit') : $this->openItemModal();
     }
 
+    /**
+     * Di LUAR dialog sengaja TIDAK melakukan apa pun - "Harga Khusus" (dulu Cari Promo)
+     * pindah ke F10 (permintaan user 2026-09-30).
+     */
     public function hotkeyF3(): void
     {
-        $this->showPayModal ? $this->bayarPenuh('kredit') : $this->openPromoModal();
+        if ($this->showPayModal) {
+            $this->bayarPenuh('kredit');
+        }
     }
 
+    /** Idem F3 - "Daftar Paket" (dulu Cari Paket) pindah ke F11 (2026-09-30). */
     public function hotkeyF4(): void
     {
-        $this->showPayModal ? $this->bayarPenuh('transfer') : $this->openPaketModal();
+        if ($this->showPayModal) {
+            $this->bayarPenuh('transfer');
+        }
     }
 
     /** DP: di KEDUA keadaan membuka pemilih DP - di dalam dialog inilah "rincian DP"-nya. */
@@ -1126,6 +1137,43 @@ class PosTerminal extends Component
     {
         if ($this->showPayModal) {
             $this->openVoucherModal();
+        }
+    }
+
+    /**
+     * F8 membuka dialog Pembayaran (permintaan user 2026-09-30, sebelumnya F9). Dijaga supaya
+     * tidak jalan saat dialognya SUDAH terbuka - `openPayModal()` menyalin ulang nilai bayar
+     * ke `$paySebelumnya`, jadi memanggilnya lagi akan menghapus titik pulih untuk Batal.
+     */
+    public function hotkeyF8(): void
+    {
+        if (! $this->showPayModal) {
+            $this->openPayModal();
+        }
+    }
+
+    /**
+     * F10 "Harga Khusus" & F11 "Daftar Paket" (permintaan user 2026-09-30; dulu F3 & F4, dan
+     * captionnya dulu "Cari Promo"/"Cari Paket"). **Hanya di LUAR dialog bayar** - memilih
+     * promo/paket di tengah dialog akan mengubah total sementara isian bayar sudah terkunci
+     * di layar.
+     *
+     * CATATAN BROWSER: F11 = layar penuh dan F10 = bilah menu (Firefox). Keduanya MASIH bisa
+     * dicegah `preventDefault()` - beda dari **F12** yg TIDAK bisa (DevTools dipegang browser,
+     * itu sebabnya simpan transaksi pindah ke Ctrl+Enter). Kalau ternyata di peramban tertentu
+     * F11 tetap memicu layar penuh, tombol di layar tetap ada sbg jalan keluarnya.
+     */
+    public function hotkeyF10(): void
+    {
+        if (! $this->showPayModal) {
+            $this->openPromoModal();
+        }
+    }
+
+    public function hotkeyF11(): void
+    {
+        if (! $this->showPayModal) {
+            $this->openPaketModal();
         }
     }
 
@@ -2001,7 +2049,7 @@ class PosTerminal extends Component
         $this->startOdFlowForLines($addedIndexes);
     }
 
-    /* ---------------- Paket (F3) - cari/tarik paket, epaketu/epaketd/epaketc ---------------- */
+    /* ------------- Daftar Paket (F11) - cari/tarik paket, epaketu/epaketd/epaketc ------------- */
 
     public function openPaketModal(): void
     {

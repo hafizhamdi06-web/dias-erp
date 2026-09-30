@@ -1966,21 +1966,46 @@ atasnya karena pengikatnya ada di badan modal masing-masing dan **bukan `.window
 dipasang `.window`, satu Esc akan menutup keduanya sekaligus.
 
 **SELURUH F1-F7 BENTROK dgn pintasan global.** Solusinya **satu pengikat per tombol di `<div>`
-root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF7`): dialog terbuka -> arti bayar, tertutup
+root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF11`): dialog terbuka -> arti bayar, tertutup
 -> arti lamanya. **JANGAN memasang `wire:keydown.fN.window` kedua di dalam modal** - keduanya
 akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
-`hotkeyCtrlEnter()`. `F8` tidak dipakai lagi.
+`hotkeyCtrlEnter()`.
 
-**AWAS hint tombol yg jadi berbohong.** Urutan pintasan sudah DUA KALI berubah, dan tiap kali
-ada hint `<kbd>` di tombol lain yg jadi salah (mis. tombol "Cari voucher" sempat berhint `F5`
-padahal F5 berarti Kartu Debit). Tiap mengubah pemetaan, **telusuri SEMUA `<kbd>` di layar itu**
-- uji otomatisnya sekarang mencocokkan label vs tombol satu per satu.
+### Pemetaan pintasan BERLAKU (per 2026-09-30) — rujuk ini, jangan komentar lama
 
+| Tombol | Dialog bayar TERTUTUP | Dialog bayar TERBUKA |
+|---|---|---|
+| F1 | Cari Pelanggan | Tunai |
+| F2 | Cari Item | Kartu Debit |
+| F3 | *(kosong)* | Kartu Kredit |
+| F4 | *(kosong)* | Transfer |
+| F5 | Cari Voucher | DP (buka pemilih) |
+| F6 | Cari DP | Merchant |
+| F7 | *(kosong)* | Voucher (buka pemilih) |
+| F8 | **Buka dialog Pembayaran** | *(kosong)* |
+| F10 | **Harga Khusus** (dulu "Cari Promo") | *(kosong)* |
+| F11 | **Daftar Paket** (dulu "Cari Paket") | *(kosong)* |
+| Ctrl+Enter | Simpan Transaksi | OK (isi bayar saja) |
+
+Nama variabel/tabel TETAP `promo`/`paket` — yg berubah 2026-09-30 hanya **caption & pintasan**
+(user), skemanya tidak. `hotkeyF10`/`hotkeyF11` sengaja DIAM selagi dialog bayar terbuka:
+memilih promo/paket di tengah dialog akan mengubah total sementara isian bayar sudah terkunci
+di layar. `hotkeyF8` juga dijaga agar tidak jalan saat dialog SUDAH terbuka — `openPayModal()`
+menyalin ulang `$paySebelumnya`, jadi memanggilnya lagi menghapus titik pulih tombol Batal.
+
+**AWAS hint tombol yg jadi berbohong.** Urutan pintasan sudah **TIGA KALI** berubah, dan tiap
+kali ada hint `<kbd>` / komentar di tempat lain yg jadi salah — pada perubahan ke-3 ditemukan
+**4 komentar basi sekaligus** (`Modal Pembayaran (F9)`, `Paket (F3)`, `MODAL CARI PELANGGAN
+(F4)`, `Modal cari Promo (F7)`) yang tertinggal dari perubahan ke-2. Tiap mengubah pemetaan,
+**telusuri SEMUA `<kbd>` DAN semua komentar yg menyebut Fn** di komponen + blade-nya. Uji
+otomatisnya sekarang mencocokkan label vs tombol satu per satu **dan** memindai komentar basi.
 
 **`F12` TIDAK BISA DIANDALKAN**: Chrome/Edge membuka DevTools pada F12 dan `preventDefault()`
-tidak bisa mencegahnya (beda dgn F1-F9 yg bisa). Sempat saya pilih karena mengikuti tombol
-"OK [F12]" di VB6. Jalur simpan yg dipakai sekarang: **`Ctrl+Enter`** (dan tombol OK). Kalau
-nanti ada pintasan lain yg dipilih, hindari F12 - dan ingat **F11 (fullscreen)** juga.
+tidak bisa mencegahnya. Sempat dipilih karena mengikuti tombol "OK [F12]" di VB6. Jalur simpan
+sekarang: **`Ctrl+Enter`** (dan tombol OK). **F10 (bilah menu Firefox) & F11 (layar penuh)
+BERBEDA — keduanya MASIH bisa dicegah** `preventDefault()`, karena itu dipakai untuk Harga
+Khusus & Daftar Paket. Kalau ternyata di peramban tertentu F11 tetap memicu layar penuh,
+tombol di layar tetap jadi jalan keluarnya. Hindari F12 untuk pintasan baru apa pun.
 
 **Diuji** (Livewire::test, bagian yg menulis dibungkus `beginTransaction()`/`rollBack()`,
 item+pelanggan diambil dari transaksi POS NYATA terakhir): keranjang kosong -> dialog tidak

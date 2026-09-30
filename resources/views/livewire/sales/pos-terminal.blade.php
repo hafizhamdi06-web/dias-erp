@@ -1,6 +1,8 @@
 <div wire:key="pos-terminal"
      {{-- F1-F7 punya arti GANDA.
-          Di LUAR dialog bayar : F1 pelanggan, F2 item, F3 promo, F4 paket, F5 voucher, F6 DP.
+          Di LUAR dialog bayar : F1 pelanggan, F2 item, F5 voucher, F6 DP.
+                                 (F3 & F4 SENGAJA kosong sejak 2026-09-30 - promo/paket
+                                  pindah ke F10/F11 atas permintaan user.)
           Di DALAM dialog bayar: F1 Tunai, F2 Debit, F3 Kredit, F4 Transfer, F5 DP,
                                  F6 Merchant, F7 Voucher.
           Pengikatnya HARUS satu per tombol dgn percabangan di PHP (`hotkeyFn`) - kalau dipasang
@@ -13,11 +15,17 @@
      wire:keydown.f5.window.prevent="hotkeyF5"
      wire:keydown.f6.window.prevent="hotkeyF6"
      wire:keydown.f7.window.prevent="hotkeyF7"
-     {{-- F9 & Ctrl+Enter BUKA dialog bayar, BUKAN langsung menyimpan - mengikuti alur VB6:
+     {{-- F10 Harga Khusus & F11 Daftar Paket - HANYA berlaku di luar dialog bayar
+          (percabangannya di `hotkeyF10`/`hotkeyF11`). `.prevent` WAJIB: F11 = layar penuh,
+          F10 = bilah menu di Firefox. Keduanya masih bisa dicegah - beda dari F12 (DevTools)
+          yg TIDAK bisa, lihat catatan di `hotkeyCtrlEnter()`. --}}
+     wire:keydown.f10.window.prevent="hotkeyF10"
+     wire:keydown.f11.window.prevent="hotkeyF11"
+     {{-- F8 & Ctrl+Enter BUKA dialog bayar, BUKAN langsung menyimpan - mengikuti alur VB6:
           susun keranjang, buka dialog, baru OK. Pemicu simpan (F12) sengaja dipasang DI DALAM
           dialog, jadi hanya hidup selama dialog terbuka - supaya tidak ada transaksi tersimpan
           tanpa kasir sempat melihat rincian bayarnya. --}}
-     wire:keydown.f9.window.prevent="openPayModal"
+     wire:keydown.f8.window.prevent="hotkeyF8"
      wire:keydown.enter.ctrl.window.prevent="hotkeyCtrlEnter">
     @if ($lastReceipt)
         {{-- ====== STRUK / KONFIRMASI ====== --}}
@@ -248,10 +256,11 @@
                     </div>
                 </div>
 
-                {{-- Promo & Paket. Cari Paket DI BAWAH Cari promo (permintaan user 2026-09-28) -
-                     dipindah dari toolbar header kiri supaya kedua pencarian "non-item" berkumpul
-                     di satu tempat. Pemicu F3 tetap global di <div> paling luar, jadi tombolnya
-                     pindah tanpa mengubah shortcut. --}}
+                {{-- "Harga Khusus" & "Daftar Paket" (caption diganti dari "Cari Promo"/"Cari Paket"
+                     atas permintaan user 2026-09-30; nama variabel & tabelnya TETAP promo/paket).
+                     Daftar Paket DI BAWAH Harga Khusus (permintaan user 2026-09-28) - dipindah
+                     dari toolbar header kiri supaya kedua pencarian "non-item" berkumpul di satu
+                     tempat. Pemicunya (F10/F11) global di <div> paling luar. --}}
                 <div class="card mb-3">
                     <div class="card-body">
                         @if ($promos !== [])
@@ -268,13 +277,13 @@
                             </div>
                         @endif
                         <button type="button" class="btn btn-outline-success btn-sm w-100 text-start" wire:click="openPromoModal">
-                            <i class="fas fa-tag me-1"></i> Cari promo{{ $promos !== [] ? ' (tambah lagi)' : ' (opsional)' }}
-                            <kbd class="float-end">F3</kbd>
+                            <i class="fas fa-tag me-1"></i> Harga Khusus{{ $promos !== [] ? ' (tambah lagi)' : ' (opsional)' }}
+                            <kbd class="float-end">F10</kbd>
                         </button>
                         <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
                                 wire:click="openPaketModal">
-                            <i class="fas fa-boxes-packing me-1"></i> Cari Paket
-                            <kbd class="float-end">F4</kbd>
+                            <i class="fas fa-boxes-packing me-1"></i> Daftar Paket
+                            <kbd class="float-end">F11</kbd>
                         </button>
                     </div>
                 </div>
@@ -345,7 +354,7 @@
                         @disabled(count($cart) === 0 || ! $custId)>
                     <i class="fas fa-money-bill-wave me-1"></i>
                     {{ $bayar > 0 ? 'Ubah Pembayaran' : 'Isi Pembayaran' }}
-                    <kbd class="ms-1">F9</kbd>
+                    <kbd class="ms-1">F8</kbd>
                 </button>
 
                 <button class="btn btn-success btn-lg w-100" wire:click="checkout"
@@ -358,7 +367,7 @@
             </div>
         </div>
 
-        {{-- ============ MODAL PEMBAYARAN (F9) ============
+        {{-- ============ MODAL PEMBAYARAN (F8) ============
              Tata letak DUA KOLOM mengikuti dialog Pembayaran VB6 (screenshot user 2026-09-28).
              Jenis bayarnya PERSIS yg sudah ada - tidak ada yg ditambah: kiri tunai + dua kartu,
              kanan transfer/DP/merchant/voucher. Field & `wire:model` sama persis dgn panel lama,
@@ -643,7 +652,7 @@
             </x-lw-modal>
         @endif
 
-        {{-- ============ MODAL CARI PELANGGAN (F4) ============ --}}
+        {{-- ============ MODAL CARI PELANGGAN (F1) ============ --}}
         @if ($showCustModal)
             <x-lw-modal :show="$showCustModal" title="Cari Pelanggan / Pasien" close="closeCustModal">
                 <div class="modal-body" wire:key="cust-modal-body" x-data
@@ -998,9 +1007,9 @@
             </x-lw-modal>
         @endif
 
-        {{-- ============ MODAL CARI PAKET (F3) ============ --}}
+        {{-- ============ MODAL DAFTAR PAKET (F11) ============ --}}
         @if ($showPaketModal)
-            <x-lw-modal :show="$showPaketModal" title="Cari Paket" close="closePaketModal">
+            <x-lw-modal :show="$showPaketModal" title="Daftar Paket" close="closePaketModal">
                 <div class="modal-body" wire:key="paket-modal-body" x-data
                      x-init="$nextTick(() => $refs.paketSearch.focus())"
                      @refocus-paket.window="$nextTick(() => $refs.paketSearch.focus())">
@@ -1223,7 +1232,7 @@
 
         {{-- ============ MODAL CARI PROMO (F7) - referensi/label, bukan hitung diskon otomatis ============ --}}
         @if ($showPromoModal)
-            <x-lw-modal :show="$showPromoModal" title="Cari Promo" close="closePromoModal">
+            <x-lw-modal :show="$showPromoModal" title="Harga Khusus" close="closePromoModal">
                 <div class="modal-body" wire:key="promo-modal-body" x-data
                      x-init="$nextTick(() => $refs.promoSearch.focus())">
                     <input type="text" class="form-control mb-2" x-ref="promoSearch" wire:key="promo-search-input"

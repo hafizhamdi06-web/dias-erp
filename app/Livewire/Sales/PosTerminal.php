@@ -1499,6 +1499,7 @@ class PosTerminal extends Component
         $custTipe = $this->custId ? (int) DB::table('bkontak')->where('KID', $this->custId)->value('KTIPE') : null;
 
         return DB::table('emasterpromou as u')
+            ->leftJoinSub($this->minimalQtyPerPromo(), 'mq', 'mq.MPDIDU', '=', 'u.MPUID')
             ->where('u.MPUAKTIF', 1)
             ->whereDate('u.MPUTANGGAL1', '<=', now()->toDateString())
             ->whereDate('u.MPUTANGGAL2', '>=', now()->toDateString())
@@ -1512,7 +1513,45 @@ class PosTerminal extends Component
             })
             ->orderBy('u.MPUNAMA')
             ->limit(20)
-            ->get(['u.MPUID as id', 'u.MPUKODE as kode', 'u.MPUNAMA as nama', 'u.MPUTANGGAL1 as tgl1', 'u.MPUTANGGAL2 as tgl2']);
+            ->get([
+                'u.MPUID as id', 'u.MPUKODE as kode', 'u.MPUNAMA as nama',
+                'u.MPUTANGGAL1 as tgl1', 'u.MPUTANGGAL2 as tgl2',
+                'mq.qty1', 'mq.qty2', 'mq.qty3',
+            ]);
+    }
+
+    /**
+     * Minimal Qty per promo, utk ditampilkan di pencarian "Harga Khusus" (permintaan user
+     * 2026-09-30). Qty tersimpan di `emasterpromod` (BARIS DETAIL), bukan di master - jadi
+     * harus diringkas per `MPDIDU`.
+     *
+     * ## Pemetaan kolom - PERLU DIKONFIRMASI USER
+     * `emasterpromod` punya TIGA kolom qty (tanpa `...QTY2`, memang begitu di skema legacy).
+     * Label VB6-nya (`eFrmMasterPromoDiskon2.frm` baris 1509 & `eFrmMasterPromoData.frm` 562):
+     *
+     *   Qty 1 = `MPDMINIMALQTY`  -> VB6 "Minima Item 1" DAN "Minimal Item 2" (slot item 1 & 2
+     *                               BERBAGI kolom yg sama - lihat query grid master promo)
+     *   Qty 2 = `MPDMINIMALQTY3` -> VB6 "Min Qty 3"  (slot item 3)
+     *   Qty 3 = `MPDMINIMALQTY4` -> VB6 "Min Qty 4"  (slot item 4)
+     *
+     * Jadi urutan "Qty 1/2/3" yg diminta user memetakan ke slot item 1&2 / 3 / 4.
+     *
+     * ## Kenapa GROUP_CONCAT, bukan satu angka
+     * Satu promo rata-rata punya **7,5 baris** `emasterpromod` (maksimum 189 di data nyata),
+     * dan **111 promo qty-nya BERBEDA antar baris**. Menampilkan satu angka (mis. `MIN`) akan
+     * MENYESATKAN kasir untuk promo-promo itu. Karena itu ditampilkan daftar nilai BERBEDA-nya,
+     * mis. `1/2`. `NULLIF(...,0)` membuang nol - nol di sini berarti "tidak dipakai", bukan
+     * "minimal 0 buah" (11.251 baris detail bernilai 0 di ketiga kolom); kalau SEMUA nol,
+     * hasilnya NULL dan di layar jadi "—".
+     */
+    private function minimalQtyPerPromo()
+    {
+        return DB::table('emasterpromod')
+            ->selectRaw('MPDIDU')
+            ->selectRaw("GROUP_CONCAT(DISTINCT NULLIF(MPDMINIMALQTY,0)  ORDER BY NULLIF(MPDMINIMALQTY,0)  SEPARATOR '/') as qty1")
+            ->selectRaw("GROUP_CONCAT(DISTINCT NULLIF(MPDMINIMALQTY3,0) ORDER BY NULLIF(MPDMINIMALQTY3,0) SEPARATOR '/') as qty2")
+            ->selectRaw("GROUP_CONCAT(DISTINCT NULLIF(MPDMINIMALQTY4,0) ORDER BY NULLIF(MPDMINIMALQTY4,0) SEPARATOR '/') as qty3")
+            ->groupBy('MPDIDU');
     }
 
     public function movePromoHighlight(int $delta): void

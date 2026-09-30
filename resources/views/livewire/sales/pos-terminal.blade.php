@@ -1258,8 +1258,19 @@
                            wire:keydown.arrow-up.prevent="movePromoHighlight(-1)"
                            wire:keydown.enter.prevent="pickPromoHighlighted"
                            wire:keydown.escape="closePromoModal">
+                    {{-- Kolom Minimal Qty (permintaan user 2026-09-30). Isinya bisa BERUPA
+                         DAFTAR mis. "1/2" - satu promo bisa punya banyak baris `emasterpromod`
+                         dgn qty berbeda; lihat `minimalQtyPerPromo()`. --}}
                     <div class="table-responsive" style="max-height: 360px; overflow-y:auto">
                         <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Promo</th>
+                                    <th class="text-center" style="width:80px">Min Qty 1</th>
+                                    <th class="text-center" style="width:80px">Qty 2</th>
+                                    <th class="text-center" style="width:80px">Qty 3</th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 @forelse ($promoResults as $i => $p)
                                     <tr wire:key="pr-{{ $p->id }}"
@@ -1275,9 +1286,12 @@
                                                 &ndash; {{ \Illuminate\Support\Carbon::parse($p->tgl2)->format('d/m/Y') }}
                                             </div>
                                         </td>
+                                        <td class="text-center">{{ $p->qty1 ?: '—' }}</td>
+                                        <td class="text-center">{{ $p->qty2 ?: '—' }}</td>
+                                        <td class="text-center">{{ $p->qty3 ?: '—' }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td class="text-center text-muted py-4">
+                                    <tr><td colspan="4" class="text-center text-muted py-4">
                                         {{ mb_strlen(trim($promoQ)) < 2 ? 'Ketik minimal 2 huruf…' : 'Tidak ada promo aktif yang cocok.' }}
                                     </td></tr>
                                 @endforelse
@@ -1285,7 +1299,10 @@
                         </table>
                     </div>
                     <div class="text-muted small mt-2">
-                        <kbd>&uarr;</kbd> <kbd>&darr;</kbd> pilih baris &middot; <kbd>Enter</kbd> pilih &middot; <kbd>Esc</kbd> tutup
+                        <kbd>&uarr;</kbd> <kbd>&darr;</kbd> pilih baris &middot; <kbd>Enter</kbd> pilih &middot; <kbd>Esc</kbd> tutup<br>
+                        <strong>Min Qty 1</strong> = item 1 &amp; 2 &middot; <strong>Qty 2</strong> = item 3 &middot;
+                        <strong>Qty 3</strong> = item 4. Nilai seperti <code>1/2</code> berarti baris promo ini
+                        punya lebih dari satu minimal qty; <code>—</code> = tidak dipakai.
                     </div>
                 </div>
                 <div class="modal-footer">

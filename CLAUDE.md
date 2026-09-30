@@ -1971,6 +1971,33 @@ root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF11`): dialog terbuka -> arti 
 akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
 `hotkeyCtrlEnter()`.
 
+### Pencarian "Harga Khusus" menampilkan Minimal Qty (2026-09-30)
+
+Tiga kolom qty di modal, dari `PosTerminal::minimalQtyPerPromo()`. **Qty ada di baris DETAIL
+(`emasterpromod`), bukan di master** — jadi harus diringkas per `MPDIDU`.
+
+**Pemetaan kolom — PERLU DIKONFIRMASI USER.** `emasterpromod` punya TIGA kolom qty dan
+**tidak ada `...QTY2`** (memang begitu di skema legacy). Label VB6-nya
+(`eFrmMasterPromoDiskon2.frm` baris 1509, `eFrmMasterPromoData.frm` 562):
+
+| Di layar kita | Kolom | Label VB6 | Slot item |
+|---|---|---|---|
+| Min Qty 1 | `MPDMINIMALQTY` | "Minima Item 1" & "Minimal Item 2" | item 1 **dan** 2 (berbagi kolom) |
+| Qty 2 | `MPDMINIMALQTY3` | "Min Qty 3" | item 3 |
+| Qty 3 | `MPDMINIMALQTY4` | "Min Qty 4" | item 4 |
+
+**Ditampilkan sebagai DAFTAR (mis. `1/3/5`), bukan satu angka** — satu promo rata-rata punya
+**7,5 baris** detail (maks 189 di data nyata) dan **111 promo qty-nya BERBEDA antar baris**;
+menampilkan `MIN` saja akan menyesatkan kasir. `NULLIF(...,0)` membuang nol karena nol berarti
+"tidak dipakai", bukan "minimal 0 buah" (11.251 baris detail nol di ketiganya) → di layar `—`.
+Digabung lewat **`leftJoinSub`**, bukan join langsung ke `emasterpromod`, supaya satu promo
+tidak jadi banyak baris di hasil pencarian (diuji: hasil tidak terduplikasi).
+
+**Jebakan saat menguji pencarian promo**: di data ini **SELURUH** promo yang aktif+berlaku
+hari ini+ber-qty (59 promo) punya batasan `emasterpromokontaktipe`. Memakai sembarang kontak
+membuat hasilnya nihil dan ujinya "lulus" tanpa menguji apa pun — pelanggan uji WAJIB dipilih
+yang `KTIPE`-nya ada di `emasterpromokontaktipe` promo itu.
+
 ### Pencarian Operator & Dokter DIBATASI cabang aktif (2026-09-30)
 
 `PosTerminal::cariPetugas()` (badan bersama `operatorSearchResults()`/`dokterSearchResults()`)

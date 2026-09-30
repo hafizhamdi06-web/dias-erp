@@ -1971,6 +1971,33 @@ root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF11`): dialog terbuka -> arti 
 akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
 `hotkeyCtrlEnter()`.
 
+### Modal TANPA isian wajib `tabindex` + fokus otomatis, kalau tidak panahnya mati (2026-09-30)
+
+Dilaporkan user: panah tidak berfungsi di **"Pilih Baris Promo"**. Penyebabnya bukan
+methodnya — `wire:keydown` dipasang di `div.modal-body`, tapi modal itu **tidak punya satu pun
+isian**, jadi fokus tetap di `<body>`, event-nya tidak pernah membubble ke div tersebut.
+Modal lain (Cari Item/Pelanggan/Paket/Harga Khusus) selamat hanya karena punya `<input>` yang
+di-autofokus.
+
+**Pola WAJIB untuk modal berpanah tanpa isian** — persis seperti modal Voucher & DP yang sudah
+benar sejak awal:
+
+```blade
+<div class="modal-body" wire:key="..." x-data tabindex="-1"
+     x-init="$nextTick(() => $el.focus())"
+     wire:keydown.arrow-down.prevent="..." ...>
+```
+
+Terkena: "Pilih Baris Promo" & "Pilih Baris Kombinasi" (keduanya juga memakai pola lama
+`@keydown...="$wire.method()"`, diseragamkan ke `wire:keydown`). Ujinya sekarang **memindai
+SEMUA `modal-body`** di blade POS dan gagal kalau ada yang punya `arrow-down` tanpa `<input>`
+dan tanpa fokus otomatis — jadi modal baru tidak bisa lolos dengan cacat yang sama.
+
+**Jebakan saat menguji ini**: jangan potong tag HTML sampai `>` pertama — atribut
+`x-init="$nextTick(() => $el.focus())"` **mengandung `>`** di dalam `=>`, sehingga pemotongan
+naif berhenti di tengah atribut dan menghasilkan 8 kegagalan palsu (sudah kejadian). Ambil
+per-baris.
+
 ### Pencarian "Daftar Paket" menampilkan Total (2026-09-30)
 
 Kolom Total = **`epaketu.PUTOTALHARGA`**, kolom yang SAMA dipakai VB6 di layar yang sama

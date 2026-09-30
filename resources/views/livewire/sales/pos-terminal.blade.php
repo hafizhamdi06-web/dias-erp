@@ -1328,10 +1328,12 @@
         {{-- ============ MODAL PILIH BARIS KOMBINASI (promo Kombinasi 1 dgn >1 baris) ============ --}}
         @if ($showKombinasiModal)
             <x-lw-modal :show="$showKombinasiModal" title="Pilih Baris Kombinasi - {{ $activeKombinasiKode }}" close="closeKombinasiModal">
-                <div class="modal-body" wire:key="kombinasi-modal-body" x-data
-                     @keydown.arrow-down.prevent="$wire.moveKombinasiHighlight(1)"
-                     @keydown.arrow-up.prevent="$wire.moveKombinasiHighlight(-1)"
-                     @keydown.enter.prevent="$wire.pickKombinasiHighlighted()">
+                {{-- Idem modal "Pilih Baris Promo" - lihat catatan di sana. --}}
+                <div class="modal-body" wire:key="kombinasi-modal-body" x-data tabindex="-1"
+                     x-init="$nextTick(() => $el.focus())"
+                     wire:keydown.arrow-down.prevent="moveKombinasiHighlight(1)"
+                     wire:keydown.arrow-up.prevent="moveKombinasiHighlight(-1)"
+                     wire:keydown.enter.prevent="pickKombinasiHighlighted">
                     <div class="table-responsive" style="max-height: 360px; overflow-y:auto">
                         <table class="table table-sm table-hover mb-0">
                             <thead>
@@ -1436,10 +1438,15 @@
         {{-- ============ MODAL PILIH BARIS PROMO (promo Biasa dgn >1 baris) ============ --}}
         @if ($showBiasaModal)
             <x-lw-modal :show="$showBiasaModal" title="Pilih Baris Promo - {{ $activeBiasaKode }}" close="closeBiasaModal">
-                <div class="modal-body" wire:key="biasa-modal-body" x-data
-                     @keydown.arrow-down.prevent="$wire.moveBiasaHighlight(1)"
-                     @keydown.arrow-up.prevent="$wire.moveBiasaHighlight(-1)"
-                     @keydown.enter.prevent="$wire.pickBiasaHighlighted()">
+                {{-- `tabindex="-1"` + fokus otomatis WAJIB: modal ini TIDAK punya isian apa pun,
+                     jadi tanpa itu fokus tetap di <body>, keydown-nya tidak pernah sampai ke sini,
+                     dan panah tidak berfungsi (dilaporkan user 2026-09-30). Pola sama persis
+                     modal Voucher & DP yg sudah benar. --}}
+                <div class="modal-body" wire:key="biasa-modal-body" x-data tabindex="-1"
+                     x-init="$nextTick(() => $el.focus())"
+                     wire:keydown.arrow-down.prevent="moveBiasaHighlight(1)"
+                     wire:keydown.arrow-up.prevent="moveBiasaHighlight(-1)"
+                     wire:keydown.enter.prevent="pickBiasaHighlighted">
                     <div class="table-responsive" style="max-height: 360px; overflow-y:auto">
                         <table class="table table-sm table-hover mb-0">
                             <thead>

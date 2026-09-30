@@ -39,6 +39,16 @@ dan CI4 (`C:\xampp\htdocs\dias-online-nmw`) jalan paralel di DB yang sama.
   mengembalikan key sesuai kapitalisasi asli**. Selalu cocokkan case dari `SHOW COLUMNS` saat baca via Eloquent,
   atau gejalanya: create/list jalan, Edit muat kosong.
 - `config/database.php` **`strict => false`** — tabel legacy penuh default `0000-00-00` & kolom tanpa default.
+- **`config/app.php` `timezone` = `Asia/Jakarta` — JANGAN dikembalikan ke `UTC` bawaan Laravel.**
+  MySQL-nya `time_zone=SYSTEM` (= WIB) dan kolom seperti `ctransaksiu.CUCREATED`/`fstoku.SUCREATED`
+  diisi DEFAULT `current_timestamp()` **MySQL**, bukan PHP. Dengan `UTC`, Laravel menulis jam yang
+  selisih **7 jam** dari yang ditulis MySQL **di dokumen yang sama** (terbukti 2026-09-30:
+  `CUCREATED`=10:21:29 vs `lv_activity_log.created_at`=03:21:29 untuk satu transaksi). Yang lebih
+  berbahaya daripada jam cetakan: `now()->toDateString()` (tanggal bawaan form Kas/Bank, POS, dll)
+  memberi tanggal **KEMARIN** sepanjang 00:00–07:00 WIB, dan `startOfMonth()/endOfMonth()` untuk
+  filter laporan meleset di pergantian bulan. **Jangan pernah mengakali ini dengan `addHours(7)`
+  atau `setTimezone()` di kode** — sudah dicek, tidak ada satu pun kompensasi semacam itu di
+  `app/`, `config/`, `resources/views/`, `routes/`; menambahkannya sekarang = dobel geser.
 - Charset koneksi `utf8mb4` (MariaDB transcode tabel latin1 saat baca).
 - Tabel transaksi POS (`fstoku`/`fstokd`) punya **trigger** yang mengurus stok + jurnal — cukup insert baris yang benar (`App\Services\PosSaleWriter`). Nomor: `{bgudang.GALAMAT1}-IP{ym}{NNNN}`, urut dari `MAX(RIGHT(SUNOTRANSAKSI,4))` atas prefix (unik global, bukan per cabang).
 - **Konvensi pembatalan transaksi `fstoku`/`fstokd` (dari kode CI3 asli, `M_PJ_POS_HP::tambahTransaksi()`) — JANGAN DELETE, UPDATE status**: `fstoku.SUSTATUS = 9` artinya "Cancel" (selain itu = "Aktif"; konvensi ini dipakai di SEMUA jenis transaksi `fstoku`, bukan cuma POS). Batalkan transaksi = `UPDATE fstokd SET SDCANCEL=1 WHERE SDIDSU=id` (BUKAN delete baris) + `UPDATE fstoku SET SUSTATUS=9, SUDP1=0, SUTOTALDP=0, SUIPBARU=<id pengganti> WHERE SUID=id` + `DELETE FROM bpoint WHERE PIDTRANSAKSIMASUK=id` (poin TETAP dihapus). Trigger `fstokd_edit` (AFTER UPDATE) yang membalik stok: kontribusi `OLD.*` selalu dikurangi, kontribusi `NEW.*` ditambah lagi HANYA kalau `NEW.SDCANCEL=0` — begitu di-set 1, penambahan itu di-skip, net effect = stok kembali seperti dihapus TANPA benar-benar dihapus. Transaksi pengganti diberi `SUNOIPLAMA = <no. transaksi lama>` (link baru→lama; `SUIPBARU` = link lama→baru). Query "transaksi aktif" WAJIB filter `WHERE SUSTATUS<>9`. Ada JUGA hard-delete sungguhan terpisah di CI3 (`hapusTransaksi()`, dipetakan ke `PosSaleWriter::cancel()`) — beda tujuan dari cancel/replace biasa, jangan tertukar. Implementasi Laravel: `PosSaleWriter::replace()`.

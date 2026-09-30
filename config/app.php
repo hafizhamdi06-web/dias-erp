@@ -59,13 +59,22 @@ return [
     | Application Timezone
     |--------------------------------------------------------------------------
     |
-    | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | WAJIB "Asia/Jakarta", JANGAN dikembalikan ke "UTC" bawaan Laravel.
+    |
+    | Kita menempel pada DB legacy yg SELURUH datanya WIB: MySQL-nya `time_zone=SYSTEM`
+    | (= WIB), dan kolom spt `ctransaksiu.CUCREATED`/`fstoku.SUCREATED` diisi oleh DEFAULT
+    | `current_timestamp()` MySQL - bukan oleh PHP. Dgn `UTC`, Laravel menulis jam yg
+    | SELISIH 7 JAM dari yg ditulis MySQL **di dokumen yg sama** (terbukti 2026-09-30:
+    | `ctransaksiu.CUCREATED`=10:21:29 tapi `lv_activity_log.created_at`=03:21:29 utk satu
+    | transaksi). Efek lain yg lbh berbahaya: `now()->toDateString()` (tanggal bawaan form
+    | Kas/Bank, POS dll) masih memberi tanggal KEMARIN sepanjang 00:00-07:00 WIB, dan
+    | `startOfMonth()/endOfMonth()` utk filter laporan meleset di pergantian bulan.
+    |
+    | Diketahui dari laporan user: jam "Tanggal Print" di kaki cetakan berbeda 7 jam.
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'Asia/Jakarta'),
 
     /*
     |--------------------------------------------------------------------------

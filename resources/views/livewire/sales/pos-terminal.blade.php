@@ -720,6 +720,14 @@
                             @endif
                         </div>
                     @endif
+                    {{-- Daftarnya DISARING ke cabang aktif (permintaan user 2026-09-30) - dikatakan
+                         terang-terangan supaya kasir tidak mengira nama rekannya hilang. --}}
+                    @if ($branch)
+                        <div class="small text-muted mb-2">
+                            <i class="fas fa-filter me-1"></i>Hanya operator cabang
+                            <span class="fw-semibold">{{ $branch->GNAMA }}</span>
+                        </div>
+                    @endif
                     <input type="text" class="form-control mb-2" x-ref="odSearch" wire:key="od-search-input-operator"
                            placeholder="ketik nama / kode operator…" autocomplete="off"
                            wire:model.live.debounce.250ms="odQ"
@@ -766,6 +774,13 @@
                             @if (count($odQueue) > 0)
                                 &middot; {{ count($odQueue) }} baris lagi menyusul
                             @endif
+                        </div>
+                    @endif
+                    {{-- Idem modal Operator - lihat catatan di sana. --}}
+                    @if ($branch)
+                        <div class="small text-muted mb-2">
+                            <i class="fas fa-filter me-1"></i>Hanya dokter cabang
+                            <span class="fw-semibold">{{ $branch->GNAMA }}</span>
                         </div>
                     @endif
                     <input type="text" class="form-control mb-2" x-ref="odSearch" wire:key="od-search-input-dokter"

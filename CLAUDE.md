@@ -1971,6 +1971,28 @@ root dgn percabangan di PHP** (`hotkeyF1`..`hotkeyF11`): dialog terbuka -> arti 
 akan ikut jalan (nilai bayar terisi TAPI modal pencarian ikut terbuka). Pola sama dipakai
 `hotkeyCtrlEnter()`.
 
+### Pencarian Operator & Dokter DIBATASI cabang aktif (2026-09-30)
+
+`PosTerminal::cariPetugas()` (badan bersama `operatorSearchResults()`/`dokterSearchResults()`)
+menambah `bkontak.KCABANG = $this->branchId`. **BEDA DISENGAJA dari VB6**: di sana
+(`eFrmPOS.frm`/`eFrmPOS2Edit.frm`, `bFrmCariKontak.lblFilterTambahan`) filternya HANYA
+`coalesce(KTAMPILDIDOKTER,0)=1` / `...DIPERAWAT...` — **tanpa** batasan cabang, jadi kasir Bali
+bisa memilih perawat Petogogan. Ini penambahan atas permintaan user, bukan port.
+
+Aman diterapkan ketat: diperiksa di data nyata, **SELURUH** operator (223) & dokter (59) aktif
+punya `KCABANG` terisi dan menunjuk `bgudang.GID` yang ADA — tidak ada yang hilang. Kalau suatu
+saat ada yang `KCABANG`-nya kosong, dia tidak akan muncul di cabang mana pun; perbaikannya di
+master kontak, **jangan** dengan melonggarkan filter. `branchId` `null` → filter DILEWATI (bukan
+mencocokkan `KCABANG = NULL` yang pasti nihil); transaksinya toh tetap tidak bisa disimpan tanpa
+cabang. Kedua modal menyebutkan cabangnya terang-terangan supaya kasir tidak mengira nama
+rekannya hilang. Keduanya memakai **satu** badan query — jangan dipecah lagi, supaya filternya
+mustahil terpasang di salah satu saja (diuji: potongan filternya hanya boleh muncul 1×).
+
+**Jebakan saat menguji pencarian kontak**: nama dokter berawalan `dr.` — kata itu lolos filter
+"panjang ≥3" tapi **tidak bisa dicari**: titiknya tidak dibuang `Contact::kandidatId()` dan "dr"
+cuma 2 huruf, di bawah `innodb_ft_min_token_size` (3), jadi FULLTEXT mengabaikannya dan hasilnya
+nihil. Saat menyusun kata kunci uji, ambil kata **murni huruf ≥4**.
+
 ### Pemetaan pintasan BERLAKU (per 2026-09-30, penomoran KEEMPAT) — rujuk ini, jangan komentar lama
 
 | Tombol | Dialog bayar TERTUTUP | Dialog bayar TERBUKA |

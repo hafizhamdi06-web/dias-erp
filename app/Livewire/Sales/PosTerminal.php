@@ -730,26 +730,46 @@ class PosTerminal extends Component
         $this->odHighlight = 0;
     }
 
-    /** @return \Illuminate\Support\Collection */
+    /**
+     * Pencarian Operator & Dokter DIBATASI ke cabang aktif kasir (`bkontak.KCABANG` =
+     * `$this->branchId`) - permintaan user 2026-09-30.
+     *
+     * **BEDA DISENGAJA dari VB6**: di sana (`eFrmPOS.frm` / `eFrmPOS2Edit.frm`,
+     * `bFrmCariKontak.lblFilterTambahan`) filternya HANYA
+     * `coalesce(KTAMPILDIDOKTER,0)=1` / `...DIPERAWAT...` - **tanpa** batasan cabang, jadi
+     * kasir Bali bisa memilih perawat Petogogan. Ini penambahan, bukan port.
+     *
+     * Aman diterapkan ketat: diperiksa di data nyata, **SELURUH** operator (223) & dokter (59)
+     * yg aktif punya `KCABANG` terisi dan menunjuk `bgudang.GID` yg ADA - tidak ada satu pun
+     * yg akan hilang gara-gara filter ini. Kalau suatu saat ada yg `KCABANG`-nya kosong, dia
+     * TIDAK akan muncul di cabang mana pun - perbaikannya di master kontak, bukan dgn
+     * melonggarkan filter di sini.
+     *
+     * `$this->branchId` bisa `null` (cabang user tidak aktif di `bgudang`) - saat itu filter
+     * DILEWATI, bukan mencocokkan `KCABANG = NULL` yg pasti nihil. Transaksinya toh tetap
+     * tidak bisa disimpan tanpa cabang (lihat `checkout()`), jadi tidak ada risiko data salah.
+     *
+     * @return \Illuminate\Support\Collection
+     */
     private function operatorSearchResults()
     {
-        $q = trim($this->odQ);
-        if (mb_strlen($q) < 2) {
-            return collect();
-        }
-
-        $query = DB::table('bkontak as k')
-            ->where('k.KAKTIF', '<>', 0)
-            ->where('k.KTIPE', 4)
-            ->where('k.KTAMPILDIPERAWAT', 1);
-        \App\Models\Contact::applySearch($query, $q, 'k');
-
-        return $query->limit(15)->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama']);
+        return $this->cariPetugas('KTAMPILDIPERAWAT');
     }
 
     /** @return \Illuminate\Support\Collection */
     private function dokterSearchResults()
     {
+        return $this->cariPetugas('KTAMPILDIDOKTER');
+    }
+
+    /**
+     * Badan bersama Operator & Dokter - keduanya HANYA beda kolom flag. Disatukan supaya
+     * filter cabangnya mustahil terpasang di salah satu saja.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    private function cariPetugas(string $kolomFlag)
+    {
         $q = trim($this->odQ);
         if (mb_strlen($q) < 2) {
             return collect();
@@ -758,7 +778,8 @@ class PosTerminal extends Component
         $query = DB::table('bkontak as k')
             ->where('k.KAKTIF', '<>', 0)
             ->where('k.KTIPE', 4)
-            ->where('k.KTAMPILDIDOKTER', 1);
+            ->where('k.' . $kolomFlag, 1)
+            ->when($this->branchId, fn ($b) => $b->where('k.KCABANG', $this->branchId));
         \App\Models\Contact::applySearch($query, $q, 'k');
 
         return $query->limit(15)->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama']);

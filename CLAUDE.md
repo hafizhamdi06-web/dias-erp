@@ -2545,6 +2545,56 @@ menempel sebaris. `display:block` malah DIHAPUS dari CSS supaya jaraknya tidak d
 suatu hari mpdf mendukungnya. **Berlaku umum utk SEMUA cetakan mpdf**: mau menaruh sesuatu di
 baris baru di dalam `<th>`/`<td>`, pakai `<br>` - jangan andalkan `display`.
 
+## Laporan > Persediaan > Daftar Stok Barang (2026-09-30)
+
+Judul MENU "Daftar Stok Barang", judul CETAKAN **"Laporan Real Stok Barang"** (beda, ikut
+contoh user `Daftar Stok Barang BIZPARK.pdf`). `DaftarStokBarang` (Livewire filter) +
+`ReportController::daftarStokBarang()`/`...Excel()` + `reports/daftar-stok-barang.blade.php`
+& `-xls`. Menu `laporan.stok-barang` di bawah grup BARU `laporan.persediaan`.
+
+**Port dari VB6 `C:\code\DIAS_MYSQL_2026\DIAS.vbp` menu 318** — jejaknya, biar tidak perlu
+ditelusuri ulang:
+- `Module\a\Module\aMod_Menu.bas` **baris 257**: `Case 318, ...` → `zfFrmFilterLaporanStok`,
+  dan khusus baris itu `txtTanggal2`/`Cal(1)` disembunyikan → **tanggalnya TUNGGAL (cut-off
+  "s/d"), bukan rentang**.
+- `Module\f\Form\zfFrmFilterLaporanStok.frm` **baris 1392** (SQL) & **1243** (filter `pFlt`)
+  & **798-800** (parameter laporan).
+
+**Rumus stoknya**: `SUM(SDMASUK - IF(SDDARIPAKET<>0 AND SDKEDATANGAN=0, 0, SDKELUAR))`. `IF`
+itu BUKAN hiasan — baris dari PAKET yang bukan kedatangan keluarnya **diabaikan** (komponen
+paket sudah terhitung lewat baris paketnya; kalau ikut dikurangi, stok dobel). **Jangan
+disederhanakan** jadi `SDMASUK - SDKELUAR`. Semua join `INNER` (disengaja, ikut VB6) dan
+`GROUP BY`-nya memuat kolom harga — satu item bisa jadi >1 baris kalau harganya pernah beda;
+itu perilaku cetakan lama, jangan "dirapikan".
+
+**Aturan gudang 1 & 6**: memilih cabang 1 (Petogogan) ATAU 6 (Online) → `SDGUDANG IN (1,6)`.
+Stok Online memang dihitung menyatu dengan Petogogan.
+
+**Filter yang menu 318 TIDAK pakai — SENGAJA tidak dibuat**: Nomor Transaksi, Kontak, Id Item,
+Jenis Transaksi, Kelompok 2020, Jumlah Data, COA 2026 (hanya menu 850), **"Hitung Saldo Awal"**
+& **"Posting Saja"**. Dua terakhir **terceklis di tangkapan layar user** tapi cabang `Case 318`
+tidak pernah membacanya (Hitung Saldo Awal cuma menu 321/322/450/417/448; Posting Saja cuma
+baris 1191). Form VB6-nya dipakai bersama belasan menu, jadi banyak isian TAMPIL tapi mati.
+
+**BEDA DISENGAJA dari VB6 (2)**: (1) **COA 2021** — VB6 mengirim `ICOA2021 = ListIndex - 1`
+(posisi baris combo), benar HANYA kalau `CTTIPEID` kontigu, dan **tidak**: 26 baris ber-ID
+0..99, jadi entri terakhir di VB6 mengirim angka salah. Di sini dipakai `CTTIPEID` ASLI.
+(2) **Item** — VB6 `UPPER(IKODE) = '<ketikan>'` sama persis; di sini `<x-search-select>` →
+filter `bitem.IID`.
+
+Baris TOTAL menjumlah kolom apa adanya **walau satuannya bercampur** (Pcs, Gr, Kg, Liter) —
+itu memang perilaku cetakan lama, bukan kekeliruan.
+
+Verifikasi (LULUS): **query VB6 asli dijalankan BERDAMPINGAN** dan dicocokkan **baris per
+baris** (`gudang|kode|nama|stok`), bukan cuma totalnya — identik untuk skenario tangkapan
+layar user (Bizpark, 3 ceklis), untuk gudang 1+6 (314 baris), dan untuk filter Jenis Item.
+Query ini juga **diuji ke DB PRODUKSI** dan cocok dengan lampiran user sampai satuan:
+`NMW PAPAYA CLEANSER 100 GR` = 191,00 dan `BASE RHEIN DAY LIGHT GEL` = −282.073,00; item yang
+berbeda hanyalah yang stoknya bergerak setelah PDF-nya dicetak jam 12:08. Plus: 10 potongan
+layout contoh; tiap ceklis terbukti mengubah hasil; cut-off tanggal bekerja; Excel sebaris
+dengan PDF & kode dipaksa teks; menu/registry/route terdaftar; 9 filter yang sengaja
+ditiadakan terbukti tidak ada.
+
 ## Kas Masuk & Kas Keluar: cetakan bukti (2026-09-30)
 
 `KasBankPrintController` + `reports/kas-bank-print.blade.php`, route

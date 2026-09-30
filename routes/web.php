@@ -79,6 +79,8 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/ip-tindakan-produk/excel', [ReportController::class, 'ipTindakanProdukExcel'])->name('reports.ip-tindakan-produk.excel');
     Route::get('reports/daftar-penjualan-tunai', [ReportController::class, 'daftarPenjualanTunai'])->name('reports.daftar-penjualan-tunai');
     Route::get('reports/daftar-penjualan-tunai/excel', [ReportController::class, 'daftarPenjualanTunaiExcel'])->name('reports.daftar-penjualan-tunai.excel');
+    Route::get('reports/daftar-stok-barang', [ReportController::class, 'daftarStokBarang'])->name('reports.daftar-stok-barang');
+    Route::get('reports/daftar-stok-barang/excel', [ReportController::class, 'daftarStokBarangExcel'])->name('reports.daftar-stok-barang.excel');
 
     // Lookup JSON untuk <x-search-select> (auth saja, tanpa filter hak menu).
     Route::prefix('lookup')->name('lookup.')->group(function () {

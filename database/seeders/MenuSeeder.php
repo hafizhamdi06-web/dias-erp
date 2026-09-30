@@ -103,6 +103,8 @@ class MenuSeeder extends Seeder
             'laporan.penjualan-per-barang' => ['IP Per Barang', 'laporan/penjualan-per-barang', 'fas fa-box', 'link', 82, 'laporan.penjualan'],
             'laporan.ip-tindakan-produk' => ['IP Tindakan/Produk Per Bulan', 'laporan/ip-tindakan-produk', 'fas fa-calendar-days', 'link', 83, 'laporan.penjualan'],
             'laporan.penjualan-tunai' => ['Daftar Penjualan Tunai', 'laporan/penjualan-tunai', 'fas fa-money-bill-wave', 'link', 84, 'laporan.penjualan'],
+            'laporan.persediaan' => ['Persediaan',      null,               'fas fa-boxes-stacked',      'group', 85, 'laporan'],
+            'laporan.stok-barang' => ['Daftar Stok Barang', 'laporan/stok-barang', 'fas fa-warehouse', 'link', 86, 'laporan.persediaan'],
         ];
 
         $idBySegment = [];

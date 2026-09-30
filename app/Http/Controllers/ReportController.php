@@ -427,4 +427,127 @@ class ReportController extends Controller
             'totalTanpa' => $jumlahkan($rows->filter(fn ($x) => $x->piutangBayar == 0.0)),
         ];
     }
+
+    /**
+     * Laporan Persediaan "Daftar Stok Barang" - judul cetakan **"Laporan Real Stok Barang"**
+     * (beda dari nama menunya, ikut contoh cetakan user). Port dari VB6 menu **318**.
+     */
+    public function daftarStokBarang(Request $r)
+    {
+        return app(PdfReport::class)->preview(
+            'reports.daftar-stok-barang',
+            $this->dataDaftarStokBarang($r),
+            ['size' => 'A4', 'orientasi' => 'P', 'marginTop' => 14, 'marginBottom' => 14]
+        );
+    }
+
+    public function daftarStokBarangExcel(Request $r)
+    {
+        $data = $this->dataDaftarStokBarang($r);
+
+        return response()
+            ->view('reports.daftar-stok-barang-xls', $data)
+            ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="' . $data['title'] . '.xls"');
+    }
+
+    /**
+     * QUERY DISALIN dari VB6 `zfFrmFilterLaporanStok.frm` baris 1392 (SQL) + 1243 (filter):
+     *
+     *   SUM(SDMASUK - IF(SDDARIPAKET<>0 AND SDKEDATANGAN=0, 0, SDKELUAR))
+     *
+     * `IF(...)` itu BUKAN hiasan: baris yg berasal dari PAKET (`SDDARIPAKET<>0`) dan bukan
+     * kedatangan (`SDKEDATANGAN=0`) keluarnya **diabaikan** - komponen paket sudah terhitung
+     * lewat baris paketnya sendiri, kalau ikut dikurangi stoknya dobel. Jangan disederhanakan
+     * jadi `SDMASUK - SDKELUAR`.
+     *
+     * Semua join `INNER` - **disengaja, ikut VB6**: item tanpa `ICOA2021` yg cocok di
+     * `bcoatipe_perpt`, tanpa satuan, atau tanpa gudang TIDAK muncul. Mengubahnya jadi
+     * `LEFT JOIN` akan memunculkan baris yg di cetakan lama tidak ada.
+     *
+     * `GROUP BY`-nya panjang & memuat kolom harga (`ihargabeli2`, `icogspabrik`, `ihargadepo`,
+     * `icogs`, `ihargajual1`) - disalin APA ADANYA. Efeknya satu item bisa jadi >1 baris kalau
+     * harganya pernah beda; itulah perilaku cetakan lama, jangan "dirapikan" jadi group per
+     * item saja.
+     *
+     * ## Gabungan gudang 1 & 6
+     * VB6: kalau cabang yg dipilih 1 (Petogogan) ATAU 6 (Online), filternya jadi
+     * `SDGUDANG IN (1,6)` - stok Online memang dihitung menyatu dgn Petogogan. Ditiru persis.
+     *
+     * ## "Stok 0 Tidak Tampil"
+     * Di VB6 dikirim sbg parameter laporan (`STOK0`) dan disaring di Crystal Report, bukan di
+     * SQL. Di sini disaring `HAVING stok <> 0` - hasil akhirnya sama, tapi jauh lebih ringan.
+     *
+     * Cabang tetap ditegakkan `cabangLaporan()` - parameter URL bisa diketik manual.
+     *
+     * @return array{title:string,subtitle:string,company:array,rows:\Illuminate\Support\Collection,total:float,tanggal:string}
+     */
+    private function dataDaftarStokBarang(Request $r): array
+    {
+        $r->validate([
+            'tanggal'     => ['required', 'date'],
+            'cabang'      => ['nullable', 'integer'],
+            'jenisItem'   => ['nullable', 'integer'],
+            'item'        => ['nullable', 'integer'],
+            'jenisProduk' => ['nullable', 'integer'],
+            'coa2021'     => ['nullable', 'integer'],
+            'pt'          => ['nullable', 'integer'],
+        ]);
+
+        $tanggal = $r->query('tanggal');
+        $gudang = $this->cabangLaporan($r);
+
+        // Aturan VB6: memilih gudang 1 atau 6 berarti KEDUANYA. Hanya berlaku saat user
+        // memilih SATU cabang - "Semua cabang" sudah mencakup keduanya.
+        if ($gudang === [1] || $gudang === [6]) {
+            $gudang = [1, 6];
+        }
+
+        $stok = 'IFNULL(SUM(d.SDMASUK - IF(d.SDDARIPAKET <> 0 AND d.SDKEDATANGAN = 0, 0, d.SDKELUAR)), 0)';
+
+        $rows = DB::table('fstokd as d')
+            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->join('bcoatipe_perpt as ct', 'ct.CTTIPEID', '=', 'i.ICOA2021')
+            ->join('bgudang as g', 'g.GID', '=', 'd.SDGUDANG')
+            ->join('bsatuan as s', 's.SID', '=', 'i.ISATUAN')
+            ->where('u.SUSTATUS', '<>', 9)
+            ->where('d.SDCANCEL', 0)
+            ->where('u.SUSUMBER', '<>', '')
+            ->whereDate('u.SUTANGGAL', '<=', $tanggal)
+            ->when($gudang !== [], fn ($b) => $b->whereIn('d.SDGUDANG', $gudang))
+            ->when($r->filled('jenisItem'), fn ($b) => $b->where('i.IJENISITEM', $r->integer('jenisItem')))
+            ->when($r->filled('item'), fn ($b) => $b->where('i.IID', $r->integer('item')))
+            ->when($r->filled('jenisProduk'), fn ($b) => $b->where('i.IJENISPRODUK', $r->integer('jenisProduk')))
+            ->when($r->filled('coa2021'), fn ($b) => $b->where('i.ICOA2021', $r->integer('coa2021')))
+            ->when($r->filled('pt'), fn ($b) => $b->where('g.GPT', $r->integer('pt')))
+            ->when($r->boolean('stokSaja'), fn ($b) => $b->where('i.ITIPEITEM', 0))
+            ->when($r->boolean('aktifSaja'), fn ($b) => $b->where('i.ISTATUS', 0))
+            ->groupBy('i.IHARGABELI2', 'i.ICOGSPABRIK', 'g.GKODE', 's.SKODE', 'i.IHARGADEPO',
+                'i.ICOGS', 'i.INAMA', 'ct.CTNAMA', 'i.IHARGAJUAL1', 'i.IKODE')
+            ->when($r->boolean('stok0'), fn ($b) => $b->havingRaw("{$stok} <> 0"))
+            ->orderBy('g.GKODE')->orderBy('i.IKODE')
+            ->get([
+                DB::raw('g.GKODE as gudang'),
+                DB::raw('ct.CTNAMA as jenis'),
+                DB::raw('i.IKODE as kode'),
+                DB::raw('i.INAMA as nama'),
+                DB::raw('s.SKODE as satuan'),
+                DB::raw("{$stok} as stok"),
+            ]);
+
+        $namaCabang = count($gudang) === 1 && $gudang !== [0]
+            ? (string) DB::table('bgudang')->where('GID', $gudang[0])->value('GNAMA')
+            : ($gudang === [1, 6] ? 'Petogogan + Online' : null);
+
+        return [
+            // Judul CETAKAN beda dari nama MENU ("Daftar Stok Barang") - ikut contoh user.
+            'title'    => 'Laporan Real Stok Barang',
+            'tanggal'  => \Carbon\Carbon::parse($tanggal)->format('d/m/Y'),
+            'subtitle' => $namaCabang,
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => (float) $rows->sum('stok'),
+        ];
+    }
 }

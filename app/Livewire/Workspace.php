@@ -81,6 +81,7 @@ class Workspace extends Component
             'laporan.penjualan-per-barang' => ['reports.penjualan-per-barang', 'IP Per Barang', 'fas fa-box'],
             'laporan.ip-tindakan-produk' => ['reports.ip-tindakan-produk', 'IP Tindakan/Produk Per Bulan', 'fas fa-calendar-days'],
             'laporan.penjualan-tunai' => ['reports.daftar-penjualan-tunai', 'Daftar Penjualan Tunai', 'fas fa-money-bill-wave'],
+            'laporan.stok-barang' => ['reports.daftar-stok-barang', 'Daftar Stok Barang', 'fas fa-warehouse'],
         ];
     }
 

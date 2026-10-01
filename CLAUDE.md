@@ -2470,8 +2470,24 @@ Permintaan user: tombol **Buat Password** di reset password admin (2 angka + 4 h
   dari password lama.
 
 ### Yang HARUS dilewati middleware (kalau tidak user terkunci berputar)
-`password.change`, `logout`, dan **`livewire/*`** - halaman ganti password itu sendiri memakai
-Livewire, memblokir endpointnya membuat formnya tidak bisa disubmit.
+`password.change`, `logout`, dan **SELURUH endpoint Livewire**.
+
+**GOTCHA BESAR — prefiks Livewire DIACAK, jangan ditulis tangan (kena nyata 2026-10-01).**
+Pengecualiannya semula ditulis `$request->is('livewire/*')`. Itu **tidak pernah cocok**:
+Livewire 4 memakai prefiks `/livewire-<hash8>` dari
+`Livewire\Mechanisms\HandleRequests\EndpointResolver::prefix()` — mis. `/livewire-800c6d86/update`.
+Akibatnya untuk user `must_change` (satu-satunya yang melihat layar itu) **`livewire.js` ikut
+dialihkan 302**, JS-nya tidak pernah termuat, dan tombol "Simpan Password Baru" **mati total
+tanpa pesan apa pun** — dilaporkan user sebagai "tidak respon".
+
+**JANGAN menambal dengan menyalin hash-nya**: hash itu diturunkan dari **`APP_KEY`**, jadi
+nilainya **berbeda di tiap server** — hash lokal akan salah di produksi. Satu-satunya cara
+benar: tanya ke `EndpointResolver::prefix()` (lihat `EnsurePasswordChanged::polaLivewire()`).
+
+**Kenapa uji komponen tidak menangkapnya**: `Livewire::test()` memanggil komponen LANGSUNG dan
+**melewati middleware HTTP**, jadi seluruh uji `ChangePassword` lulus padahal layarnya mati.
+Untuk bug semacam ini, **uji middleware-nya sendiri** dengan `Request::create()` ke path
+Livewire yang SEBENARNYA (ambil dari daftar rute, jangan ditebak).
 
 ### GOTCHA: `confirmed` vs properti camelCase (kena nyata)
 Aturan `confirmed` mencari field `passwordBaru_confirmation` (snake), sedangkan properti

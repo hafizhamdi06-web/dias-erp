@@ -312,6 +312,19 @@ class SjForm extends Component
 
         $this->pkbId = $pkbId;
         $this->noPkb = $data['header']->PKBUNOTRANSAKSI;
+
+        // Kontak penerima IKUT DITARIK dari PKB (`PKBUKONTAK`), sama spt gudang tujuan.
+        // Sebelum 2026-10-02 ini TIDAK disalin, padahal `kontak` WAJIB di `rules()` - akibatnya
+        // SJ baru SELALU ditolak "Kontak penerima wajib diisi." dan user harus mencarinya
+        // sendiri (dilaporkan user: "belum bisa membuat SJ"). Diperiksa di data nyata: SELURUH
+        // 342 PKB yg bisa ditarik punya `PKBUKONTAK` terisi, jadi isian ini hampir selalu benar.
+        // Tetap BISA DIGANTI user - ini isian awal, bukan kunci.
+        $kontakPkb = (int) ($data['header']->PKBUKONTAK ?? 0);
+        if ($kontakPkb > 0) {
+            $this->kontak = $kontakPkb;
+            $this->kontakLabel = (string) DB::table('bkontak')->where('KID', $kontakPkb)->value('KNAMA') ?: null;
+        }
+
         $this->cabangTujuan = $data['tujuanGudang'];
         $this->cabangTujuanLabel = $this->cabangTujuan
             ? (string) DB::table('bgudang')->where('GID', $this->cabangTujuan)->value('GNAMA') : null;
@@ -349,7 +362,14 @@ class SjForm extends Component
 
     public function save(SjWriter $writer): void
     {
-        if ($this->locked || ! $this->pkbId) {
+        if ($this->locked) {
+            return;
+        }
+        // DULU `return` diam-diam juga saat `! $this->pkbId` - tombol Simpan jadi mati tanpa
+        // sebab yg terlihat. SJ memang HARUS berasal dari PKB, tapi katakan alasannya.
+        if (! $this->pkbId) {
+            $this->addError('lines', 'Surat Jalan harus ditarik dari PKB - tutup tab ini dan mulai dari tombol "SJ Baru".');
+
             return;
         }
         $this->validate();

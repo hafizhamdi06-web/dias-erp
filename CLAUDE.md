@@ -2911,6 +2911,21 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## SJ: kontak penerima ditarik dari PKB (2026-10-02)
+
+Dilaporkan user "belum bisa membuat SJ". Penyebabnya: `SjForm::pullFromPkb()` menyalin
+`tujuanGudang` tapi **tidak** menyalin kontak, padahal `kontak` WAJIB di `rules()` — jadi SJ
+baru SELALU ditolak *"Kontak penerima wajib diisi."* dan user harus mencari kontaknya sendiri.
+Sekarang `PKBUKONTAK` ikut ditarik (diperiksa: **seluruh 342 PKB** yang bisa ditarik punya
+kontak terisi). Tetap bisa diganti user — ini isian awal, bukan kunci.
+
+Sekalian: `save()` dulu `return` **diam-diam** saat `! $this->pkbId`, jadi tombol Simpan mati
+tanpa sebab yang terlihat. Sekarang memberi pesan bahwa SJ harus ditarik dari PKB.
+
+Penyimpanannya sendiri TIDAK bermasalah — diuji dengan PKB nyata: nomor terbit, trigger stok
+jalan (1512 → 1312), `PKBDQTYPAKAI` terupdate, dan rollback mengembalikan semuanya termasuk
+stok.
+
 ## SJ: cetakan "Surat Jalan" (2026-09-27)
 
 `SjPrintController` + `reports/sj-print.blade.php`, route `sales/sj/{id}/print` (ACL

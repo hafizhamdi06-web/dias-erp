@@ -2739,6 +2739,25 @@ layout contoh; tiap ceklis terbukti mengubah hasil; cut-off tanggal bekerja; Exc
 dengan PDF & kode dipaksa teks; menu/registry/route terdaftar; 9 filter yang sengaja
 ditiadakan terbukti tidak ada.
 
+## Kas Keluar: Catatan per baris WAJIB (2026-10-02)
+
+`KasBankFormBase::catatanWajib()` default `false`, di-override `true` **hanya** di
+`KasKeluarForm` — user cuma menyebut Kas Keluar, jadi Kas Masuk & Bank sengaja tidak ikut.
+
+**Diperiksa di `validasiCatatan()`, BUKAN sebagai aturan `lines.*.catatan => required`.**
+Aturan berbintang itu akan ikut menghakimi **baris kosong** (akun/jumlah belum diisi) — padahal
+baris semacam itu memang dibuang saat simpan, jadi user akan dipaksa mengisi catatan untuk baris
+yang tidak akan tersimpan sama sekali.
+
+Syarat "baris yang dihitung" (`jumlah > 0 && coa`) **disalin persis** dari perulangan
+penyimpanan di `save()`. **Kalau syarat itu berubah, ubah di KEDUANYA** — kalau tidak, user bisa
+diblokir oleh baris yang sebenarnya tidak disimpan, atau sebaliknya baris tersimpan tanpa
+catatan. Ujinya mengunci kesamaan ini.
+
+Errornya ditempel ke `lines.<i>.catatan` supaya muncul di baris yang bersalah, bukan satu pesan
+umum di atas tabel (diuji: baris kedua yang kosong menghasilkan error di indeks 1, bukan 0).
+Spasi saja dianggap kosong (`trim()`).
+
 ## Kas Masuk & Kas Keluar: cetakan bukti (2026-09-30)
 
 `KasBankPrintController` + `reports/kas-bank-print.blade.php`, route

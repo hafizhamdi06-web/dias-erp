@@ -176,12 +176,61 @@ abstract class KasBankFormBase extends Component
         'tglGiro.required'  => 'Tanggal jatuh tempo belum diisi.',
     ];
 
+    /**
+     * Apakah kolom Catatan tiap baris WAJIB diisi. Default `false`; dinyalakan HANYA di
+     * `KasKeluarForm` (permintaan user 2026-10-02). Kas Masuk & Bank sengaja tidak ikut -
+     * user cuma menyebut Kas Keluar.
+     */
+    public function catatanWajib(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Cek Catatan per baris. Dijalankan TERPISAH dari `rules()`, bukan sbg `lines.*.catatan`
+     * => required: aturan berbintang itu akan ikut menghakimi BARIS KOSONG (baris yg akun/
+     * jumlahnya belum diisi) - padahal baris semacam itu memang dibuang saat simpan, jadi user
+     * akan dipaksa mengisi catatan untuk baris yg tidak akan tersimpan sama sekali.
+     *
+     * Syarat "baris yg dihitung" SENGAJA disalin persis dari perulangan penyimpanan di bawah
+     * (`jumlah > 0 && coa`) - kalau suatu saat syarat itu berubah, ubah DI KEDUANYA, kalau
+     * tidak user bisa diblokir oleh baris yg sebenarnya tidak disimpan (atau sebaliknya,
+     * baris tersimpan tanpa catatan).
+     *
+     * Kesalahannya ditempelkan ke `lines.<i>.catatan` supaya munculnya di baris yg bersalah,
+     * bukan satu pesan umum di atas tabel.
+     */
+    private function validasiCatatan(): bool
+    {
+        if (! $this->catatanWajib()) {
+            return true;
+        }
+
+        $bersih = true;
+
+        foreach ($this->lines as $i => $l) {
+            if ((float) $l['jumlah'] <= 0 || ! $l['coa']) {
+                continue;
+            }
+            if (trim((string) ($l['catatan'] ?? '')) === '') {
+                $this->addError('lines.' . $i . '.catatan', 'Catatan wajib diisi.');
+                $bersih = false;
+            }
+        }
+
+        return $bersih;
+    }
+
     public function save(KasBankWriter $writer): void
     {
         if ($this->locked) {
             return;
         }
         $this->validate();
+
+        if (! $this->validasiCatatan()) {
+            return;
+        }
 
         $lines = [];
         foreach ($this->lines as $l) {
@@ -245,6 +294,7 @@ abstract class KasBankFormBase extends Component
             'isMasuk'    => $this->isMasukArah(),
             'printRoute' => $this->printRoute(),
             'abilityPath' => $this->abilityPath(),
+            'catatanWajib' => $this->catatanWajib(),
             'total'    => array_sum(array_map(fn ($l) => (float) $l['jumlah'], $this->lines)),
         ]);
     }

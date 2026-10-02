@@ -114,7 +114,7 @@
                         <tr>
                             <th style="width:35%">Akun (COA)</th>
                             <th class="text-end" style="width:160px">Jumlah</th>
-                            <th>Catatan</th>
+                            <th>Catatan @if ($catatanWajib)<span class="text-danger">*</span>@endif</th>
                             @unless ($locked) <th style="width:40px"></th> @endunless
                         </tr>
                     </thead>
@@ -139,7 +139,15 @@
                                                   :disabled="$locked" />
                                 </td>
                                 <td>
-                                    <input type="text" class="form-control form-control-sm" wire:model="lines.{{ $i }}.catatan" {{ $locked ? 'disabled' : '' }}>
+                                    {{-- Wajib khusus Kas Keluar (permintaan user 2026-10-02) - lihat
+                                         `KasBankFormBase::validasiCatatan()`. Errornya ditempel ke
+                                         baris ini supaya jelas baris mana yang kurang. --}}
+                                    <input type="text"
+                                           class="form-control form-control-sm @error('lines.'.$i.'.catatan') is-invalid @enderror"
+                                           wire:model="lines.{{ $i }}.catatan" {{ $locked ? 'disabled' : '' }}>
+                                    @error('lines.'.$i.'.catatan')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
                                 </td>
                                 @unless ($locked)
                                     <td class="text-center">

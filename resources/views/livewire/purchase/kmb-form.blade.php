@@ -3,7 +3,7 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span class="card-title mb-0">
-                    {{ $kmbId ? 'KMB ' . $nomor : 'KMB Baru dari PR ' . $noPr }}
+                    {{ $kmbId ? 'KMB ' . $nomor : ($jopId ? 'KMB Baru dari JOP ' . $noJop : 'KMB Baru dari PR ' . $noPr) }}
                     @if ($locked) <span class="badge text-bg-success ms-2">terkunci</span> @endif
                 </span>
                 <div>
@@ -43,10 +43,12 @@
                     {{-- ===== Kolom kiri: isi KMB ===== --}}
                     <div class="col-md-6">
                         <fieldset @disabled($locked)>
+                            {{-- Label ikut sumbernya: KMB bisa lahir dari PR ATAU dari JOP
+                                 (2026-10-03), tidak pernah keduanya. --}}
                             <div class="kmb-field">
-                                <label class="form-label">No PR Asal</label>
+                                <label class="form-label">{{ $jopId ? 'No JOP Asal' : 'No PR Asal' }}</label>
                                 <div class="kmb-input">
-                                    <span class="badge text-bg-info fs-6">{{ $noPr ?: '—' }}</span>
+                                    <span class="badge text-bg-info fs-6">{{ ($jopId ? $noJop : $noPr) ?: '—' }}</span>
                                 </div>
                             </div>
                             <div class="kmb-field">

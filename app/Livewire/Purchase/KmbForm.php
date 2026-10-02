@@ -19,6 +19,13 @@ class KmbForm extends Component
     public ?string $tabKey = null;
     public ?int $kmbId = null;
     public ?int $prId = null; // PR sumber (SUPBUID) - TIDAK bisa diubah stlh dibuat
+    /**
+     * JOP/JOT sumber (`SUIDJOP`) - ALTERNATIF `$prId`, tidak pernah terisi bersamaan.
+     * Jalur ini port dari VB6 `fFrmKirimMutasiBarang::cmdCariNoReff_Click` (permintaan user
+     * 2026-10-03) - lihat `KmbWriter::fromJop()`.
+     */
+    public ?int $jopId = null;
+    public ?string $noJop = null;
     public bool $locked = false;
 
     // header
@@ -38,7 +45,7 @@ class KmbForm extends Component
     /** @var array<int,array{pbdid:int,item:int,kode:string,nama:string,qtyMinta:float,qty:float,satuan:?int,satuanKode:string,catatan:?string}> */
     public array $lines = [];
 
-    public function mount(?int $kmbId = null, ?int $prId = null): void
+    public function mount(?int $kmbId = null, ?int $prId = null, ?int $jopId = null): void
     {
         $this->tanggal = now()->toDateString();
 
@@ -56,6 +63,8 @@ class KmbForm extends Component
             $this->load($kmbId);
         } elseif ($prId) {
             $this->pullFromPr($prId);
+        } elseif ($jopId) {
+            $this->pullFromJop($jopId);
         }
     }
 
@@ -79,10 +88,15 @@ class KmbForm extends Component
         $this->locked = true; // KMB tersimpan SELALU read-only, lihat docblock kelas
         $this->noPr = $this->prId
             ? (string) DB::table('fpermintaanbarangu')->where('PBUID', $this->prId)->value('PBUNOTRANSAKSI') : null;
+        $this->jopId = $h->SUIDJOP ? (int) $h->SUIDJOP : null;
+        $this->noJop = $this->jopId
+            ? (string) DB::table('fproduksiu')->where('PUID', $this->jopId)->value('PUNOTRANSAKSI') : null;
 
         foreach ($w->lines($id) as $l) {
             $this->lines[] = [
-                'pbdid'      => (int) $l->SDPBDID,
+                // Salah satu saja yg terisi: `pbdid` utk jalur PR, `pdid` utk jalur JOP.
+                'pbdid'      => $l->SDPBDID ? (int) $l->SDPBDID : null,
+                'pdid'       => $l->SDIDJOP ? (int) $l->SDIDJOP : null,
                 'item'       => (int) $l->SDITEM,
                 'kode'       => $l->IKODE ?? '',
                 'nama'       => $l->INAMA ?? ('Item #' . $l->SDITEM),
@@ -108,6 +122,24 @@ class KmbForm extends Component
         $this->lines = $data['lines'];
     }
 
+    /**
+     * KMB BARU dari JOP/JOT - tarik baris BAHAN (`PDKELUAR`) yg masih bersisa.
+     * Port `fFrmKirimMutasiBarang::cmdCariNoReff_Click`, lihat `KmbWriter::fromJop()`.
+     */
+    private function pullFromJop(int $jopId): void
+    {
+        $w = app(KmbWriter::class);
+        $data = $w->fromJop($jopId);
+        abort_if(! $data, 404, 'JOP tidak ditemukan atau sudah ditutup.');
+
+        $this->jopId = $jopId;
+        $this->noJop = $data['header']->PUNOTRANSAKSI;
+        // Gudang tujuan = cabang yg MENJALANKAN produksi (VB6 baris 633: txtGudangTujuan.Tag
+        // = Rs1("PUCABANG")) - beda dari jalur PR yg memakai PBUGUDANG si peminta.
+        $this->cabangTujuan = $data['header']->PUCABANG ? (int) $data['header']->PUCABANG : null;
+        $this->lines = $data['lines'];
+    }
+
     protected function rules(): array
     {
         return [
@@ -124,7 +156,14 @@ class KmbForm extends Component
 
     public function save(KmbWriter $writer): void
     {
-        if ($this->locked || ! $this->prId) {
+        if ($this->locked) {
+            return;
+        }
+        // Jangan `return` diam-diam - tombol Simpan yg mati tanpa sebab sudah pernah jadi
+        // laporan "tidak respon" di modul lain.
+        if (! $this->prId && ! $this->jopId) {
+            $this->addError('lines', 'KMB harus ditarik dari PR atau JOP - tutup tab ini dan mulai dari daftar KMB.');
+
             return;
         }
         $this->validate();
@@ -141,7 +180,8 @@ class KmbForm extends Component
                 return;
             }
             $lines[] = [
-                'pbdid'   => $l['pbdid'],
+                'pbdid'   => $l['pbdid'] ?? null,
+                'pdid'    => $l['pdid'] ?? null,
                 'item'    => $l['item'],
                 'qty'     => $qty,
                 'satuan'  => $l['satuan'] ?: null,
@@ -168,6 +208,7 @@ class KmbForm extends Component
             'kodecabang' => (string) (($branch->GALAMAT1 ?? null) ?: ($branch->GKODE ?? 'XX')),
             'tgl'        => $this->tanggal,
             'prId'       => $this->prId,
+            'jopId'      => $this->jopId,
         ]);
 
         if (! $res['ok']) {
@@ -180,7 +221,8 @@ class KmbForm extends Component
         $this->nomor = $res['nomor'];
         $this->locked = true;
 
-        activity_log('create', 'inventory/kmb', $this->nomor, 'Buat KMB ' . $this->nomor . ' dari PR ' . $this->noPr);
+        activity_log('create', 'inventory/kmb', $this->nomor, 'Buat KMB ' . $this->nomor
+            . ($this->jopId ? ' dari JOP ' . $this->noJop : ' dari PR ' . $this->noPr));
         $this->dispatch('kmb-saved');
         $this->dispatch('tab-label', key: $this->tabKey, label: 'KMB: ' . $this->nomor);
 

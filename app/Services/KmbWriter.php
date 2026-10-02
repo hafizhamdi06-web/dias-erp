@@ -123,10 +123,118 @@ class KmbWriter
      *
      * @return array{ok:bool,id:?int,nomor:?string,error:?string}
      */
+    /**
+     * JOP/JOT yg masih punya sisa bahan utk dikirim, utk pemilih "Tarik dari JOP".
+     *
+     * Port dari VB6 `bFrmCariTransaksi.frm` baris 944 (`Case "PRO_JOP"`):
+     *   `WHERE (PUSUMBER='JOP' or PUSUMBER='JOT') AND PUSTATUS <> 3`
+     *
+     * **BEDA DISENGAJA dari VB6 (2)**:
+     * 1. Ditambah syarat **masih ada sisa** (`PDKELUAR - PDKELUARPAKAI > 0`). VB6 menampilkan
+     *    JOP yg sudah habis juga, lalu barisnya kosong & form diam - `cmdCariNoReff_Click`
+     *    baris 630 cuma `Exit Sub` tanpa pesan. Lebih baik tidak menawarkan yg mustahil ditarik.
+     * 2. **DIBATASI** `$batas` + pencarian di SQL - lihat pelajaran `PkbWriter::pullableForSj()`
+     *    (daftar tanpa batas membuat satu respons Livewire membengkak sampai ratusan KB).
+     */
+    public function pullableJop(?string $cari = null, int $batas = 25)
+    {
+        $cari = trim((string) $cari);
+
+        return DB::table('fproduksiu as u')
+            ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PUKONTAK')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'u.PUCABANG')
+            ->whereIn('u.PUSUMBER', ['JOP', 'JOT'])
+            ->where('u.PUSTATUS', '<>', 3)
+            ->whereExists(fn ($q) => $q->selectRaw(1)->from('fproduksid as d')
+                ->whereColumn('d.PDIDSU', 'u.PUID')
+                ->where('d.PDKELUAR', '>', 0)
+                ->whereRaw('d.PDKELUAR - d.PDKELUARPAKAI > 0'))
+            ->when($cari !== '', fn ($b) => $b->where(fn ($w) => $w
+                ->where('u.PUNOTRANSAKSI', 'like', "%{$cari}%")
+                ->orWhere('k.KNAMA', 'like', "%{$cari}%")))
+            ->orderByDesc('u.PUTANGGAL')->orderByDesc('u.PUID')
+            ->limit(max(1, $batas))
+            ->get(['u.PUID as id', 'u.PUNOTRANSAKSI as nomor', 'u.PUTANGGAL as tanggal',
+                'k.KNAMA as karyawan', 'g.GNAMA as cabang']);
+    }
+
+    /**
+     * Tarik header + baris BAHAN dari JOP/JOT - port `fFrmKirimMutasiBarang.frm`
+     * `cmdCariNoReff_Click` (baris 609-651).
+     *
+     * Barisnya yg **PDKELUAR** (bahan yg harus DIKIRIM ke produksi), bukan `PDMASUK` (hasil
+     * produksi) - query VB6 baris 641. Varian `PDMASUK` ada di baris 638 tapi **dikomentari**,
+     * jadi jangan tertukar.
+     *
+     * Sisa = `PDKELUAR - PDKELUARPAKAI`. **`PDKELUARPAKAI` dipelihara TRIGGER, bukan kode**:
+     * `fstokd_add` menambah `PDKELUARPAKAI += NEW.SDKELUAR WHERE PDID = NEW.SDIDJOP`,
+     * `fstokd_edit` membalik OLD lalu menerapkan NEW, `fstokd_DELL` menguranginya. Jadi KMB
+     * cukup mengisi **`fstokd.SDIDJOP = fproduksid.PDID`** dan kuotanya terurus sendiri -
+     * **JANGAN pernah meng-UPDATE `PDKELUARPAKAI` manual**, akan terhitung dua kali.
+     * Pembatalan KMB pun otomatis mengembalikan kuota, karena `cancel()` menyetel
+     * `SDKELUAR = 0` sehingga `fstokd_edit` menguranginya kembali.
+     *
+     * Gudang tujuan = `PUCABANG` (cabang yg menjalankan produksi), ikut VB6 baris 633.
+     */
+    public function fromJop(int $jopId): ?array
+    {
+        $header = DB::table('fproduksiu as u')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'u.PUCABANG')
+            ->where('u.PUID', $jopId)
+            ->whereIn('u.PUSUMBER', ['JOP', 'JOT'])
+            ->where('u.PUSTATUS', '<>', 3)
+            ->first(['u.PUID', 'u.PUNOTRANSAKSI', 'u.PUTANGGAL', 'u.PUCABANG', 'u.PUSUMBER', 'g.GNAMA as cabangNama']);
+
+        if (! $header) {
+            return null;
+        }
+
+        $lines = [];
+        foreach ($this->jopLines($jopId) as $l) {
+            $sisa = (float) $l->PDKELUAR - (float) $l->PDKELUARPAKAI;
+            if ($sisa <= 0) {
+                continue;
+            }
+            $lines[] = [
+                // `pbdid` SELALU null di jalur JOP - penghubungnya `pdid` -> `SDIDJOP`.
+                'pbdid'      => null,
+                'pdid'       => (int) $l->PDID,
+                'item'       => (int) $l->PDITEM,
+                'kode'       => $l->IKODE ?? '',
+                'nama'       => $l->INAMA ?? ('Item #' . $l->PDITEM),
+                'qtyMinta'   => $sisa,
+                'qty'        => $sisa,
+                'satuan'     => $l->PDSATUAN ? (int) $l->PDSATUAN : null,
+                'satuanKode' => $l->satuan_kode ?? '',
+                'catatan'    => null,
+            ];
+        }
+
+        return ['header' => $header, 'lines' => $lines];
+    }
+
+    /** Baris JOP ber-PDKELUAR, urut `PDURUTAN` (ikut VB6 `ORDER BY pdURUTAN`). */
+    private function jopLines(int $jopId)
+    {
+        return DB::table('fproduksid as d')
+            ->join('bitem as i', 'i.IID', '=', 'd.PDITEM')
+            ->leftJoin('bsatuan as s', 's.SID', '=', 'd.PDSATUAN')
+            ->where('d.PDIDSU', $jopId)
+            ->where('d.PDKELUAR', '>', 0)
+            ->orderBy('d.PDURUTAN')
+            ->get(['d.PDID', 'd.PDITEM', 'd.PDKELUAR', 'd.PDKELUARPAKAI', 'd.PDSATUAN',
+                'i.IKODE', 'i.INAMA', 's.SKODE as satuan_kode']);
+    }
+
     public function create(array $header, array $lines, array $meta): array
     {
         if ($lines === []) {
             return ['ok' => false, 'id' => null, 'nomor' => null, 'error' => 'Detail item kosong.'];
+        }
+
+        // Jalur JOP ditangani terpisah - sumber, validasi & kolom penghubungnya beda total.
+        if (! empty($meta['jopId'])) {
+            return $this->createDariJop($header, $lines, $meta);
         }
 
         $prId = $meta['prId'];
@@ -209,6 +317,83 @@ class KmbWriter
      * yg boleh dibatalkan langsung - kalau sudah 3 (diterima), batalkan lewat
      * pembatalan TMB-nya dulu.
      */
+    /**
+     * Simpan KMB yg ditarik dari JOP/JOT. Terpisah dari jalur PR karena penghubung & bukunya
+     * beda: header `SUIDJOP` (bukan `SUPBUID`), baris `SDIDJOP` (bukan `SDPBDID`).
+     *
+     * Kuota JOP (`PDKELUARPAKAI`) **TIDAK ditulis di sini** - trigger `fstokd_add` yg
+     * mengurusnya lewat `SDIDJOP`; lihat docblock `fromJop()`. Menulisnya manual = dobel.
+     *
+     * Sisa dibaca ULANG di dalam transaksi (bukan percaya nilai dari layar) - cegah dua user
+     * menarik JOP yg sama bersamaan lalu total kirimannya melebihi kebutuhan produksi.
+     */
+    private function createDariJop(array $header, array $lines, array $meta): array
+    {
+        $jopId = (int) $meta['jopId'];
+        $nomor = $this->nextNumber($meta['kodecabang'], $meta['tgl']);
+
+        try {
+            $id = DB::transaction(function () use ($header, $lines, $nomor, $jopId) {
+                $jop = DB::table('fproduksiu')->where('PUID', $jopId)
+                    ->whereIn('PUSUMBER', ['JOP', 'JOT'])->where('PUSTATUS', '<>', 3)
+                    ->lockForUpdate()->first(['PUID', 'PUNOTRANSAKSI']);
+                if (! $jop) {
+                    throw new \RuntimeException('JOP tidak ditemukan atau sudah ditutup.');
+                }
+
+                $sisa = [];
+                foreach (DB::table('fproduksid')->where('PDIDSU', $jopId)->lockForUpdate()
+                    ->get(['PDID', 'PDKELUAR', 'PDKELUARPAKAI']) as $d) {
+                    $sisa[(int) $d->PDID] = (float) $d->PDKELUAR - (float) $d->PDKELUARPAKAI;
+                }
+
+                foreach ($lines as $l) {
+                    $pdid = (int) ($l['pdid'] ?? 0);
+                    $qty = (float) $l['qty'];
+                    if ($pdid <= 0 || ! array_key_exists($pdid, $sisa)) {
+                        throw new \RuntimeException('Ada baris yang tidak terhubung ke JOP ini.');
+                    }
+                    if ($qty > $sisa[$pdid] + 0.0001) {
+                        throw new \RuntimeException('Qty kirim melebihi sisa kebutuhan JOP (' . $sisa[$pdid] . ').');
+                    }
+                }
+
+                $header['SUNOTRANSAKSI'] = $nomor;
+                $header['SUSUMBER'] = self::SUMBER;
+                $header['SUSTATUS'] = 1;
+                $header['SUIDJOP'] = $jopId;
+                $header['SUCREATEU'] = auth()->id();
+
+                $id = (int) DB::table('fstoku')->insertGetId($header, 'SUID');
+
+                $urut = 1;
+                foreach ($lines as $l) {
+                    DB::table('fstokd')->insert([
+                        'SDIDSU'    => $id,
+                        'SDURUTAN'  => $urut++,
+                        'SDSUMBER'  => self::SUMBER,
+                        'SDITEM'    => $l['item'],
+                        'SDKELUAR'  => $l['qty'],
+                        'SDKELUARD' => $l['qty'],
+                        'SDSATUAN'  => $l['satuan'] ?: null,
+                        'SDSATUAND' => $l['satuan'] ?: null,
+                        'SDGUDANG'  => $header['SUCABANG'],
+                        // Penghubung ke baris JOP - inilah yg dibaca trigger utk memotong
+                        // PDKELUARPAKAI. `SDPBDID` SENGAJA dibiarkan null di jalur ini.
+                        'SDIDJOP'   => $l['pdid'],
+                        'SDCATATAN' => $l['catatan'] ?: null,
+                    ]);
+                }
+
+                return $id;
+            });
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'id' => null, 'nomor' => null, 'error' => 'Gagal menyimpan: ' . $e->getMessage()];
+        }
+
+        return ['ok' => true, 'id' => $id, 'nomor' => $nomor, 'error' => null];
+    }
+
     public function cancel(int $id): bool
     {
         try {

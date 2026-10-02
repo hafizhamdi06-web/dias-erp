@@ -42,6 +42,9 @@
             </div>
             @if (can_do('inventory/kmb', 'add'))
                 <button class="btn btn-primary btn-sm" wire:click="openPicker"><i class="fas fa-truck-ramp-box me-1"></i> Tarik dari PR</button>
+                {{-- Sumber KEDUA: JOP/JOT (port VB6 cmdCariNoReff). Tombol TERPISAH - satu KMB
+                     hanya boleh lahir dari salah satu sumber. --}}
+                <button class="btn btn-outline-primary btn-sm" wire:click="openJopPicker"><i class="fas fa-industry me-1"></i> Tarik dari JOP</button>
             @endif
         </div>
         <div class="card-body p-0">
@@ -108,6 +111,46 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" wire:click="$set('showPicker', false)">Tutup</button>
+            </div>
+        </x-lw-modal>
+    @endif
+
+    {{-- ===== Tarik dari JOP (port VB6 fFrmKirimMutasiBarang::cmdCariNoReff_Click) =====
+         Yang ditarik baris BAHAN (PDKELUAR) yang masih bersisa, bukan hasil produksinya. --}}
+    @if ($showJopPicker)
+        <x-lw-modal :show="$showJopPicker" title="Tarik dari JOP (Job Order Produksi yang masih butuh bahan)" close="closeJopPicker">
+            <div class="modal-body">
+                <input type="text" class="form-control form-control-sm mb-2" placeholder="cari no JOP / kontak…"
+                       wire:model.live.debounce.300ms="jopQ">
+                <div class="list-group" style="max-height: 360px; overflow-y:auto">
+                    @forelse ($pullableJop as $jop)
+                        <button type="button" class="list-group-item list-group-item-action"
+                                wire:click="pickJop({{ $jop->id }}, @js($jop->nomor))">
+                            <div class="d-flex justify-content-between">
+                                <span class="fw-semibold">{{ $jop->nomor }}</span>
+                                <span class="text-muted small">{{ \Carbon\Carbon::parse($jop->tanggal)->format('d/m/Y') }}</span>
+                            </div>
+                            <div class="text-muted small">
+                                {{ $jop->karyawan ?: '—' }}
+                                @if ($jop->cabang) &middot; produksi di <strong>{{ $jop->cabang }}</strong> @endif
+                            </div>
+                        </button>
+                    @empty
+                        <div class="text-center text-muted py-4">
+                            {{ trim($jopQ) !== '' ? 'Tidak ada JOP yang cocok.' : 'Tidak ada JOP yang masih butuh bahan.' }}
+                        </div>
+                    @endforelse
+                </div>
+                @if ($jopAdaLagi)
+                    <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">
+                        <i class="fas fa-circle-info me-1"></i>
+                        Menampilkan <strong>{{ $jopBatas }}</strong> JOP terbaru saja.
+                        Ketik no JOP atau nama untuk menemukan yang lain.
+                    </div>
+                @endif
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" wire:click="closeJopPicker">Tutup</button>
             </div>
         </x-lw-modal>
     @endif

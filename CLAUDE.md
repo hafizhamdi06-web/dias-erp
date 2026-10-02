@@ -2911,6 +2911,43 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## KMB: sumber KEDUA — tarik dari JOP (2026-10-03)
+
+Port VB6 `fFrmKirimMutasiBarang::cmdCariNoReff_Click` (menu **573**, `aMod_Menu.bas` baris 428;
+form di `Module/f/Form/fFrmKirimMutasiBarang.frm` baris **609-651**). KMB kini bisa lahir dari
+**PR** (lama) **atau JOP/JOT** (baru) — tidak pernah keduanya.
+
+**Barisnya `PDKELUAR` (BAHAN yang harus dikirim ke produksi), BUKAN `PDMASUK`** (hasil
+produksi). VB6 punya kedua query berdampingan — yang `PDMASUK` di baris 638 **dikomentari**,
+yang aktif baris 641. Jangan tertukar. Sisa = `PDKELUAR - PDKELUARPAKAI`.
+Gudang tujuan = `PUCABANG` (cabang yang MENJALANKAN produksi, VB6 baris 633) — beda dari jalur
+PR yang memakai `PBUGUDANG` si peminta.
+
+### `PDKELUARPAKAI` dipelihara TRIGGER, jangan sentuh manual
+`fstokd.SDIDJOP` = `fproduksid.PDID` adalah penghubungnya, dan tiga trigger stok mengurus
+bukunya sendiri:
+- `fstokd_add`  : `PDKELUARPAKAI += NEW.SDKELUAR WHERE PDID = NEW.SDIDJOP`
+- `fstokd_edit` : `-OLD.SDKELUAR` lalu `+NEW.SDKELUAR`
+- `fstokd_DELL` : `-OLD.SDKELUAR`
+
+Jadi KMB **cukup mengisi `SDIDJOP`** — meng-UPDATE `PDKELUARPAKAI` dari PHP akan terhitung
+**dua kali**. VB6 pun tidak pernah menulisnya (dicek: tidak ada satu pun `UPDATE fproduksid` di
+seluruh sumber VB6, dan tidak ada stored routine yang menyentuhnya).
+**Pembatalan otomatis mengembalikan kuota** karena `KmbWriter::cancel()` menyetel `SDKELUAR=0`
+sehingga `fstokd_edit` menguranginya kembali — terbukti di uji (6 → 0).
+
+Kolom: header `SUIDJOP` (bukan `SUPBUID`), baris `SDIDJOP` (bukan `SDPBDID`); yang tidak
+dipakai dibiarkan **null**, dan `KmbForm::load()` membaca keduanya untuk tahu sumbernya.
+
+**BEDA DISENGAJA dari VB6 (2)** di `pullableJop()`: (1) ditambah syarat **masih ada sisa** —
+VB6 menampilkan JOP yang sudah habis lalu `Exit Sub` tanpa pesan (baris 630); (2) **dibatasi 25
++ pencarian di SQL**, pelajaran dari pemilih PKB.
+
+Verifikasi (LULUS): 4 baris tertarik & tiap `pdid`/`item`/`qty` dicocokkan ke `fproduksid`;
+`SUIDJOP`/`SDIDJOP` terisi sementara `SUPBUID`/`SDPBDID` null; **`PDKELUARPAKAI` 0 → 6 oleh
+trigger**, stok pengirim berkurang, pembatalan mengembalikan keduanya; qty melebihi sisa
+ditolak; modal JOP tidak dirender sebelum dibuka.
+
 ## Data Permintaan Barang: default filter dibalik + batas cabang diperluas (2026-10-03)
 
 Permintaan user: *"untuk cabang default tampil semua, untuk cabang tujuan default cabang user

@@ -34,6 +34,13 @@ class KmbList extends Component
     public bool $showPicker = false;
     public string $pickerQ = '';
 
+    // pemilih "Tarik dari JOP" - terpisah dari pemilih PR, lihat `pickJop()`.
+    public bool $showJopPicker = false;
+    public string $jopQ = '';
+
+    /** Batas baris di pemilih JOP - lihat pelajaran `SjList::BATAS_PKB`. */
+    private const BATAS_JOP = 25;
+
     public function mount(): void
     {
         $this->fFrom = now()->startOfMonth()->toDateString();
@@ -89,6 +96,34 @@ class KmbList extends Component
         }
         $this->showPicker = false;
         $this->dispatch('open-tab', cmp: 'purchase.kmb-form', args: ['prId' => $prId],
+            label: 'KMB dari ' . $nomor, icon: 'fas fa-truck-ramp-box');
+    }
+
+    /* ---- Tarik dari JOP (port VB6 `fFrmKirimMutasiBarang::cmdCariNoReff_Click`) ----
+     | Pemilih TERPISAH dari pemilih PR: sumbernya beda tabel, isi barisnya beda, dan satu
+     | KMB hanya boleh lahir dari SALAH SATU. Lihat `KmbWriter::fromJop()`. */
+
+    public function openJopPicker(): void
+    {
+        if (! can_do('inventory/kmb', 'add')) {
+            return;
+        }
+        $this->jopQ = '';
+        $this->showJopPicker = true;
+    }
+
+    public function closeJopPicker(): void
+    {
+        $this->showJopPicker = false;
+    }
+
+    public function pickJop(int $jopId, string $nomor): void
+    {
+        if (! can_do('inventory/kmb', 'add')) {
+            return;
+        }
+        $this->showJopPicker = false;
+        $this->dispatch('open-tab', cmp: 'purchase.kmb-form', args: ['jopId' => $jopId],
             label: 'KMB dari ' . $nomor, icon: 'fas fa-truck-ramp-box');
     }
 
@@ -162,6 +197,10 @@ class KmbList extends Component
         // `PurchaseRequestWriter::pullableForKmb()`.
         $ucabang = (int) (auth()->user()->UCABANG ?? 0);
 
+        $pullableJop = $this->showJopPicker
+            ? app(KmbWriter::class)->pullableJop($this->jopQ, self::BATAS_JOP + 1)
+            : collect();
+
         return view('livewire.purchase.kmb-list', [
             'rows'      => $rows,
             'branches'  => $this->branchOptions(),
@@ -171,6 +210,10 @@ class KmbList extends Component
                         || str_contains(strtolower((string) $r->karyawan), strtolower($this->pickerQ))
                 ))
                 : collect(),
+            // Pemilih JOP: dibatasi & disaring di SQL sejak awal (pelajaran pemilih PKB).
+            'pullableJop' => $pullableJop->take(self::BATAS_JOP),
+            'jopAdaLagi'  => $pullableJop->count() > self::BATAS_JOP,
+            'jopBatas'    => self::BATAS_JOP,
         ]);
     }
 }

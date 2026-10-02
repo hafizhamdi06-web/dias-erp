@@ -2911,6 +2911,32 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## SJ: pemilih PKB WAJIB dibatasi — respons 196 KB (2026-10-03)
+
+User melaporkan `ERR_QUIC_PROTOCOL_ERROR` / "Failed to fetch" **persis saat menarik PKB** di
+Surat Jalan, di komputer client (bukan mesin dev). Diukur: modal pemilih merender **SEMUA 342
+PKB** sekaligus → satu respons Livewire **195,9 KB**, vs 3,9 KB saat pemilih tertutup.
+
+Sekarang dibatasi `SjList::BATAS_PKB` (25) dan penyaringannya **didorong ke SQL** (dulu
+`->filter()` atas koleksi penuh — 342 baris ditarik hanya untuk dibuang). Hasil: **18,6 KB**.
+Diambil `BATAS+1` baris untuk tahu "masih ada lagi" tanpa query COUNT terpisah, dan kalau
+terpotong **user diberi tahu** — jangan diam, user harus tahu PKB-nya mungkin ada tapi belum
+tampil.
+
+`LIKE '%..%'` di query ini menyentuh `bkontak` tapi **aman**: tabel penggeraknya
+`fperintahkirimbarangu` (sudah disaring `PKBUSUMBER`+`PKBUSTATUS`), jadi yang dicocokkan hanya
+baris hasil join — bukan pemindaian 321rb kontak. Aturan "jangan leading-wildcard di `bkontak`"
+tetap berlaku untuk pencarian yang DIGERAKKAN `bkontak`.
+
+**Pelajaran umum**: modal pemilih apa pun yang merender daftar master TANPA batas akan membesar
+diam-diam seiring data bertambah, dan gejalanya muncul sebagai error jaringan yang
+membingungkan — bukan sebagai "lambat". Ukur `strlen($t->html())` kalau ada laporan semacam ini.
+
+**CATATAN**: ini mengurangi gejalanya, **bukan akar transportnya**. Situs ada di belakang
+Cloudflare yang mengiklankan `alt-svc: h3=":443"`, jadi Chrome memakai QUIC (UDP 443) yang
+sering diganggu firewall jaringan klinik. Perbaikan tuntasnya: matikan **HTTP/3 (with QUIC)**
+di dashboard Cloudflare.
+
 ## SJ: kontak penerima ditarik dari PKB (2026-10-02)
 
 Dilaporkan user "belum bisa membuat SJ". Penyebabnya: `SjForm::pullFromPkb()` menyalin

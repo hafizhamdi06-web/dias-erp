@@ -217,14 +217,39 @@ class PkbWriter
      * `PurchaseRequestWriter::pullableForPkb()`. Dipakai picker "Tarik dari PKB" di
      * `SjList` (lihat `App\Services\SjWriter`).
      */
-    public function pullableForSj()
+    /**
+     * PKB yg masih punya sisa qty, utk pemilih "SJ Baru".
+     *
+     * **WAJIB DIBATASI.** Sampai 2026-10-03 method ini mengembalikan SEMUA baris dan
+     * `SjList` menyaringnya di PHP - di data nyata itu **342 PKB**, dan modal pemilihnya
+     * merender semuanya sekaligus: satu respons Livewire jadi **196 KB** (vs 3,9 KB saat
+     * pemilih tertutup). Di jaringan klinik respons sebesar itu rapuh - user melaporkan
+     * `ERR_QUIC_PROTOCOL_ERROR`/"Failed to fetch" persis saat membuka & menarik PKB. Jumlahnya
+     * cuma akan bertambah seiring waktu, jadi ini bukan masalah sesaat.
+     *
+     * Penyaringan DIDORONG KE SQL (dulu `->filter()` atas koleksi penuh) supaya 342 baris tidak
+     * ditarik hanya untuk dibuang. `LIKE '%..%'` di sini AMAN walau menyentuh `bkontak`: tabel
+     * penggeraknya `fperintahkirimbarangu` (sudah disaring `PKBUSUMBER`+`PKBUSTATUS`), jadi
+     * yang dicocokkan hanya baris hasil join - bukan pemindaian 321rb kontak. Aturan
+     * "jangan leading-wildcard di bkontak" tetap berlaku untuk pencarian yg DIGERAKKAN bkontak.
+     *
+     * Pemanggil mengambil `$batas + 1` baris agar bisa tahu "masih ada lagi" tanpa query COUNT
+     * terpisah.
+     */
+    public function pullableForSj(?string $cari = null, int $batas = 25)
     {
+        $cari = trim((string) $cari);
+
         return DB::table('fperintahkirimbarangu as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PKBUKONTAK')
             ->where('u.PKBUSUMBER', self::SUMBER)
             ->where('u.PKBUSTATUS', 0)
             ->whereRaw('(select coalesce(sum(d.PKBDQTY - d.PKBDQTYPAKAI), 0) from fperintahkirimbarangd d where d.PKBDIDSU = u.PKBUID) > 0')
+            ->when($cari !== '', fn ($b) => $b->where(fn ($w) => $w
+                ->where('u.PKBUNOTRANSAKSI', 'like', "%{$cari}%")
+                ->orWhere('k.KNAMA', 'like', "%{$cari}%")))
             ->orderByDesc('u.PKBUID')
+            ->limit(max(1, $batas))
             ->get(['u.PKBUID as id', 'u.PKBUNOTRANSAKSI as nomor', 'u.PKBUTANGGAL as tanggal', 'k.KNAMA as karyawan']);
     }
 }

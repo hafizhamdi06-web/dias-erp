@@ -106,9 +106,21 @@
                             <div class="text-muted small">{{ $pkb->karyawan ?: '—' }}</div>
                         </button>
                     @empty
-                        <div class="text-center text-muted py-4">Tidak ada PKB yang bisa ditarik.</div>
+                        <div class="text-center text-muted py-4">
+                            {{ trim($pickerQ) !== '' ? 'Tidak ada PKB yang cocok.' : 'Tidak ada PKB yang bisa ditarik.' }}
+                        </div>
                     @endforelse
                 </div>
+                {{-- Daftar DIBATASI supaya respons Livewire tidak membengkak - lihat
+                     `SjList::BATAS_PKB`. Katakan terus terang kalau terpotong, jangan diam:
+                     user harus tahu PKB-nya mungkin ada tapi belum tampil. --}}
+                @if ($pullableAdaLagi)
+                    <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">
+                        <i class="fas fa-circle-info me-1"></i>
+                        Menampilkan <strong>{{ $pullableBatas }}</strong> PKB terbaru saja.
+                        Ketik no PKB atau nama di kotak pencarian untuk menemukan yang lain.
+                    </div>
+                @endif
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" wire:click="$set('showPicker', false)">Tutup</button>

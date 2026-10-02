@@ -33,6 +33,15 @@ class SjList extends Component
     public bool $showPicker = false;
     public string $pickerQ = '';
 
+    /**
+     * Batas baris PKB yg dirender di modal pemilih. TANPA batas, 342 PKB di data nyata membuat
+     * satu respons Livewire jadi **196 KB** (vs 3,9 KB saat pemilih tertutup) - di jaringan
+     * klinik itu rapuh & lambat, dan dilaporkan user sbg "Failed to fetch" saat menarik PKB.
+     * User mempersempit dgn mengetik di kotak cari (penyaringannya di SQL, lihat
+     * `PkbWriter::pullableForSj()`).
+     */
+    private const BATAS_PKB = 25;
+
     public function mount(): void
     {
         $this->fFrom = now()->startOfMonth()->toDateString();
@@ -130,7 +139,10 @@ class SjList extends Component
     {
         $q = trim($this->search);
         $allowed = $this->allowedBranchIds();
-        $pkbWriter = app(PkbWriter::class);
+
+        $pullable = $this->showPicker
+            ? app(PkbWriter::class)->pullableForSj($this->pickerQ, self::BATAS_PKB + 1)
+            : collect();
 
         $rows = DB::table('fstoku as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
@@ -159,12 +171,12 @@ class SjList extends Component
         return view('livewire.purchase.sj-list', [
             'rows'      => $rows,
             'branches'  => $this->branchOptions(),
-            'pullable'  => $this->showPicker
-                ? $pkbWriter->pullableForSj()->when($this->pickerQ !== '', fn ($c) => $c->filter(
-                    fn ($r) => str_contains(strtolower($r->nomor), strtolower($this->pickerQ))
-                        || str_contains(strtolower((string) $r->karyawan), strtolower($this->pickerQ))
-                ))
-                : collect(),
+            // Pemilih PKB DIBATASI - lihat docblock `PkbWriter::pullableForSj()`. Diambil
+            // `BATAS_PKB + 1` baris supaya bisa tahu "masih ada lagi" tanpa query COUNT
+            // terpisah; baris lebihnya dibuang sebelum dirender.
+            'pullable'  => $pullable->take(self::BATAS_PKB),
+            'pullableAdaLagi' => $pullable->count() > self::BATAS_PKB,
+            'pullableBatas'   => self::BATAS_PKB,
         ]);
     }
 }

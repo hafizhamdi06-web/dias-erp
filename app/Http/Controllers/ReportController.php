@@ -428,6 +428,282 @@ class ReportController extends Controller
         ];
     }
 
+    /* =====================================================================================
+     | TIGA laporan Persediaan port VB6 (2026-10-03): menu 417, 451, 499.
+     | Nomor menunya dicek langsung ke tabel `amenu`, bukan ditebak - user menyebut "459" utk
+     | laporan serial, padahal 459 = "Apotik"; yg benar **499**.
+     ===================================================================================== */
+
+    /**
+     * **Stok Per Hari** (VB6 menu 417) - `zfFrmFilterLaporanStok.frm` query baris 1388,
+     * filter baris 1193.
+     */
+    public function stokPerHari(Request $r)
+    {
+        return app(PdfReport::class)->preview('reports.stok-per-hari', $this->dataStokPerHari($r),
+            ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14]);
+    }
+
+    public function stokPerHariExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.stok-per-hari-xls', $this->dataStokPerHari($r));
+    }
+
+    /**
+     * **DUA LAPIS FILTER** - inilah bagian yg paling mudah salah di laporan ini:
+     * - `pFlt`  -> SUBQUERY mutasi atas `fstokd` (cabang = `SDGUDANG = n`);
+     * - `pFlt2` -> query LUAR atas `bitem` (cabang = **`ICABANG LIKE '%|n|%'`**, kolom
+     *   pipa-delimit berisi daftar cabang tempat item itu berlaku - BUKAN `SDGUDANG`).
+     *
+     * Jadi item tetap muncul walau TIDAK ada mutasi di periode itu (LEFT JOIN + `IFNULL 0`) -
+     * memang disengaja, laporannya menampilkan seluruh item cabang tsb beserta saldo awalnya.
+     *
+     * Aturan gudang **1 & 6 digabung** sama spt menu 318. Rumus keluar memakai `IF(SDDARIPAKET
+     * <> 0 AND SDKEDATANGAN = 0, 0, sdkeluar)` - baris dari paket diabaikan, lihat
+     * `dataDaftarStokBarang()`.
+     *
+     * `ISALDOX` = saldo awal dari master item. **Mayoritas 0** (hanya 105 dari 5.580 item
+     * terisi di data nyata) - itu isi masternya, bukan bug; Stok Akhir = Saldo Awal + Masuk
+     * - Keluar jadi sama dengan mutasi bersih untuk kebanyakan item.
+     */
+    private function dataStokPerHari(Request $r): array
+    {
+        $r->validate([
+            'from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from'],
+            'cabang' => ['nullable', 'integer'], 'jenisItem' => ['nullable', 'integer'],
+            'item' => ['nullable', 'integer'], 'jenisProduk' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+        if ($gudang === [1] || $gudang === [6]) {
+            $gudang = [1, 6];
+        }
+
+        $keluar = 'IF(d.SDDARIPAKET <> 0 AND d.SDKEDATANGAN = 0, 0, d.SDKELUAR)';
+
+        // --- lapis dalam: mutasi per item di periode & gudang terpilih ---
+        $mutasi = DB::table('fstokd as d')
+            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->where('d.SDCANCEL', 0)->where('d.SDID', '<>', 0)
+            ->whereBetween('u.SUTANGGAL', [$r->query('from'), $r->query('to')])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('d.SDGUDANG', $gudang))
+            ->when($r->filled('jenisItem'), fn ($b) => $b->where('i.IJENISITEM', $r->integer('jenisItem')))
+            ->when($r->filled('item'), fn ($b) => $b->where('i.IID', $r->integer('item')))
+            ->when($r->filled('jenisProduk'), fn ($b) => $b->where('i.IJENISPRODUK', $r->integer('jenisProduk')))
+            ->when($r->boolean('stokSaja'), fn ($b) => $b->where('i.ITIPEITEM', 0))
+            ->when($r->boolean('aktifSaja'), fn ($b) => $b->where('i.ISTATUS', 0))
+            ->groupBy('d.SDITEM')
+            ->select('d.SDITEM', DB::raw('SUM(d.SDMASUK) as masuk'), DB::raw("SUM({$keluar}) as keluar"));
+
+        // --- lapis luar: master item, cabangnya dicocokkan ke ICABANG (pipa-delimit) ---
+        $rows = DB::table('bitem as i')
+            ->leftJoinSub($mutasi, 'm', 'm.SDITEM', '=', 'i.IID')
+            ->when($gudang !== [], fn ($b) => $b->where(function ($w) use ($gudang) {
+                foreach ($gudang as $g) {
+                    $w->orWhere('i.ICABANG', 'like', '%|' . (int) $g . '|%');
+                }
+            }))
+            ->when($r->filled('jenisItem'), fn ($b) => $b->where('i.IJENISITEM', $r->integer('jenisItem')))
+            ->when($r->filled('item'), fn ($b) => $b->where('i.IID', $r->integer('item')))
+            ->when($r->filled('jenisProduk'), fn ($b) => $b->where('i.IJENISPRODUK', $r->integer('jenisProduk')))
+            ->when($r->boolean('stokSaja'), fn ($b) => $b->where('i.ITIPEITEM', 0))
+            ->when($r->boolean('aktifSaja'), fn ($b) => $b->where('i.ISTATUS', 0))
+            ->orderBy('i.INAMA')
+            ->get([
+                DB::raw('i.IKODE as kode'), DB::raw('i.INAMA as nama'),
+                DB::raw('IFNULL(i.ISALDOX,0) as saldoAwal'),
+                DB::raw('IFNULL(m.masuk,0) as masuk'), DB::raw('IFNULL(m.keluar,0) as keluar'),
+                DB::raw('IFNULL(i.ICOGS,0) as cogs'), DB::raw('IFNULL(i.IHARGAJUAL1,0) as hargaJual'),
+            ])
+            ->map(function ($x) {
+                $x->akhir = (float) $x->saldoAwal + (float) $x->masuk - (float) $x->keluar;
+
+                return $x;
+            });
+
+        return [
+            'title'    => 'Laporan Stok Per Hari',
+            'subtitle' => \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y') . ' s/d '
+                . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
+                . ($this->namaCabang($gudang) ? ' — ' . $this->namaCabang($gudang) : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => [
+                'saldoAwal' => (float) $rows->sum('saldoAwal'), 'masuk' => (float) $rows->sum('masuk'),
+                'keluar' => (float) $rows->sum('keluar'), 'akhir' => (float) $rows->sum('akhir'),
+            ],
+        ];
+    }
+
+    /**
+     * **Daftar Surat Jalan Barang** (VB6 menu 451) - `zdFrmFilterLaporanDaftar2.frm` query
+     * baris 802, filter baris 746.
+     *
+     * **AWAS**: `zfFrmFilterLaporanStok.frm` juga punya `Case 451` (baris 1385) dgn query lebih
+     * sedikit kolomnya - itu BUKAN yg dipakai; `aMod_Menu.bas` baris 323 mengarahkan menu 451
+     * ke form `...LaporanDaftar`.
+     */
+    public function daftarSuratJalan(Request $r)
+    {
+        return app(PdfReport::class)->preview('reports.daftar-surat-jalan', $this->dataDaftarSuratJalan($r),
+            ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14]);
+    }
+
+    public function daftarSuratJalanExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.daftar-surat-jalan-xls', $this->dataDaftarSuratJalan($r));
+    }
+
+    private function dataDaftarSuratJalan(Request $r): array
+    {
+        $r->validate([
+            'from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from'],
+            'noDari' => ['nullable', 'string', 'max:50'], 'noSampai' => ['nullable', 'string', 'max:50'],
+            'cabang' => ['nullable', 'integer'], 'gudangTujuan' => ['nullable', 'integer'],
+            'coa2021' => ['nullable', 'integer'], 'pt' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+        $noDari = trim((string) $r->query('noDari'));
+        $noSampai = trim((string) $r->query('noSampai'));
+
+        $rows = DB::table('fstokd as d')
+            ->leftJoin('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->leftJoin('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->leftJoin('bkontak as pel', 'pel.KID', '=', 'u.SUKONTAK')
+            ->leftJoin('bkontak as sal', 'sal.KID', '=', 'u.SUKARYAWAN')
+            ->leftJoin('bsatuan as s', 's.SID', '=', 'i.ISATUAN')
+            ->leftJoin('bgudang as gt', 'gt.GID', '=', 'u.SUGUDANGTUJUAN')
+            ->leftJoin('bgudang as ga', 'ga.GID', '=', 'u.SUCABANG')
+            ->leftJoin('bnamapt as pt', 'pt.NPID', '=', 'gt.GPT')
+            ->where('u.SUSUMBER', 'SJ')
+            ->whereBetween('u.SUTANGGAL', [$r->query('from'), $r->query('to')])
+            // VB6: no transaksi KE-2 hanya dipakai kalau tanggal ke-2 juga diisi (baris 755).
+            // Di sini pakai aturan yg lebih jelas: ada keduanya = rentang, satu saja = persis.
+            ->when($noDari !== '' && $noSampai !== '',
+                fn ($b) => $b->whereBetween('u.SUNOTRANSAKSI', [$noDari, $noSampai]))
+            ->when($noDari !== '' && $noSampai === '', fn ($b) => $b->where('u.SUNOTRANSAKSI', $noDari))
+            ->when($gudang !== [], fn ($b) => $b->whereIn('u.SUCABANG', $gudang))
+            ->when($r->filled('gudangTujuan'), fn ($b) => $b->where('u.SUGUDANGTUJUAN', $r->integer('gudangTujuan')))
+            ->when($r->filled('coa2021'), fn ($b) => $b->where('i.ICOA2021', $r->integer('coa2021')))
+            ->when($r->filled('pt'), fn ($b) => $b->where('pt.NPID', $r->integer('pt')))
+            ->orderBy('u.SUTANGGAL')->orderBy('u.SUNOTRANSAKSI')->orderBy('d.SDURUTAN')
+            ->get([
+                DB::raw('u.SUNOTRANSAKSI as nomor'), DB::raw('u.SUTANGGAL as tanggal'),
+                DB::raw('i.IKODE as kode'), DB::raw('i.INAMA as nama'), DB::raw('s.SKODE as satuan'),
+                DB::raw('IFNULL(d.SDKELUAR,0) as qty'),
+                DB::raw('pel.KNAMA as pelanggan'), DB::raw('sal.KNAMA as sales'),
+                DB::raw('ga.GKODE as gudangAsal'), DB::raw('gt.GKODE as gudangTujuan'),
+                DB::raw('pt.NPNAMA as pt'), DB::raw('IFNULL(i.ICOGS,0) as cogs'),
+            ]);
+
+        return [
+            'title'    => 'Daftar Surat Jalan Barang',
+            'subtitle' => \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y') . ' s/d '
+                . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
+                . ($this->namaCabang($gudang) ? ' — ' . $this->namaCabang($gudang) : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'totalQty' => (float) $rows->sum('qty'),
+        ];
+    }
+
+    /**
+     * **Daftar Stok Barang Serial** (VB6 menu **499**, bukan 459 - lihat catatan di atas) -
+     * `zfFrmFilterLaporanStok.frm` query baris 1484, filter baris 1243 (SAMA PERSIS dgn menu
+     * 318, termasuk tanggal TUNGGAL sbg cut-off).
+     *
+     * Hanya item ber-`ISERIAL=1`; jumlah per nomor serial = `SUM(ISHMASUK - ISHKELUAR)` dari
+     * `bitemserialhistori`, yg ditautkan ke baris stok lewat `ISHIDFSTOKD = SDID`.
+     */
+    public function daftarStokSerial(Request $r)
+    {
+        return app(PdfReport::class)->preview('reports.daftar-stok-serial', $this->dataDaftarStokSerial($r),
+            ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14]);
+    }
+
+    public function daftarStokSerialExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.daftar-stok-serial-xls', $this->dataDaftarStokSerial($r));
+    }
+
+    private function dataDaftarStokSerial(Request $r): array
+    {
+        $r->validate([
+            'tanggal' => ['required', 'date'], 'cabang' => ['nullable', 'integer'],
+            'jenisItem' => ['nullable', 'integer'], 'item' => ['nullable', 'integer'],
+            'jenisProduk' => ['nullable', 'integer'], 'coa2021' => ['nullable', 'integer'],
+            'pt' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+        if ($gudang === [1] || $gudang === [6]) {
+            $gudang = [1, 6];
+        }
+
+        $jumlah = 'SUM(h.ISHMASUK - h.ISHKELUAR)';
+
+        $rows = DB::table('fstokd as d')
+            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->join('bsatuan as s', 's.SID', '=', 'i.ISATUAN')
+            ->join('bgudang as g', 'g.GID', '=', 'd.SDGUDANG')
+            ->join('bitemserialhistori as h', 'h.ISHIDFSTOKD', '=', 'd.SDID')
+            ->join('bitemserial as sr', fn ($j) => $j->on('sr.ISID', '=', 'h.ISHIDSERIAL')
+                ->whereColumn('sr.ISITEM', 'd.SDITEM'))
+            ->where('d.SDCANCEL', 0)
+            ->where('i.ISERIAL', 1)
+            ->whereDate('u.SUTANGGAL', '<=', $r->query('tanggal'))
+            ->when($gudang !== [], fn ($b) => $b->whereIn('d.SDGUDANG', $gudang))
+            ->when($r->filled('jenisItem'), fn ($b) => $b->where('i.IJENISITEM', $r->integer('jenisItem')))
+            ->when($r->filled('item'), fn ($b) => $b->where('i.IID', $r->integer('item')))
+            ->when($r->filled('jenisProduk'), fn ($b) => $b->where('i.IJENISPRODUK', $r->integer('jenisProduk')))
+            ->when($r->filled('coa2021'), fn ($b) => $b->where('i.ICOA2021', $r->integer('coa2021')))
+            ->when($r->filled('pt'), fn ($b) => $b->where('g.GPT', $r->integer('pt')))
+            ->when($r->boolean('stokSaja'), fn ($b) => $b->where('i.ITIPEITEM', 0))
+            ->when($r->boolean('aktifSaja'), fn ($b) => $b->where('i.ISTATUS', 0))
+            ->groupBy('i.IID', 'i.IKODE', 'i.INAMA', 'i.IHARGAJUAL1', 'i.IHARGABELI', 's.SKODE',
+                'sr.ISNOSERIAL', 'sr.ISTGLEXPIRED')
+            ->when($r->boolean('nol0'), fn ($b) => $b->havingRaw("{$jumlah} <> 0"))
+            ->orderBy('i.INAMA')->orderBy('sr.ISNOSERIAL')
+            ->get([
+                DB::raw('i.IKODE as kode'), DB::raw('i.INAMA as nama'), DB::raw('s.SKODE as satuan'),
+                DB::raw('sr.ISNOSERIAL as noSerial'), DB::raw('sr.ISTGLEXPIRED as expired'),
+                DB::raw("{$jumlah} as jumlah"),
+                DB::raw('IFNULL(i.IHARGAJUAL1,0) as hargaJual'), DB::raw('IFNULL(i.IHARGABELI,0) as hargaBeli'),
+            ]);
+
+        return [
+            'title'    => 'Daftar Stok Barang Serial',
+            'tanggal'  => \Carbon\Carbon::parse($r->query('tanggal'))->format('d/m/Y'),
+            'subtitle' => $this->namaCabang($gudang),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => (float) $rows->sum('jumlah'),
+        ];
+    }
+
+    /** Nama cabang utk subjudul - `null` kalau lebih dari satu / tidak dibatasi. */
+    private function namaCabang(array $gudang): ?string
+    {
+        if ($gudang === [1, 6]) {
+            return 'Petogogan + Online';
+        }
+
+        return count($gudang) === 1 && $gudang !== [0]
+            ? (string) DB::table('bgudang')->where('GID', $gudang[0])->value('GNAMA')
+            : null;
+    }
+
+    /** Pola kirim Excel yg sama utk semua laporan (HTML table ber-header .xls). */
+    private function kirimExcel(string $view, array $data)
+    {
+        return response()->view($view, $data)
+            ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="' . $data['title'] . '.xls"');
+    }
+
     /**
      * Laporan Persediaan "Daftar Stok Barang" - judul cetakan **"Laporan Real Stok Barang"**
      * (beda dari nama menunya, ikut contoh cetakan user). Port dari VB6 menu **318**.

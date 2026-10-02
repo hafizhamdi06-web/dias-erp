@@ -2911,6 +2911,46 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## TIGA laporan Persediaan port VB6: menu 417, 451, 499 (2026-10-03)
+
+`LaporanFilterBase` (basis tipis baru) + `StokPerHari`/`DaftarSuratJalan`/`DaftarStokSerial`,
+`ReportController::data{StokPerHari,DaftarSuratJalan,DaftarStokSerial}()`, masing-masing PDF +
+Excel. Menu di bawah grup `laporan.persediaan`.
+
+**NOMOR MENU DICEK KE `amenu`, JANGAN PERCAYA SEBUTAN.** User menyebut laporan serial =
+**459**, padahal `amenu` 459 = **"Apotik"** (induk 279); yang benar **499** "Daftar Stok Barang
+Serial". Selalu `SELECT MID, MNAMA FROM amenu` dulu.
+
+### 417 Stok Per Hari — DUA LAPIS FILTER, cabang diterjemahkan BERBEDA
+`zfFrmFilterLaporanStok.frm` query 1388, filter 1193. Tanggalnya **RENTANG**
+(`SUTANGGAL between`), beda dari menu 318 yang cut-off — walau formnya sama di VB6.
+- `pFlt`  → SUBQUERY mutasi `fstokd`: cabang = **`SDGUDANG = n`**
+- `pFlt2` → query LUAR `bitem`: cabang = **`ICABANG LIKE '%|n|%'`** (kolom pipa-delimit daftar
+  cabang item, mis. `|1|2|3|...|`)
+
+`LEFT JOIN` + `IFNULL 0` disengaja: **item tanpa mutasi TETAP tampil** (terbukti di uji).
+`ISALDOX` = saldo awal master, **mayoritas 0** (105 dari 5.580 item) — itu isi masternya.
+
+### 451 Daftar Surat Jalan Barang — AWAS dua `Case 451`
+`aMod_Menu.bas` 323 mengarahkan menu 451 ke `zfFrmFilterLaporanDaftar`, berkasnya
+**`Module/f/Form/zdFrmFilterLaporanDaftar2.frm`** (query baris **802**, filter **746**).
+`zfFrmFilterLaporanStok.frm` JUGA punya `Case 451` (baris 1385) dengan kolom lebih sedikit —
+**itu bukan yang dipakai**. Yang benar punya gudang asal/tujuan, PT, COGS.
+PT diambil dari PT **gudang tujuan** (`bnamapt` ← `gt.GPT`), bukan gudang pengirim.
+
+### 499 Daftar Stok Barang Serial
+Query baris **1484**, filter baris **1243** — **filternya SAMA PERSIS menu 318**, termasuk
+tanggal tunggal sebagai cut-off. Hanya `ISERIAL=1`; jumlah per nomor serial =
+`SUM(ISHMASUK - ISHKELUAR)` dari `bitemserialhistori` yang ditaut ke baris stok lewat
+`ISHIDFSTOKD = SDID`.
+
+Verifikasi (LULUS): ketiganya dibandingkan **baris per baris ke query VB6 asli yang dijalankan
+berdampingan** — 417 cocok (kode|masuk|keluar) termasuk aturan gudang 1+6 digabung, 451 cocok
+jumlah barisnya (1.819), 499 cocok (nama|serial|jumlah) 180 baris. Plus: Stok Akhir = Saldo
+Awal + Masuk − Keluar di semua baris; item tanpa mutasi tetap muncul; ceklis & saringan no SJ
+terbukti mempersempit; Excel ber-header benar & kolom teks dipaksa teks; route/registry/menu
+terdaftar; ketiga layar filter merender & tombolnya men-dispatch event.
+
 ## KMB: sumber KEDUA — tarik dari JOP (2026-10-03)
 
 Port VB6 `fFrmKirimMutasiBarang::cmdCariNoReff_Click` (menu **573**, `aMod_Menu.bas` baris 428;

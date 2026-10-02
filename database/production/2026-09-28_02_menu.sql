@@ -333,6 +333,21 @@ VALUES (68, 67, 'laporan.stok-barang', 'Daftar Stok Barang', 'laporan/stok-baran
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (69, 67, 'laporan.stok-per-hari', 'Stok Per Hari', 'laporan/stok-per-hari', 'fas fa-calendar-day', 'link', 87, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (70, 67, 'laporan.surat-jalan', 'Daftar Surat Jalan Barang', 'laporan/surat-jalan', 'fas fa-truck-fast', 'link', 88, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (71, 67, 'laporan.stok-serial', 'Daftar Stok Barang Serial', 'laporan/stok-serial', 'fas fa-barcode', 'link', 89, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
 
 SET FOREIGN_KEY_CHECKS = 1;
 

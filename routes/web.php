@@ -81,6 +81,13 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/daftar-penjualan-tunai/excel', [ReportController::class, 'daftarPenjualanTunaiExcel'])->name('reports.daftar-penjualan-tunai.excel');
     Route::get('reports/daftar-stok-barang', [ReportController::class, 'daftarStokBarang'])->name('reports.daftar-stok-barang');
     Route::get('reports/daftar-stok-barang/excel', [ReportController::class, 'daftarStokBarangExcel'])->name('reports.daftar-stok-barang.excel');
+    // Tiga laporan port VB6 2026-10-03: menu 417, 451, 499.
+    Route::get('reports/stok-per-hari', [ReportController::class, 'stokPerHari'])->name('reports.stok-per-hari');
+    Route::get('reports/stok-per-hari/excel', [ReportController::class, 'stokPerHariExcel'])->name('reports.stok-per-hari.excel');
+    Route::get('reports/daftar-surat-jalan', [ReportController::class, 'daftarSuratJalan'])->name('reports.daftar-surat-jalan');
+    Route::get('reports/daftar-surat-jalan/excel', [ReportController::class, 'daftarSuratJalanExcel'])->name('reports.daftar-surat-jalan.excel');
+    Route::get('reports/daftar-stok-serial', [ReportController::class, 'daftarStokSerial'])->name('reports.daftar-stok-serial');
+    Route::get('reports/daftar-stok-serial/excel', [ReportController::class, 'daftarStokSerialExcel'])->name('reports.daftar-stok-serial.excel');
 
     // Lookup JSON untuk <x-search-select> (auth saja, tanpa filter hak menu).
     Route::prefix('lookup')->name('lookup.')->group(function () {

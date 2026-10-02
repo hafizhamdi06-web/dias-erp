@@ -2911,6 +2911,38 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## Data Permintaan Barang: default filter dibalik + batas cabang diperluas (2026-10-03)
+
+Permintaan user: *"untuk cabang default tampil semua, untuk cabang tujuan default cabang user
+login"*. Sebelumnya kebalikannya (`$fCabang` = cabang user, `$fGudangTujuan` kosong).
+
+Masuk akal untuk layar ini: yang membukanya umumnya gudang/depo yang **DIMINTAI** kiriman, jadi
+yang relevan "siapa saja yang minta KE SAYA" — bukan "permintaan yang SAYA buat".
+
+**Perubahan default saja TIDAK CUKUP, dan ini yang penting.** Pembatas keamanan di `render()`
+dulu hanya melihat `PBUGUDANG` (cabang **peminta**). Akibatnya user depo melihat **0 baris**
+padahal ada **217 PR bertujuan cabangnya** — karena ke-217 PR itu dibuat oleh 18 cabang lain,
+semuanya di luar hak aksesnya. Jadi filter barunya akan tampak "tidak berfungsi".
+
+Pembatasnya kini lolos kalau **salah satu sisi** ada di `branchIds()` user: dia yang MEMINTA
+atau dia yang DIMINTAI. Ini **MEMPERLUAS akses** — tapi hanya ke dokumen yang memang dialamatkan
+ke cabang yang jadi tanggung jawabnya. Diuji: 20 baris dari cabang peminta di luar hak akses
+kini terlihat, DAN tidak ada satu pun baris yang tidak menyentuh cabang user sama sekali
+(124 PR di periode itu memang di luar jangkauan dan tetap tersembunyi).
+
+Ini **tidak membatalkan** aturan app "filter Cabang di semua LAPORAN default ke cabang aktif
+user" (2026-09-28) — itu khusus laporan, ini layar data.
+
+**Catatan perilaku lama (BUKAN dari perubahan ini)**: `PrList::allowedBranchIds()` memakai
+`User::branchIds()`, **bukan** `visibleBranchIds()`, sehingga **super user TETAP dibatasi** di
+layar ini (mis. UID 1 ber-`UCABANGPILIH='1'` cuma melihat cabang 1), beda dari laporan yang
+memberi super user akses penuh. Belum diubah karena di luar permintaan — kalau mau diseragamkan,
+ganti ke `visibleBranchIds()`.
+
+**Jebakan saat menguji layar ini**: jangan menghitung baris lewat tombol aksi
+(`wire:click="editPr("`) — tombol itu bergantung hak akses user, jadi memberi **0 palsu** walau
+barisnya ada. Hitung lewat `wire:key="pr-<id>"`.
+
 ## SJ: pemilih PKB WAJIB dibatasi — respons 196 KB (2026-10-03)
 
 User melaporkan `ERR_QUIC_PROTOCOL_ERROR` / "Failed to fetch" **persis saat menarik PKB** di

@@ -58,13 +58,26 @@ class PrList extends Component
         $this->fFrom = now()->startOfMonth()->toDateString();
         $this->fTo = now()->endOfMonth()->toDateString();
 
-        // Default cabang = cabang aktif user (auser.UCABANG) - resolusi SAMA PERSIS spt
-        // PosDataList::mount() ("konsep cabang seperti di data transaksi POS", permintaan
-        // user 2026-09-17).
+        // DIBALIK 2026-10-03 atas permintaan user: "untuk cabang default tampil semua, untuk
+        // cabang tujuan default cabang user login". Sebelumnya $fCabang (cabang PEMINTA) yg
+        // default ke cabang user & $fGudangTujuan kosong.
+        //
+        // Masuk akal utk layar ini: yg membuka Data Permintaan Barang umumnya gudang/depo yg
+        // DIMINTAI kiriman, jadi yg relevan "siapa saja yg minta KE SAYA" - bukan "permintaan
+        // yg SAYA buat". Membatasi $fCabang justru menyembunyikan permintaan cabang lain.
+        //
+        // $fCabang KOSONG tetap AMAN: query-nya tetap dibatasi `branchIds()` user
+        // (defense-in-depth di `render()`), jadi "semua" = semua cabang yg BOLEH dilihat user,
+        // bukan seluruh perusahaan.
+        //
+        // CATATAN: ini TIDAK membatalkan aturan app "filter Cabang di semua LAPORAN default ke
+        // cabang aktif user" (2026-09-28) - itu khusus laporan, ini layar data.
         /** @var User $user */
         $user = auth()->user();
         $ucabang = (int) ($user->UCABANG ?? 0);
-        $this->fCabang = Branch::active()->where('GID', $ucabang)->exists() ? (string) $ucabang : '';
+
+        $this->fCabang = '';
+        $this->fGudangTujuan = Branch::active()->where('GID', $ucabang)->exists() ? (string) $ucabang : '';
     }
 
     /**
@@ -257,9 +270,20 @@ class PrList extends Component
             ->where('u.PBUSUMBER', PurchaseRequestWriter::SUMBER)
             // Selalu dibatasi cabang yg BOLEH diakses user (defense-in-depth, bukan cuma
             // batasan tampilan dropdown $fCabang) - kosong ($allowed=[]) = tidak dibatasi.
-            // PBUGUDANG = Depo/Farmasi (cabang peminta), konsep sama spt SUCABANG di
-            // PosDataList - per permintaan user 2026-09-17.
-            ->when($allowed !== [], fn ($b) => $b->whereIn('u.PBUGUDANG', $allowed))
+            //
+            // DILUASKAN 2026-10-03: dulu HANYA `PBUGUDANG` (cabang PEMINTA). Itu membuat layar
+            // ini TIDAK BERGUNA bagi gudang/depo yg justru DIMINTAI kiriman - terbukti nyata:
+            // user depo (cabang 20, akses [20,46]) melihat **0 baris** padahal ada **217 PR
+            // bertujuan cabang 20** di September, karena ke-217 PR itu dibuat oleh 18 cabang
+            // LAIN. Permintaan user "cabang tujuan default cabang user login" mustahil berfungsi
+            // tanpa ini.
+            //
+            // Sekarang lolos kalau SALAH SATU sisinya cabang yg boleh diakses user: dia yg
+            // MEMINTA, atau dia yg DIMINTAI. Ini MEMPERLUAS akses - tapi hanya ke dokumen yg
+            // memang dialamatkan ke cabang yg jadi tanggung jawabnya.
+            ->when($allowed !== [], fn ($b) => $b->where(fn ($w) => $w
+                ->whereIn('u.PBUGUDANG', $allowed)
+                ->orWhereIn('u.PBUGUDANGSUMBER', $allowed)))
             ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w
                 ->where('u.PBUNOTRANSAKSI', 'like', "%{$q}%")
                 ->orWhere('k.KNAMA', 'like', "%{$q}%")

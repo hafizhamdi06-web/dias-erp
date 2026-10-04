@@ -2911,6 +2911,43 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## IP Penjualan Per Dokter — menu 583 (2026-10-04)
+
+`IpPenjualanPerDokter` + `ReportController::dataIpPenjualanPerDokter()` + PDF/Excel, di grup
+`laporan.penjualan`. Sumber: form yang SAMA dengan menu 531
+(`Module/d/Form/zdFrmFilterLaporanDaftar2_lama.frm`), `pSQLString` `Case 583` baris **3215**;
+`areport` ARID 345 `ARSQL` kosong.
+
+**Di sini `pSQL` hanya ditugaskan SEKALI** — enam varian lain (baris 3203-3210) semuanya
+DIKOMENTARI. Sudah diperiksa, jadi jebakan "timpa berkali-kali" seperti menu 531 **tidak**
+berlaku di sini. Tetap periksa tiap kali: pola itu ada di beberapa Case.
+
+**Dokter yang diakui = PERUJUK bila ada**:
+`CASE WHEN COALESCE(SDREFERAL,0) <> 0 THEN SDREFERAL ELSE SDDOKTER END` — bukan `SDDOKTER`
+langsung. *(Di data uji periode Agustus tidak ada satu pun baris ber-`SDREFERAL`, jadi cabang
+itu belum teruji oleh data — hanya oleh pembacaan kode.)*
+
+**Dua saringan keras yang mudah disalahpahami sebagai "laporan kosong"**:
+`dokter.KJENISKARYAWAN IN (3,4)` dan `COALESCE(SDBARISKEPALA,0) = 0`. Di data uji, **SELURUH**
+baris September tersaring habis oleh yang pertama (Agustus normal: 30 dokter / 313 pasien).
+Kalau user melapor kosong, **cek jenis karyawan dokter di master dulu**, jangan menyalahkan
+query.
+
+**Nilai**: `IRESEP=1` → `(SDKELUAR*(SDHARGA-SDDISKON)) + COALESCE(F_SUBTOTAL(SUID),0)`.
+`F_SUBTOTAL(SUID)` itu nilai **SE-TRANSAKSI** tapi ditambahkan per BARIS resep — satu transaksi
+dengan >1 baris resep akan menghitungnya berulang. **Itu perilaku VB6 apa adanya; jangan
+"diperbaiki" diam-diam**, hasilnya akan beda dari aplikasi lama.
+
+Query VB6-nya tingkat baris tanpa `GROUP BY` (Crystal yang mengelompokkan) — di sini
+dikelompokkan di SQL per dokter, plus ceklis **Rinci per Kelompok** (`IK2KODE`, atau
+`'Product'` bila `IRESEP=1`). Jumlah Pasien = `COUNT(DISTINCT CONCAT(SUKONTAK,SUTANGGAL))`,
+jadi totalnya menjumlah antar-dokter — pasien yang ditangani >1 dokter terhitung di
+masing-masing (dinyatakan di kaki cetakan).
+
+Verifikasi (LULUS): dicocokkan **baris per baris ke query VB6 asli berdampingan**
+(dokter|pasien|qty|nilai), 30 dokter; mode rinci 111 baris dengan **TOTAL NILAI identik**
+(294.268.528); tiap saringan terbukti mempersempit; Excel & pendaftaran.
+
 ## IP Kedatangan Pasien — menu 531 (2026-10-04)
 
 `IpKedatanganPasien` + `ReportController::dataIpKedatanganPasien()` + PDF/Excel. Menu di bawah

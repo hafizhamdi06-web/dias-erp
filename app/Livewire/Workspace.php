@@ -86,6 +86,7 @@ class Workspace extends Component
             'laporan.surat-jalan' => ['reports.daftar-surat-jalan', 'Daftar Surat Jalan Barang', 'fas fa-truck-fast'],
             'laporan.stok-serial' => ['reports.daftar-stok-serial', 'Daftar Stok Barang Serial', 'fas fa-barcode'],
             'laporan.ip-kedatangan' => ['reports.ip-kedatangan-pasien', 'IP Kedatangan Pasien', 'fas fa-user-check'],
+            'laporan.ip-per-dokter' => ['reports.ip-penjualan-per-dokter', 'IP Penjualan Per Dokter', 'fas fa-user-doctor'],
         ];
     }
 

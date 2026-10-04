@@ -802,6 +802,119 @@ class ReportController extends Controller
         ];
     }
 
+    /**
+     * **IP Penjualan Per Dokter** (VB6 menu 583) - `zdFrmFilterLaporanDaftar2_lama.frm`,
+     * `pSQLString` `Case 583` baris **3215**. `pSQL` di sini hanya ditugaskan SEKALI (enam
+     * varian lain baris 3203-3210 DIKOMENTARI) - beda dari menu 531, sudah diperiksa.
+     */
+    public function ipPenjualanPerDokter(Request $r)
+    {
+        return app(PdfReport::class)->preview('reports.ip-penjualan-per-dokter', $this->dataIpPenjualanPerDokter($r),
+            ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14]);
+    }
+
+    public function ipPenjualanPerDokterExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.ip-penjualan-per-dokter-xls', $this->dataIpPenjualanPerDokter($r));
+    }
+
+    /**
+     * ## Siapa "dokter"-nya
+     * JOIN-nya **bukan** `SDDOKTER` langsung: `CASE WHEN COALESCE(SDREFERAL,0) <> 0 THEN
+     * SDREFERAL ELSE SDDOKTER END` - kalau barisnya punya dokter PERUJUK, yg diakui perujuknya.
+     * Lalu disaring `dokter.KJENISKARYAWAN IN (3,4)` (116 kontak di data ini) dan
+     * `COALESCE(SDBARISKEPALA,0) = 0` (buang baris kepala/paket).
+     *
+     * **Saringan `KJENISKARYAWAN IN (3,4)` itu KERAS** - baris yg dokternya bukan tipe 3/4
+     * hilang sama sekali. Di data uji, SEMUA baris September tersaring habis karenanya
+     * (Agustus normal: 30 dokter / 313 pasien). Kalau user melapor "kosong", cek dulu tipe
+     * karyawan dokternya di master, jangan buru-buru menyalahkan query.
+     *
+     * ## Rumus nilai (disalin apa adanya)
+     * `IRESEP=1` -> `(SDKELUAR*(SDHARGA-SDDISKON)) + COALESCE(F_SUBTOTAL(SUID),0)`,
+     * selain itu `SDKELUAR*(SDHARGA-SDDISKON)`.
+     * **CATATAN**: `F_SUBTOTAL(SUID)` itu nilai SE-TRANSAKSI, ditambahkan per BARIS resep -
+     * kalau satu transaksi punya >1 baris resep, nilainya ikut terhitung berulang. Itu
+     * perilaku VB6 apa adanya; JANGAN "diperbaiki" diam-diam, hasilnya akan beda dari
+     * aplikasi lama.
+     *
+     * `alkes` = `F_TOTAL_ALKES_BY_URUTAN(SUID, urutan)` kecuali `IKELOMPOK2020` 5 atau 7.
+     * Urutannya `SDURUTANAWAL` kalau terisi, selain itu `SDURUTAN`.
+     *
+     * `jumlahpasien` = `CONCAT(SUKONTAK, SUTANGGAL)` -> dihitung `COUNT(DISTINCT ...)`, jadi
+     * satu pasien pada satu tanggal = satu pasien (pola sama menu 531).
+     *
+     * Kelompok = `'Product'` kalau `IRESEP=1`, selain itu `IK2KODE`.
+     */
+    private function dataIpPenjualanPerDokter(Request $r): array
+    {
+        $r->validate([
+            'from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from'],
+            'cabang' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+        $rinci = $r->boolean('rinciKelompok');
+
+        $nilai = "CASE WHEN i.IRESEP = 1 THEN (d.SDKELUAR*(d.SDHARGA-d.SDDISKON)) + COALESCE(F_SUBTOTAL(u.SUID),0)"
+            . ' ELSE (d.SDKELUAR*(d.SDHARGA-d.SDDISKON)) END';
+        $alkes = 'CASE WHEN i.IKELOMPOK2020 <> 5 AND i.IKELOMPOK2020 <> 7 THEN COALESCE(F_TOTAL_ALKES_BY_URUTAN('
+            . 'u.SUID, CASE WHEN d.SDURUTANAWAL = 0 THEN d.SDURUTAN ELSE d.SDURUTANAWAL END), 0) ELSE 0 END';
+
+        $dalam = DB::table('fstokd as d')
+            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->join('bkontak as dok', fn ($j) => $j->on(DB::raw('dok.KID'), '=',
+                DB::raw('CASE WHEN COALESCE(d.SDREFERAL,0) <> 0 THEN d.SDREFERAL ELSE d.SDDOKTER END')))
+            ->leftJoin('bitemkelompok2020 as k', 'k.IK2ID', '=', 'i.IKELOMPOK2020')
+            ->where('u.SUSTATUS', '<>', 9)
+            ->where('u.SUSUMBER', 'IP')
+            ->whereIn('dok.KJENISKARYAWAN', [3, 4])
+            ->whereRaw('COALESCE(d.SDBARISKEPALA,0) = 0')
+            ->whereBetween('u.SUTANGGAL', [$r->query('from'), $r->query('to')])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('u.SUCABANG', $gudang))
+            ->when($r->boolean('tindakanSaja'), fn ($b) => $b->whereIn('i.IKELOMPOK2020', [1, 2, 3, 4, 10, 11, 12]))
+            ->when($r->boolean('tanpaNh'), fn ($b) => $b->where('u.SUCABANG', '<>', 32))
+            ->select([
+                DB::raw('dok.KKODE as kodeDokter'), DB::raw('dok.KNAMA as namaDokter'),
+                DB::raw("CASE WHEN i.IRESEP = 1 THEN 'Product' ELSE k.IK2KODE END as kelompok"),
+                DB::raw('CONCAT(u.SUKONTAK, u.SUTANGGAL) as kunciPasien'),
+                DB::raw('IFNULL(d.SDKELUAR,0) as qty'),
+                DB::raw("{$nilai} as nilai"),
+                DB::raw("{$alkes} as alkes"),
+            ]);
+
+        $grup = $rinci ? ['kodeDokter', 'namaDokter', 'kelompok'] : ['kodeDokter', 'namaDokter'];
+
+        $rows = DB::query()->fromSub($dalam, 'a')
+            ->groupBy($grup)
+            ->orderBy('namaDokter')
+            ->when($rinci, fn ($b) => $b->orderBy('kelompok'))
+            ->get(array_merge($grup, [
+                DB::raw('COUNT(DISTINCT kunciPasien) as pasien'),
+                DB::raw('SUM(qty) as qty'),
+                DB::raw('SUM(nilai) as nilai'),
+                DB::raw('SUM(alkes) as alkes'),
+            ]));
+
+        return [
+            'title'    => 'IP Penjualan Per Dokter',
+            'subtitle' => \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y') . ' s/d '
+                . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
+                . ($this->namaCabang($gudang) ? ' — ' . $this->namaCabang($gudang) : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rinci'    => $rinci,
+            'rows'     => $rows,
+            'total'    => [
+                'baris'  => $rows->count(),
+                'pasien' => (int) $rows->sum('pasien'),
+                'qty'    => (float) $rows->sum('qty'),
+                'nilai'  => (float) $rows->sum('nilai'),
+                'alkes'  => (float) $rows->sum('alkes'),
+            ],
+        ];
+    }
+
     /** Nama cabang utk subjudul - `null` kalau lebih dari satu / tidak dibatasi. */
     private function namaCabang(array $gudang): ?string
     {

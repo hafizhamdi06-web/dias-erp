@@ -87,6 +87,7 @@ class Workspace extends Component
             'laporan.stok-serial' => ['reports.daftar-stok-serial', 'Daftar Stok Barang Serial', 'fas fa-barcode'],
             'laporan.ip-kedatangan' => ['reports.ip-kedatangan-pasien', 'IP Kedatangan Pasien', 'fas fa-user-check'],
             'laporan.ip-per-dokter' => ['reports.ip-penjualan-per-dokter', 'IP Penjualan Per Dokter', 'fas fa-user-doctor'],
+            'laporan.dp-per-tanggal' => ['reports.dp-per-tanggal', 'Jumlah DP Pertanggal', 'fas fa-piggy-bank'],
         ];
     }
 

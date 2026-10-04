@@ -358,6 +358,11 @@ VALUES (73, 58, 'laporan.ip-per-dokter', 'IP Penjualan Per Dokter', 'laporan/ip-
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (74, 58, 'laporan.dp-per-tanggal', 'Jumlah DP Pertanggal', 'laporan/dp-per-tanggal', 'fas fa-piggy-bank', 'link', 92, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
 
 SET FOREIGN_KEY_CHECKS = 1;
 

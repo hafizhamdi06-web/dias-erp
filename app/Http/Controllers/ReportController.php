@@ -915,6 +915,105 @@ class ReportController extends Controller
         ];
     }
 
+    /**
+     * **Jumlah DP Pertanggal** (VB6 menu 627, Crystal `zeRptIPSaldoDPPerTanggal.rpt` →
+     * maksudnya SALDO DP per tanggal) - `zdFrmFilterLaporanDaftar2_lama.frm` `pSQLString`
+     * `Case 627` baris 3274, filter tanggal baris 2758-2761.
+     */
+    public function dpPerTanggal(Request $r)
+    {
+        return app(PdfReport::class)->preview('reports.dp-per-tanggal', $this->dataDpPerTanggal($r),
+            ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14]);
+    }
+
+    public function dpPerTanggalExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.dp-per-tanggal-xls', $this->dataDpPerTanggal($r));
+    }
+
+    /**
+     * Sumbernya **view legacy `v_data_dp`** - buku besar DP, `UNION` dari 4 bagian:
+     * 1. DP DIBELI (+): baris `fstokd` ber-`bitem.IJENISITEM = 14` pada transaksi `IP`
+     *    (`SUSTATUS<>9`); `nilai = SDKELUAR*(SDHARGA-SDDISKON)`.
+     * 2-4. DP DIPAKAI (−): `fstoku.SUDP1/SUDP2/SUDP3 > 0` (tiga slot DP per transaksi),
+     *    ditaut ke baris DP asalnya lewat `SUDPID/SUDPID2/SUDPID3 = fstokd.SDID`;
+     *    `nilai = SUDPn * -1`. Sumbernya `SUSUMBER IN ('IP','IB')`.
+     *
+     * Jadi **SUM(nilai) = sisa DP**. Dua kolom tanggal berbeda artinya:
+     * `tanggal_transaksi` = kapan mutasinya terjadi (beli / pakai), `tanggal_ip` = kapan DP-nya
+     * dibeli. Yang disaring cut-off adalah `tanggal_transaksi` (VB6 baris 2760).
+     * Begitu juga `cabang` = cabang mutasi, `sucabang` = cabang asal DP - VB6 menampilkan
+     * gudang dari **`sucabang`** (join `bgudang on gid = sucabang`), jadi diikuti.
+     *
+     * **View-nya memakai `UNION`, bukan `UNION ALL`** - dua mutasi yang IDENTIK di kesembilan
+     * kolomnya akan menyatu jadi satu. Itu perilaku view legacy; JANGAN diakali di sini,
+     * perbaikannya (kalau memang salah) ada di definisi view.
+     *
+     * `WHERE SUCABANG <> 0` disalin apa adanya dari VB6.
+     *
+     * **CATATAN DATA**: di salinan ini SELURUH 180 pasien saldonya 0 (DP masuk = terpakai =
+     * 18.100.000) - DP memang langsung habis terpakai. Karena itu "sembunyikan saldo 0"
+     * default MATI; kalau dinyalakan sebagai bawaan, laporannya tampak kosong & dikira rusak.
+     */
+    private function dataDpPerTanggal(Request $r): array
+    {
+        $r->validate([
+            'tanggal' => ['required', 'date'],
+            'cabang'  => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+        $rinci = $r->boolean('rinci');
+
+        $dasar = fn () => DB::table('v_data_dp as v')
+            ->leftJoin('bkontak as p', 'p.KID', '=', 'v.kontak')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'v.sucabang')
+            ->where('v.sucabang', '<>', 0)
+            ->whereDate('v.tanggal_transaksi', '<=', $r->query('tanggal'))
+            ->when($gudang !== [], fn ($b) => $b->whereIn('v.sucabang', $gudang));
+
+        if ($rinci) {
+            $rows = $dasar()
+                ->orderBy('p.KNAMA')->orderBy('v.tanggal_transaksi')
+                ->get([
+                    DB::raw('p.KKODE as kodePasien'), DB::raw('p.KNAMA as namaPasien'),
+                    DB::raw('g.GNAMA as cabang'),
+                    DB::raw('v.tanggal_transaksi as tanggal'), DB::raw('v.tanggal_ip as tanggalDp'),
+                    DB::raw('v.notransaksi as nomor'), DB::raw('v.nodp as noDp'),
+                    DB::raw('IFNULL(v.nilai,0) as nilai'),
+                ]);
+        } else {
+            $rows = $dasar()
+                ->groupBy('v.kontak', 'p.KKODE', 'p.KNAMA', 'g.GNAMA')
+                ->when($r->boolean('nol0'), fn ($b) => $b->havingRaw('ROUND(SUM(v.nilai), 2) <> 0'))
+                ->orderBy('p.KNAMA')
+                ->get([
+                    DB::raw('p.KKODE as kodePasien'), DB::raw('p.KNAMA as namaPasien'),
+                    DB::raw('g.GNAMA as cabang'),
+                    DB::raw('SUM(CASE WHEN v.nilai > 0 THEN v.nilai ELSE 0 END) as masuk'),
+                    DB::raw('SUM(CASE WHEN v.nilai < 0 THEN -v.nilai ELSE 0 END) as terpakai'),
+                    DB::raw('SUM(v.nilai) as saldo'),
+                ]);
+        }
+
+        return [
+            'title'    => 'Jumlah DP Pertanggal',
+            'tanggal'  => \Carbon\Carbon::parse($r->query('tanggal'))->format('d/m/Y'),
+            'subtitle' => $this->namaCabang($gudang),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rinci'    => $rinci,
+            'rows'     => $rows,
+            'total'    => $rinci
+                ? ['baris' => $rows->count(), 'nilai' => (float) $rows->sum('nilai')]
+                : [
+                    'baris'    => $rows->count(),
+                    'masuk'    => (float) $rows->sum('masuk'),
+                    'terpakai' => (float) $rows->sum('terpakai'),
+                    'saldo'    => (float) $rows->sum('saldo'),
+                ],
+        ];
+    }
+
     /** Nama cabang utk subjudul - `null` kalau lebih dari satu / tidak dibatasi. */
     private function namaCabang(array $gudang): ?string
     {

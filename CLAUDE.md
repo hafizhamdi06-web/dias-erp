@@ -2911,6 +2911,41 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## Jumlah DP Pertanggal — menu 627 (2026-10-04)
+
+`DpPerTanggal` + `ReportController::dataDpPerTanggal()` + PDF/Excel, grup `laporan.penjualan`.
+Nama di `amenu` **"Jumlah DP Pertanggal"**; Crystal-nya `zeRptIPSaldoDPPerTanggal.rpt` →
+maksudnya **SALDO DP per tanggal**. Query `pSQLString` `Case 627` baris **3274** (satu
+penugasan), filter tanggal baris **2758-2761**.
+
+**Tanggalnya TUNGGAL & CUT-OFF** (`tanggal_transaksi <= <tgl>`), bukan rentang — dan kolomnya
+**`tanggal_transaksi`**, BUKAN `SUTANGGAL`: sumbernya view, yang tidak punya kolom itu. VB6
+memberi menu 627 cabang `If` sendiri justru karena ini.
+
+### View legacy `v_data_dp` = buku besar DP (`UNION` 4 bagian)
+1. **DP dibeli (+)**: baris `fstokd` ber-`bitem.IJENISITEM = 14` pada `IP` (`SUSTATUS<>9`),
+   `nilai = SDKELUAR*(SDHARGA-SDDISKON)`.
+2-4. **DP dipakai (−)**: `fstoku.SUDP1/SUDP2/SUDP3 > 0` (tiga slot DP per transaksi), ditaut ke
+   baris DP asalnya lewat `SUDPID/SUDPID2/SUDPID3 = fstokd.SDID`; `nilai = SUDPn * -1`.
+   Sumbernya `SUSUMBER IN ('IP','IB')`.
+
+Jadi **`SUM(nilai)` = sisa DP**. Dua kolom tanggal beda arti: `tanggal_transaksi` = kapan
+mutasinya, `tanggal_ip` = kapan DP dibeli. Begitu juga `cabang` = cabang mutasi, **`sucabang` =
+cabang ASAL DP** — VB6 menampilkan gudang dari `sucabang` (join `bgudang on gid = sucabang`),
+diikuti apa adanya. `WHERE SUCABANG <> 0` juga disalin apa adanya.
+
+**View-nya memakai `UNION`, bukan `UNION ALL`** — dua mutasi identik di kesembilan kolomnya
+akan menyatu jadi satu. Itu perilaku view legacy; **jangan diakali di controller**, perbaikannya
+(kalau memang salah) ada di definisi view.
+
+**CATATAN DATA**: di salinan ini **SELURUH 180 pasien saldonya 0** (DP masuk = terpakai =
+18.100.000) — DP langsung habis terpakai. Karena itu ceklis "Sembunyikan saldo 0" **default
+MATI**; kalau dinyalakan sebagai bawaan, laporannya tampak kosong dan dikira rusak.
+
+Verifikasi (LULUS): 180 pasien & 362 mutasi cocok dengan view; total masuk/terpakai/saldo cocok
+dengan query VB6; `Saldo = Masuk − Terpakai` di semua baris; **saldo mode rinci = mode ringkas**;
+cut-off terbukti memotong (30/09 → 180 pasien, 30/06 → 106).
+
 ## IP Penjualan Per Dokter — menu 583 (2026-10-04)
 
 `IpPenjualanPerDokter` + `ReportController::dataIpPenjualanPerDokter()` + PDF/Excel, di grup

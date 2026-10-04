@@ -111,6 +111,7 @@ class MenuSeeder extends Seeder
             // Kedatangan pasien ikut grup POS (sumbernya transaksi IP), bukan Persediaan.
             'laporan.ip-kedatangan' => ['IP Kedatangan Pasien', 'laporan/ip-kedatangan', 'fas fa-user-check', 'link', 90, 'laporan.penjualan'],
             'laporan.ip-per-dokter' => ['IP Penjualan Per Dokter', 'laporan/ip-per-dokter', 'fas fa-user-doctor', 'link', 91, 'laporan.penjualan'],
+            'laporan.dp-per-tanggal' => ['Jumlah DP Pertanggal', 'laporan/dp-per-tanggal', 'fas fa-piggy-bank', 'link', 92, 'laporan.penjualan'],
         ];
 
         $idBySegment = [];

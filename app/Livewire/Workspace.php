@@ -85,6 +85,7 @@ class Workspace extends Component
             'laporan.stok-per-hari' => ['reports.stok-per-hari', 'Stok Per Hari', 'fas fa-calendar-day'],
             'laporan.surat-jalan' => ['reports.daftar-surat-jalan', 'Daftar Surat Jalan Barang', 'fas fa-truck-fast'],
             'laporan.stok-serial' => ['reports.daftar-stok-serial', 'Daftar Stok Barang Serial', 'fas fa-barcode'],
+            'laporan.ip-kedatangan' => ['reports.ip-kedatangan-pasien', 'IP Kedatangan Pasien', 'fas fa-user-check'],
         ];
     }
 

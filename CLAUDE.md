@@ -2911,6 +2911,45 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## IP Kedatangan Pasien — menu 531 (2026-10-04)
+
+`IpKedatanganPasien` + `ReportController::dataIpKedatanganPasien()` + PDF/Excel. Menu di bawah
+grup `laporan.penjualan` (sumbernya transaksi IP, bukan persediaan).
+
+### Menemukan query-nya: TIGA lapis jebakan
+1. `aMod_Menu.bas` baris 191 mengarahkan 531 ke form **`zeFrmFilterLaporanDaftar`**. Ada
+   **empat** berkas bernama mirip dan **semuanya ikut dikompilasi** di `DIAS.vbp` — yang
+   mendeklarasikan nama itu PERSIS cuma
+   **`Module/d/Form/zdFrmFilterLaporanDaftar2_lama.frm`** (ya, yang "_lama"). Jangan pilih
+   berdasarkan nama berkas; cek `Begin VB.Form <nama>`.
+2. `areport` ARID 315 (`zeRptIPPerPelangganKedatangan.rpt`) **`ARSQL` KOSONG** dan
+   `ARPROCEDURE=0` → query memang dibangun di fungsi `pSQLString` form, bukan di DB.
+3. **`pSQL` ditimpa EMPAT KALI** di `Case 531` (baris 3144, 3149, 3154, **3166**). Di VB6 yang
+   berlaku **yang TERAKHIR** — tiga yang awal kode mati. Yang benar = **agregat per pasien**
+   dari subquery per-baris, bukan daftar per-transaksi seperti tiga versi awal. Versi mati juga
+   memakai `bwilayah3` untuk kota, sedangkan yang hidup `bwilayah` untuk kecamatan DAN kota.
+
+### Apa yang dihitung
+Kunci kedatangan = **`CONCAT(SUTANGGAL, SUKONTAK)`** — satu pasien pada satu TANGGAL = satu
+kedatangan, berapa pun transaksinya hari itu (terbukti: 12 transaksi → 8 kedatangan).
+Nama field VB6 `SUTOTALKAS`/`SUTOTALKARTUKREDIT` adalah **nama field Crystal yang dipakai
+ulang** — sama sekali bukan nilai kas/kartu kredit; diberi nama bermakna
+(`denganDokter`/`berbayar`). `SUTOTALKARTUDEBIT` dipatok `0` di VB6, tidak diikutkan.
+
+Rumus `subtotal` per baris disalin apa adanya: kelompok 8 dikurangi `SDBAYARDP`; kelompok 10
+(surgery) diprorata `baris/total × (total − piutang − DP)` lewat fungsi DB legacy
+**`F_SUBTOTAL_SURGERY`** (dipanggil apa adanya, JANGAN diterjemahkan ke PHP); selain itu
+`SDKELUAR × (SDHARGA − SDDISKON)`.
+
+**Kode `KJENISKELAMIN` (0/1/2/NULL) & `KBARULAMA` (0/1/NULL) tidak punya arti terdokumentasi** —
+sengaja TIDAK ditampilkan di PDF (label karangan lebih berbahaya daripada tidak ada), tapi ikut
+di Excel sebagai kode mentah.
+
+Verifikasi (LULUS): dicocokkan **baris per baris ke query VB6 asli berdampingan**
+(kontak|kedatangan|berbayar|dgnDokter|nilai); total kedatangan terbukti = jumlah pasangan
+(tanggal,pasien) unik dan ≤ jumlah transaksi; berbayar ≤ kedatangan ≤ dan dgnDokter ≤ berbayar
+di semua baris; tiap saringan terbukti mempersempit; Excel & pendaftaran menu/route/registry.
+
 ## TIGA laporan Persediaan port VB6: menu 417, 451, 499 (2026-10-03)
 
 `LaporanFilterBase` (basis tipis baru) + `StokPerHari`/`DaftarSuratJalan`/`DaftarStokSerial`,

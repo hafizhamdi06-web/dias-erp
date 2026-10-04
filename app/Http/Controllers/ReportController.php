@@ -684,6 +684,124 @@ class ReportController extends Controller
         ];
     }
 
+    /**
+     * **IP Kedatangan Pasien** (VB6 menu 531) - `zdFrmFilterLaporanDaftar2_lama.frm`
+     * (form `zeFrmFilterLaporanDaftar`), fungsi `pSQLString` `Case 531` baris **3166**.
+     *
+     * **JEBAKAN: `pSQL` ditimpa EMPAT KALI** di `Case 531` (3144, 3149, 3154, 3166). Di VB6
+     * yg berlaku yg TERAKHIR - tiga yg awal kode mati. Yg benar = agregat **per pasien** dari
+     * subquery per-baris, BUKAN daftar per-transaksi seperti tiga versi awal.
+     */
+    public function ipKedatanganPasien(Request $r)
+    {
+        return app(PdfReport::class)->preview('reports.ip-kedatangan-pasien', $this->dataIpKedatanganPasien($r),
+            ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14]);
+    }
+
+    public function ipKedatanganPasienExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.ip-kedatangan-pasien-xls', $this->dataIpKedatanganPasien($r));
+    }
+
+    /**
+     * ## Apa yg dihitung
+     * Kunci kedatangan = **`CONCAT(SUTANGGAL, SUKONTAK)`** - satu pasien pada satu TANGGAL =
+     * satu kedatangan, berapa pun jumlah transaksi/barisnya hari itu. Dari situ:
+     * - `kedatangan`  = `COUNT(DISTINCT kunci)`
+     * - `berbayar`    = idem, tapi hanya baris ber-`subtotal > 0`
+     * - `denganDokter`= idem + `sddokter` terisi + `IRESEPITTER = 0`
+     *   (nama aslinya di VB6 `SUTOTALKAS`/`SUTOTALKARTUKREDIT` - itu nama field Crystal yg
+     *   DIPAKAI ULANG, sama sekali bukan nilai kas/kartu kredit. Diberi nama bermakna di sini.)
+     * - `SUTOTALKARTUDEBIT` di VB6 dipatok `0` - tidak diikutkan, tidak ada artinya.
+     *
+     * ## Rumus `subtotal` per baris (disalin apa adanya)
+     * - `ikelompok2020 = 8`  -> `(SDKELUAR*(SDHARGA-SDDISKON)) - SDBAYARDP`
+     * - `ikelompok2020 = 10` DAN `F_SUBTOTAL_SURGERY(SUID) <> 0` -> diprorata:
+     *   `baris / totalSurgery * (totalSurgery - SUNILAIPIUTANG - SUSURGERYDPPEMBAYARAN)`
+     * - selain itu -> `SDKELUAR * (SDHARGA - SDDISKON)`
+     *
+     * `F_SUBTOTAL_SURGERY` fungsi DB legacy (ADA, dicek) - dipanggil apa adanya, JANGAN
+     * diterjemahkan ulang ke PHP.
+     *
+     * JOIN `bwilayah` dipakai utk kecamatan DAN kota (versi awal yg mati memakai `bwilayah3`
+     * utk kota - jangan ikut yg itu).
+     */
+    private function dataIpKedatanganPasien(Request $r): array
+    {
+        $r->validate([
+            'from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from'],
+            'cabang' => ['nullable', 'integer'], 'jenisKunjungan' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+
+        $subtotal = '(CASE WHEN i.IKELOMPOK2020 = 8 THEN (d.SDKELUAR*(d.SDHARGA-d.SDDISKON)) - d.SDBAYARDP'
+            . ' WHEN i.IKELOMPOK2020 = 10 AND F_SUBTOTAL_SURGERY(u.SUID) <> 0'
+            . ' THEN (d.SDKELUAR*(d.SDHARGA-d.SDDISKON)) / F_SUBTOTAL_SURGERY(u.SUID)'
+            . ' * (F_SUBTOTAL_SURGERY(u.SUID) - u.SUNILAIPIUTANG - u.SUSURGERYDPPEMBAYARAN)'
+            . ' ELSE (d.SDKELUAR*(d.SDHARGA-d.SDDISKON)) END)';
+
+        $dalam = DB::table('fstoku as u')
+            ->join('bkontak as p', 'p.KID', '=', 'u.SUKONTAK')
+            ->join('bgudang as g', 'g.GID', '=', 'u.SUCABANG')
+            ->join('fstokd as d', 'd.SDIDSU', '=', 'u.SUID')
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->leftJoin('bwilayah as kec', 'kec.BWID', '=', 'p.K1KECAMATAN')
+            ->leftJoin('bwilayah as kot', 'kot.BWID', '=', 'p.K1KOTA')
+            ->where('u.SUSTATUS', '<>', 9)
+            ->where('u.SUSUMBER', 'IP')
+            ->whereBetween('u.SUTANGGAL', [$r->query('from'), $r->query('to')])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('u.SUCABANG', $gudang))
+            ->when($r->filled('jenisKunjungan'), fn ($b) => $b->where('u.SUDKKWALKIN', $r->integer('jenisKunjungan')))
+            // Daftar kelompok "tindakan" disalin apa adanya dari VB6 baris 2587.
+            ->when($r->boolean('tindakanSaja'), fn ($b) => $b->whereIn('i.IKELOMPOK2020', [1, 2, 3, 4, 10, 11, 12]))
+            ->when($r->boolean('adaDokterSaja'), fn ($b) => $b->whereRaw('COALESCE(d.SDDOKTER,0) <> 0'))
+            // VB6 baris 2586: "Tanpa NH" = buang cabang 32 (National Hospital).
+            ->when($r->boolean('tanpaNh'), fn ($b) => $b->where('u.SUCABANG', '<>', 32))
+            ->select([
+                DB::raw('d.SDDOKTER as sddokter'), DB::raw('i.IRESEPITTER as iresepitter'),
+                DB::raw('CONCAT(u.SUTANGGAL, u.SUKONTAK) as kunci'),
+                DB::raw('u.SUKONTAK as kontak'), DB::raw('p.KKODE as kode'), DB::raw('p.KNAMA as nama'),
+                DB::raw('p.KTGLLAHIR as lahir'), DB::raw('p.K1TELP1 as telp'),
+                DB::raw('p.KCREATED as dibuat'), DB::raw('p.KJENISKELAMIN as jk'),
+                DB::raw('p.KIDPASIEN as idPasien'), DB::raw('p.KBARULAMA as baruLama'),
+                DB::raw('u.SUTANGGAL as tanggal'),
+                DB::raw('kec.BNAMA as kecamatan'), DB::raw('kot.BNAMA as kota'), DB::raw('g.GKODE as cabang'),
+                DB::raw("{$subtotal} as subtotal"),
+            ]);
+
+        $rows = DB::query()->fromSub($dalam, 'a')
+            ->groupBy('nama', 'kontak', 'kode', 'lahir', 'telp', 'dibuat', 'jk', 'idPasien',
+                'baruLama', 'kecamatan', 'kota', 'cabang')
+            ->orderBy('nama')
+            ->get([
+                'kontak', 'kode', 'nama', 'lahir', 'telp', 'dibuat', 'jk', 'idPasien', 'baruLama',
+                'kecamatan', 'kota', 'cabang',
+                DB::raw('SUM(subtotal) as nilai'),
+                DB::raw('MAX(tanggal) as terakhir'),
+                DB::raw('COUNT(DISTINCT kunci) as kedatangan'),
+                DB::raw('COUNT(DISTINCT CASE WHEN subtotal > 0 THEN kunci END) as berbayar'),
+                DB::raw('COUNT(DISTINCT CASE WHEN subtotal > 0 AND COALESCE(sddokter,0) <> 0'
+                    . ' AND iresepitter = 0 THEN kunci END) as denganDokter'),
+            ]);
+
+        return [
+            'title'    => 'IP Kedatangan Pasien',
+            'subtitle' => \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y') . ' s/d '
+                . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
+                . ($this->namaCabang($gudang) ? ' — ' . $this->namaCabang($gudang) : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => [
+                'pasien'       => $rows->count(),
+                'kedatangan'   => (int) $rows->sum('kedatangan'),
+                'berbayar'     => (int) $rows->sum('berbayar'),
+                'denganDokter' => (int) $rows->sum('denganDokter'),
+                'nilai'        => (float) $rows->sum('nilai'),
+            ],
+        ];
+    }
+
     /** Nama cabang utk subjudul - `null` kalau lebih dari satu / tidak dibatasi. */
     private function namaCabang(array $gudang): ?string
     {

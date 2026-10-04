@@ -108,6 +108,8 @@ class MenuSeeder extends Seeder
             'laporan.stok-per-hari' => ['Stok Per Hari', 'laporan/stok-per-hari', 'fas fa-calendar-day', 'link', 87, 'laporan.persediaan'],
             'laporan.surat-jalan' => ['Daftar Surat Jalan Barang', 'laporan/surat-jalan', 'fas fa-truck-fast', 'link', 88, 'laporan.persediaan'],
             'laporan.stok-serial' => ['Daftar Stok Barang Serial', 'laporan/stok-serial', 'fas fa-barcode', 'link', 89, 'laporan.persediaan'],
+            // Kedatangan pasien ikut grup POS (sumbernya transaksi IP), bukan Persediaan.
+            'laporan.ip-kedatangan' => ['IP Kedatangan Pasien', 'laporan/ip-kedatangan', 'fas fa-user-check', 'link', 90, 'laporan.penjualan'],
         ];
 
         $idBySegment = [];

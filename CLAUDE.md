@@ -56,6 +56,85 @@ dan CI4 (`C:\xampp\htdocs\dias-online-nmw`) jalan paralel di DB yang sama.
 - **`bkontak` (315rb+ baris) — JANGAN PERNAH `WHERE KNAMA LIKE '%q%'`** (leading wildcard = full table scan, pernah bikin request timeout 30 detik nyata di POS). Selalu pakai `App\Models\Contact::applySearch($query, $q, $alias, $extraColumns = [])` — FULLTEXT `MATCH(KNAMA) AGAINST('+w1* +w2*' IN BOOLEAN MODE)` (index `idx_ft_knama`, sudah ada di DB) + prefix-LIKE (`'q%'`, bukan `'%q%'`) untuk KKODE/KIDPASIEN/KNOMEMBER/K1TELP1/kolom tambahan. Jangan `ORDER BY` kolom lain saat `$q` ada (FULLTEXT + sort = filesort, lambat) — pakai `->when($q === '', fn($b)=>$b->orderBy(...))`.
 - **`bitem.ICABANG`** = daftar GID cabang yg boleh menjual item itu, format pipe-delimited `|1|2|3|...|48|`. **JANGAN filter pakai `LIKE '%|{gid}|%'` polos** — 1.638/5.580 baris (29%!) datanya RUSAK: kata literal "ICABANG" + CRLF nyasar menggantikan pipe pembatas PERTAMA (`|ICABANG\r\n1|2|...`), bikin GID=1 (Petogogan, cabang aktif) salah ditolak walau daftarnya jelas mencantumkan 1 (untungnya SEMUA baris rusak itu kebetulan `ISTATUS<>0`/tidak aktif saat ini — tapi bisa jadi nyata kalau diaktifkan lagi). Pakai helper `PosTerminal::applyIcabangFilter($query, $gid)` — `whereRaw('ICABANG REGEXP ?', ['[|\r\n]'.$gid.'\|'])`, delimiter kiri toleran `|`/CR/LF, delimiter kanan wajib `|` (cegah gid pendek nyangkut di gid panjang, mis. 1 vs "11"). Kalau bikin filter serupa di modul lain (Pembelian/Inventory dsb yg jg baca `bitem`), pakai pola REGEXP ini, jangan LIKE naif.
 
+## Konvensi: tata letak form entri = TIRU VB6 (2026-10-10)
+
+Permintaan user: beberapa user menilai tampilan sistem baru "sangat berbeda" dgn sistem yg
+sedang berjalan, sehingga enggan memakainya. Pilihan yg disepakati: **tiru tata letak VB6,
+gaya tetap bersih** — susunan/kerapatan/warna latar ditirukan, tapi kontrolnya tetap kontrol
+Bootstrap biasa (bukan bingkai 3D Win32).
+
+Dikerjakan **bertahap per kelompok**, bukan sekali sapu. Sudah selesai: Permintaan Barang,
+Kirim Mutasi Barang, Terima Mutasi Barang, Penyesuaian Barang, Pengeluaran Lain.
+
+### LANGKAH WAJIB: cari form VB6-nya lewat `amenu`, JANGAN tebak dari nama berkas
+Ada **banyak varian** per form di sumber VB6 — "Order Pembelian" 5 berkas, "Surat Jalan" 6,
+"Penerimaan Barang" lebih banyak lagi (sebagian malah form *Retur Cabang* yg captionnya
+kebetulan sama). Menebak dari nama berkas = besar kemungkinan meniru layar yg sudah mati.
+
+```
+amenu.MID (MFORMNAME-nya NULL semua, jangan diandalkan)
+  -> Module/a/Module/aMod_Menu.bas  ->  `Case <MID>: Set xForm = <NamaForm>`
+```
+Contoh nyata: `Terima Mutasi Barang` ada di MID **585** DAN **605** — 585 ke
+`fFrmPenerimaanMutasi` (form entri), 605 ke `zfFrmFilterLaporanDaftar` (filter laporan).
+Salah pilih = salah total.
+
+**Lookup yg benar pun belum cukup** kalau MENU-nya yg salah: SJ sempat dibangun dari MID 442
+`fFrmSuratJalan`, padahal yg dipakai user MID **728** `fFrmSuratJalanDepo` — dua-duanya ada di
+`amenu` & `aMod_Menu.bas`, jadi tidak ada yg "gagal". Kalau satu nama ada di beberapa MID dan
+tidak jelas mana yg hidup, **tanya user**, jangan pilih sendiri.
+
+### Membaca .frm: pakai pembaca, jangan grep manual
+Geometri VB6 dalam **twip** (1440/inci). Urutan field = urut `Top`; kolom kiri/kanan = `Left`.
+`FormatString` grid sering **tidak ada di .frm** melainkan di `.frx` biner sbg
+`$"<nama>.frx":<offset heksa>` → di offset itu ada 4 byte panjang (little-endian) lalu isinya.
+
+### Kontraknya
+- Gaya bersama: **`public/css/vb-form.css`** (berkas STATIS di-link dari layout — bukan
+  `resources/css/app.css` yg Tailwind & tidak dimuat layout ini, bukan `@push('styles')` yg
+  tidak ikut terpasang utk tab yg dibuka belakangan lewat permintaan Livewire).
+- Kelas: `card vb-card` (strip judul abu), `vb-form`, `vb-row`+`vb-ctl` (label KIRI, field
+  lebar TETAP ~206px spt VB6 — bukan melar), `vb-ctl-full` (Keterangan, VB6 12060 twip),
+  `vb-box`+`.cap` (kotak ber-caption kanan), `vb-grid-area`+`vb-grid`, `vb-total` (total di
+  TENGAH bawah grid).
+- Warna dari konstanta Windows yg dipakai VB6: form `COLOR_BTNFACE` **#F0F0F0**, area kosong
+  grid abu sedang **#C0C0C0**. **Mode gelap dikecualikan** (`[data-bs-theme="dark"]` kembali
+  ke variabel Bootstrap) — abu VB6 merusak kontras di sana.
+- **Teks bantuan di bawah field DIHAPUS** (VB6 tidak punya, dan itu yg bikin form 2x lebih
+  tinggi) — isinya dipindah ke `title=`, tidak dibuang.
+- Angka berformat `0,00` (`number_format($n, 2, ',', '.')`), rata kanan.
+
+### Yg TIDAK ditiru, dan kenapa
+- **Kolom simpanan tak kasatmata** (`QtyDasar`/`SatuanDasar`/`Konversi`/`IDd_PO`/`Id JOP`) —
+  lebar 0 di VB6, memang tak pernah tampil.
+- **Kolom berbasis harga** (`Harga Masuk`/`Harga Jual`/`Jumlah Masuk`/`Jumlah Keluar`) di
+  PY/PL/KMB/TMB — modul2 itu di sini tidak memegang harga.
+- **`Qty Masuk` di dokumen KIRIM dan `Qty Keluar` di dokumen TERIMA** — selalu 0.
+- **`Refresh Stok`** (tombol baca-ulang per baris) — stok sudah terbaca saat item ditambahkan.
+- **Baris kosong di ujung grid** — di VB6 itu cara menambah baris dgn mengetik; di sini
+  penambahan lewat kotak pencarian, jadi baris kosong cuma hiasan yg membingungkan.
+- **Aturan kita sendiri menang atas VB6**: `Real Stok` di Permintaan Barang TETAP tersembunyi
+  di balik hak `approve` (keputusan user 2026-09-24) walaupun VB6 menampilkannya ke semua
+  orang.
+
+### SALAH KETIK VB6 yang sengaja TIDAK ditiru
+Di `fFrmKirimMutasiBarang`, `fFrmPenerimaanMutasi`, `fFrmPenyesuaianBarang`, dan
+`fFrmPengeluaranLain`, caption **di atas kotak tanggal** berbunyi **"No Transaksi"** — sama
+persis dgn kotak di sebelahnya (`ShortcutCaption1` index 0 & 1, sisa salin-tempel), padahal
+isinya `txtTanggal`. Di `fFrmPermintaanBarang2` posisi yg sama captionnya "Tanggal". Semua
+ditulis **"Tanggal"** yg benar. Kalau user minta persis spt layar lama, tinggal diganti.
+(**Bukan** kasus SJ: form acuannya `fFrmSuratJalanDepo` menulis "Tgl Transaksi" — benar. Yg
+salah ketik cuma `fFrmSuratJalan`, form yg ternyata tidak dipakai.)
+
+### Cara menguji (wajib, tiap form)
+1. Bandingkan **seluruh binding Livewire** versi lama (`git show HEAD:<view>`) vs baru —
+   `wire:model/click/submit/key/loading/target`. Tidak boleh ada yg hilang ATAU asing masuk.
+2. Jumlah `can_do(` sama; penguncian (`@disabled` + `$locked ? 'disabled' : ''`) tidak
+   berkurang — **jangan bandingkan jumlahnya mentah-mentah**, memisah Keterangan ke
+   `<fieldset>` sendiri menambah satu; uji PERILAKUnya pada dokumen terkunci.
+3. Render dgn dokumen NYATA yg ada isinya (grid kosong = uji hampa) DAN dokumen baru.
+4. Periksa urutan label = urut `Top` VB6, dan susunan kolom grid = `FormatString`.
+
 ## Konvensi: default filter/field Cabang = cabang login user
 
 **SEMUA komponen (list filter MAUPUN form field) yang punya pilihan Cabang WAJIB default ke
@@ -2911,6 +2990,78 @@ error.** Tombol cetak diuji per modul dgn user yg cabangnya punya datanya (PBC u
 Petogogan 215 baris; PKB user 137 Depo 388 baris; PRO user 1 Petogogan 2 baris - **tidak ada
 user ber-`UCABANG`=35 "RII Produksi"** padahal 39 dari 41 PRO ada di sana).
 
+## Kelompok menu "IV Penjualan" — menu 780/788/796/819/821/822 (2026-10-04)
+
+Enam laporan, satu grup `laporan.iv`. Semuanya dari form VB6 `zeFrmFilterLaporanDaftar_2022`
+(`Module/d/Form/zdFrmFilterLaporanDaftar_2022.frm`); tiap `Case` punya **tepat satu**
+penugasan `pSQL` (diperiksa satu per satu), dan keenamnya berbagi blok filter
+`Case 760, 780, 788, 819, 796, 821, 822` baris **2157-2168**: rentang `IPUTANGGAL`,
+`IPUGUDANG`, `ikelompok2020`.
+
+### LIMA dari enam sebentuk — satu `dataIvDaftar()` diparametrikan, bukan lima salinan
+
+| menu | sumber | `nopo`                      | gudang pelanggan | tambahan       |
+|------|--------|-----------------------------|------------------|----------------|
+| 780  | IV     | `'-'`                       | `SUGUDANGTUJUAN` | —              |
+| 788  | IVM    | `F_CARINOPODARIPKB(PKBUID)` | `SUGUDANGTUJUAN` | —              |
+| 819  | IVM    | `'-'`                       | **`SUCABANG`**   | —              |
+| 821  | IV     | `'-'`                       | `SUGUDANGTUJUAN` | PT + pelanggan |
+| 822  | IVM    | `'-'`                       | **`SUCABANG`**   | PT             |
+
+**Sisi join gudang-pelanggan itu beda SUNGGUHAN, bukan salah ketik VB6.** 788 pakai gudang
+TUJUAN surat jalan, 819 & 822 pakai cabang transaksi stoknya — padahal ketiganya `IVM`.
+Terbukti di data: `cabangPelanggan` 788 **kosong seluruhnya** (baris stok IVM tidak punya
+`SUGUDANGTUJUAN` — mutasi masuk ke cabang sendiri), sedangkan 819 menghasilkan Bali, Bintaro,
+Cengkareng, … Konsekuensi lain yg juga ikut apa adanya: `noPo` 788 **selalu kosong** karena
+`pkb` dicapai lewat `fstoku.SUNOSO` yg 0 di baris IVM. Jangan "dibetulkan".
+
+796 bentuknya lain (kolom header invoice: alamat, termin, ongkir, diskon, pajak, karyawan) →
+method `dataIvPerTanggal()` sendiri. Query VB6-nya punya literal `""` nyasar di tengah
+(`left join bitem on iid=ipditem ""`) — string kosong hasil sambung VB6, tidak berpengaruh.
+
+**Kolom `subtotal` = `IPDKELUAR * (IPDHARGA - IPDDISKON)` TAMBAHAN saya**, bukan dari VB6
+(Crystal yang menjumlah). Ditandai di docblock supaya tidak dikira ada di sumber aslinya.
+
+Diuji berdampingan dgn query VB6 asli (rentang Agustus 2026): 780/821/796 = 2.851 baris,
+788/819/822 = 110 baris, total qty & subtotal cocok sampai pembulatan.
+
+## Cetakan PDF panjang: mpdf WAJIB ditulis BERTAHAP (2026-10-04)
+
+Ditemukan saat laporan IV: **2.851 baris (SATU bulan data nyata) membuat mpdf OOM di 512M**.
+mpdf menahan SELURUH tabel sbg objek di memori sampai `</table>`, jadi memorinya tumbuh linear
+— ~170 KB per baris di tabel 15 kolom.
+
+Jalan keluarnya BUKAN menaikkan `memory_limit`, tapi `PdfReport::tulisBertahap()`: tabelnya
+diberikan ke mpdf dlm beberapa `WriteHTML()`, sepotong `perBagian` baris. Laporan yg SAMA lalu
+selesai di **~156 MB**, dan memori nyaris tidak tumbuh lagi setelah potongan pertama
+(130 → 142 MB sepanjang 8 potongan) — sisanya cuma buffer halaman PDF.
+
+Terukur di 780 sebulan (2.851 baris): per 300 = 136 MB/129 hlm, per 400 = 156 MB/129 hlm,
+per 800 = 236 MB/125 hlm, per 1200 = 314 MB/124 hlm. **Kecepatannya SAMA (22 s) di semua
+ukuran potongan** — jadi pilih yg paling hemat memori; `BARIS_PER_BAGIAN = 400`.
+
+**Kontrak view-nya** (`iv-daftar`, `iv-per-tanggal` sbg contoh):
+- `<head>` + header perusahaan + judul + deklarasi footer: HANYA saat `$bagianPertama`
+  (`<x-reports.layout :pertama :terakhir>` — defaultnya `true`, jadi laporan sekali-render
+  tidak berubah)
+- `<pagebreak />` sebelum tabel saat BUKAN potongan pertama — tanpa itu `<thead>` potongan
+  berikutnya nyangkut di tengah halaman. Ongkosnya cuma ~4% halaman (129 vs 124)
+- baris TOTAL: HANYA saat `$bagianTerakhir`; `$total` tetap total SELURUH laporan
+- **lebar SETIAP kolom wajib eksplisit.** Tiap potongan `<table>` sendiri; kolom yg lebarnya
+  diserahkan ke mpdf bisa beda lebar antar potongan dan kolomnya jadi tidak lurus. Di
+  `iv-daftar` lebar "Nama Item" dihitung dari sisa (`100 - 71 - pelanggan - pt`) supaya
+  nilainya sama di semua potongan
+
+Yg TETAP jadi batas setelah ini cuma **WAKTU**: mpdf butuh ~7 ms/baris, jadi
+`BATAS_BARIS_PDF = 6000` (≈40 s). Di atas itu PDF-nya diganti `reports.terlalu-banyak` —
+satu halaman penjelasan + saran (persempit rentang / pakai Excel). **Excel tidak dibatasi**,
+dan itu memang jalan keluarnya (terbukti memuat 11.450 baris utuh).
+
+**Sembilan laporan lain masih sekali-render** (`stok-per-hari`, `daftar-surat-jalan`,
+`daftar-stok-serial`, `ip-kedatangan-pasien`, `ip-penjualan-per-dokter`, `dp-per-tanggal`, dst)
+— rentan OOM yg sama kalau datanya membesar. Ubah ke pola bertahap kalau ada laporannya yg
+mulai gagal.
+
 ## Jumlah DP Pertanggal — menu 627 (2026-10-04)
 
 `DpPerTanggal` + `ReportController::dataDpPerTanggal()` + PDF/Excel, grup `laporan.penjualan`.
@@ -3411,7 +3562,13 @@ pesan jelas & Saldo Akhir = Saldo Awal; registry & menu benar.
 
 **BELUM ada cetakan** utk Kartu Stok (user belum minta).
 
-## SJ: konversi tampilan kolom Qty ke box (2026-09-26)
+## SJ: konversi tampilan kolom Qty ke box (2026-09-26) — **DIGANTI 2026-10-10**
+
+> **SUDAH TIDAK BERLAKU bentuk tampilannya.** Sejak 2026-10-10 konversi tidak lagi menyatu di
+> kolom Qty; jadi **dua kolom sendiri: `Qty Perbox` + `Qty Depo`** — lihat
+> "[SJ: kolom Qty Perbox & Qty Depo, acuan menu 728](#sj-kolom-qty-perbox--qty-depo-acuan-menu-728-2026-10-10)"
+> di bawah. Yang di bawah ini tetap dipertahankan krn **isi teknisnya masih berlaku**: dari mana
+> `IQTYPERBOX` datang, kenapa murni tampilan, dan sebaran nilainya.
 
 Permintaan user: "Untuk Surat Jalan, ada konversi tampilan di Kolom Qty, yang tampil adalah
 Qty Real / Per Box, jumlah box diambil dari iqtyperbox". Dipakai di `SjForm` + bladenya:
@@ -3456,6 +3613,80 @@ box sama sekali & Total Box 0, per-box 100/2,5/60 -> box benar termasuk pecahan 
 Real tetap tampil apa adanya; baris campuran -> Total Box 5 (bukan 12) sedangkan Total Qty
 Real 507; `save()` terbukti tidak menyentuh `qtyPerBox`; SJ nyata tersimpan `DE-SJ26090229`
 menampilkan konversi di mode read-only. Tidak ada SJ baru terbuat.
+
+## SJ: kolom Qty Perbox & Qty Depo, acuan menu 728 (2026-10-10)
+
+**Acuan VB6 form SJ DIBETULKAN user: MID 728 `fFrmSuratJalanDepo` ("Surat Jalan Pabrik"),
+bukan MID 442 `fFrmSuratJalan`.** Ini contoh persis bahaya yg sudah ditulis di bagian
+"banyak varian per form": menebak dari nama berkas gagal, dan **442 juga punya `amenu` sendiri**
+sehingga lolos pemeriksaan `aMod_Menu.bas` — yg salah adalah MENU MANA yg dipakai user, bukan
+cara mencarinya. Kalau ragu menu mana yg hidup, **tanya**.
+
+Untung geometri kedua form itu **identik**, jadi tata letak yg terlanjur dibangun dari 442
+tetap sahih. Beda nyatanya cuma tiga: 728 menambah kotak **No PO pelanggan** di (8115,1620);
+caption form "Surat Jalan Pabrik"; dan caption di atas kotak tanggal di 728 berbunyi
+**"Tgl Transaksi"** (benar) sedangkan di 442 salah ketik "No Transaksi" — jadi catatan salah
+ketik caption di bagian konvensi TIDAK berlaku utk layar SJ.
+
+`FormatString` grid 728:
+`<Kode|<Nama|>Qty PKB|<Satuan|>Qty Keluar|<Satuan|>Qty Konversi|<Satuan|QtyDasar|SatuanDasar|
+Konversi|<Id PO|<Id PKB|<Pakai Batch|<No Batch|<Satuan Unit|<Keterangan|<ID PO`
+
+**AWAS penamaan VB6 di sini menyesatkan**, dan sengaja TIDAK diikuti. Dari kuerinya
+(`fFrmSuratJalanDepo.frm` baris 804 utk tarik-PKB, 1136 utk muat SJ tersimpan):
+kolom "Qty Keluar" VB6 = `SDKELUAR / IQTYPERBOX` (satuan DEPO), sedangkan "Qty Konversi" =
+`SDKELUAR` (satuan DASAR). Di app ini "Qty Keluar" adalah isian satuan dasar, jadi dipakai
+istilah user:
+
+| kolom di app | isi |
+|---|---|
+| Qty PKB | sisa qty PKB (satuan dasar) |
+| Qty Keluar | isian user (satuan dasar) |
+| Satuan | satuan dasar |
+| **Qty Perbox** | `bitem.IQTYPERBOX` |
+| **Qty Depo** | Qty Keluar : Qty Perbox |
+
+**Pembagi 0/NULL dianggap 1**, mengikuti `coalesce(IQTYPERBOX,1)` di baris 1136. (Di jalur
+tarik-dari-PKB VB6 membagi TANPA coalesce → hasilnya NULL kalau `IQTYPERBOX` kosong; itu bug
+VB6, tidak ditiru.) Konsekuensinya Qty Depo SELALU terisi — utk 5.016 item ber-per-box 1
+angkanya sama dgn Qty Keluar. Itu memang yg terlihat di VB6; **jangan** "dirapikan" jadi
+kosong, itu membuat kolomnya beda dgn layar yg jadi acuan.
+
+Footer: `totalBox` diganti **`totalDepo`** = jumlah kolom Qty Depo. Pembaginya WAJIB sama dgn
+pembagi per baris di blade, kalau tidak totalnya tidak sama dgn jumlah yg kelihatan (dulu
+`totalBox` sengaja melewatkan baris per-box ≤ 1, jadi tidak bisa dipakai lagi).
+
+Kolom **Stok** (tambahan non-VB6, bantu lihat stok gudang asal) **dibuang** atas permintaan
+user — sekalian kueri `bitem` per barisnya + helper `stokColumn()`/`F_KOLOMGUDANG`, jadi tidak
+ada lagi N+1 saat tarik PKB.
+
+**CETAKAN SJ ikut aturan yg sama** (user, 2026-10-10): kolom **"Keluar"** di
+`reports/sj-print` = `SDKELUAR : IQTYPERBOX`, bukan `SDKELUAR` mentah — jadi satuan DEPO,
+sama dgn kolom Qty Depo di form & kolom "Qty Keluar" VB6. **Dibagi DI SQL**
+(`SjPrintController::show()`, `coalesce(nullif(i.IQTYPERBOX,0),1)`), bukan di blade, supaya
+`Total Qty` yg dijumlah dari koleksi yg sama otomatis konsisten dgn angka per baris —
+contoh nyata `DE-SJ26090229`: total jadi **8**, bukan 12,5. `nullif(...,0)` WAJIB: 408 item
+ber-`IQTYPERBOX` 0, dan MySQL memulangkan NULL utk bagi-nol sehingga kolomnya kosong.
+
+Verifikasi (12 asersi LULUS): grid 8 kolom & tiap baris 8 sel di MODE BARU dan MODE TERSIMPAN;
+Qty Depo tiap baris dicocokkan langsung dgn kueri VB6 `SDKELUAR/coalesce(IQTYPERBOX,1)`; PKB uji
+DIPILIH yg punya item `IQTYPERBOX > 1` (kalau semua pembaginya 1 ujinya hampa) — terbukti
+reaktif: qty 1,5 : per-box 2 → 0,75; Total Qty Depo = jumlah kolomnya.
+
+Verifikasi cetakan (11 asersi LULUS): SJ uji DIPILIH yg punya item `IQTYPERBOX > 1`
+(`DE-SJ26090229`) lalu tiap baris dicocokkan dgn kueri VB6, ditambah asersi khusus bahwa
+angkanya memang **berbeda** dari `SDKELUAR` mentah supaya ujinya tidak hampa; angka hasil bagi
+dicari di HTML cetakan (4/4); Total = jumlah angka tercetak. Kasus `IQTYPERBOX` 0/NULL belum
+pernah ada di SJ mana pun, jadi diuji **sintetis**: `bitem.IQTYPERBOX` satu item di-set 0 lalu
+NULL di dalam transaksi, cetakan dirender, lalu rollback — kolomnya tetap terisi `SDKELUAR`
+apa adanya. (`SHOW TRIGGERS` dulu dicek: `bitem` tidak punya trigger, yg ada milik
+`bitemserialhistori`, jadi UPDATE itu tidak menjalar.)
+
+Kop cetakan: lebar label dinaikkan 78→100pt / 68→86pt **dan** `white-space: nowrap`, krn
+"Gudang Sumber :" (93,0pt diukur `Mpdf::GetStringWidth`) tidak muat di 78pt sehingga titik
+duanya jatuh ke baris berikutnya. `nowrap` yg jadi jaminannya; lebar hanya memesan ruang.
+`font-family: serif` diresolusi mpdf ke `dejavuserifcondensed` (`Config/FontVariables.php`
+baris 315), tapi pengukuran dipakai yg `dejavuserif` (lebih lebar) sbg batas aman.
 
 ## Pengeluaran Lain: modul + cetakan (2026-09-26)
 

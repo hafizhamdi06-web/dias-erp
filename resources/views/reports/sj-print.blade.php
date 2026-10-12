@@ -15,11 +15,16 @@
         h1.judul { font-size: 13pt; text-align: center; margin: 16pt 0 12pt; }
 
         .info td { vertical-align: top; padding: 1.5pt 0; font-size: 9.5pt; }
-        .info .lbl { font-weight: bold; width: 78pt; }
-        .info .lbl-r { font-weight: bold; width: 68pt; }
+        /* Lebar label dinaikkan 78->100pt / 68->86pt DAN dikunci `nowrap` - permintaan user
+           2026-10-10: "Gudang Tujuan :" & "No Transaksi :" tidak muat, titik duanya jatuh ke
+           baris berikutnya. `nowrap` yg jadi jaminannya; lebar cuma memesan ruang supaya
+           kolom isinya tidak terdorong. Tanpa nowrap, label apa pun yg nanti lebih panjang
+           akan pecah lagi. */
+        .info .lbl   { font-weight: bold; width: 100pt; white-space: nowrap; }
+        .info .lbl-r { font-weight: bold; width: 86pt; white-space: nowrap; }
         /* Kolom isi kiri (Tujuan/Gudang/Keterangan) dilebarkan - permintaan user
            2026-09-27. Blok kanan isinya pendek (nomor & tanggal), jadi sisanya cukup. */
-        .info .isi-kiri { width: 46%; }
+        .info .isi-kiri { width: 42%; }
 
         table.items { margin-top: 8pt; }
         table.items th { border-top: .8pt solid #000; border-bottom: .8pt solid #000;

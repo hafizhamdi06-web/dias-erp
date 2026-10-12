@@ -31,8 +31,17 @@ use Illuminate\Support\Facades\DB;
  * "Gudang Tujuan :" = `SUGUDANGTUJUAN`, "Gudang Sumber :" = `SUCABANG` (perhatikan: cetakan
  * KMB menamai kolom yg sama "Gudang Asal"), "Keterangan :" = `SUURAIAN`.
  * Tabel **5 kolom: No | Nama Item | Keluar | Satuan | Catatan** - **TIDAK ADA kolom kode
- * item** (beda dari cetakan KMB/TMB/PB yg punya kolom "Item"). Qty dari `SDKELUAR` (SJ =
- * dokumen KELUAR). Tanda tangan "Bag Apotik" / "Penerima" sebaris dgn "Total Qty".
+ * item** (beda dari cetakan KMB/TMB/PB yg punya kolom "Item"). Tanda tangan "Bag Apotik" /
+ * "Penerima" sebaris dgn "Total Qty".
+ *
+ * ## Kolom "Keluar" = `SDKELUAR : IQTYPERBOX`, BUKAN `SDKELUAR` mentah
+ * Ditetapkan user 2026-10-10. Jadi yg tercetak satuan DEPO, sama dgn kolom **Qty Depo** di
+ * form SJ (lihat blade form + bagian "Qty Perbox & Qty Depo" di CLAUDE.md), dan sama dgn
+ * kolom "Qty Keluar" VB6 `fFrmSuratJalanDepo` yg memang `SDKELUAR/coalesce(IQTYPERBOX,1)`.
+ * Pembaginya `coalesce(nullif(IQTYPERBOX,0),1)`: 408 item ber-`IQTYPERBOX` 0 akan bikin
+ * division-by-zero (MySQL -> NULL -> kolomnya kosong), dan NULL dari item yg tidak ketemu
+ * juga harus jatuh ke 1. **Dibagi DI SQL, bukan di blade**, supaya `Total Qty` (yg dijumlah
+ * dari koleksi yg sama) otomatis konsisten dgn angka yg tercetak per baris.
  *
  * **DEFER**: No Batch (`SDSERIAL`) tidak dicetak - contoh cetakan tidak memuatnya, padahal
  * form SJ sudah mendukung pilih batch. Kalau nanti diminta, datanya sudah tersedia lewat
@@ -67,10 +76,9 @@ class SjPrintController extends Controller
             ->leftJoin('bsatuan as s', 's.SID', '=', 'd.SDSATUAN')
             ->where('d.SDIDSU', $id)
             ->orderBy('d.SDURUTAN')
-            ->get([
-                'i.INAMA as nama', 'd.SDKELUAR as qty',
-                's.SKODE as satuan', 'd.SDCATATAN as catatan',
-            ]);
+            ->selectRaw('i.INAMA as nama, s.SKODE as satuan, d.SDCATATAN as catatan,
+                         d.SDKELUAR / coalesce(nullif(i.IQTYPERBOX, 0), 1) as qty')
+            ->get();
 
         return $pdf->preview('reports.sj-print', [
             'title'    => 'Surat Jalan ' . $h->SUNOTRANSAKSI,

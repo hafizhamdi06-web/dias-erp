@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Livewire\Concerns\CariTransaksi;
 use App\Models\Branch;
 use App\Services\SerialBatch;
 use App\Services\SjWriter;
@@ -18,6 +19,8 @@ use Livewire\Component;
  */
 class SjForm extends Component
 {
+    use CariTransaksi;
+
     public ?string $tabKey = null;
     public ?int $sjId = null;
     public ?int $pkbId = null; // PKB sumber (SUNOSO) - TIDAK bisa diubah stlh dibuat
@@ -43,7 +46,7 @@ class SjForm extends Component
 
     public int $status = 1; // SUSTATUS: 0 pending (jarang), 1 aktif, 9 batal
 
-    /** @var array<int,array{sodid:int,pbdid:?int,item:int,kode:string,nama:string,sisa:float,qty:float,satuan:?int,satuanKode:string,qtyPerBox:float,catatan:?string,stok:float,serial:bool,batches:array}> */
+    /** @var array<int,array{sodid:int,pbdid:?int,item:int,kode:string,nama:string,sisa:float,qty:float,satuan:?int,satuanKode:string,qtyPerBox:float,catatan:?string,serial:bool,batches:array}> */
     public array $lines = [];
 
     // modal "Pilih Serial" (item bitem.ISERIAL=1) - padanan dialog VB6 fFrmSuratJalanDepo_CL
@@ -111,7 +114,6 @@ class SjForm extends Component
                 // Konversi tampilan saja - lihat `SjWriter::fromPkb()`.
                 'qtyPerBox'  => (float) ($l->IQTYPERBOX ?? 0),
                 'catatan'    => $l->SDCATATAN,
-                'stok'       => 0,
                 'serial'     => (int) ($l->ISERIAL ?? 0) === 1
                                 && app(SerialBatch::class)->gudangPakaiSerial($this->cabangKirim),
                 'batches'    => $l->batches ?? [],
@@ -304,6 +306,38 @@ class SjForm extends Component
     }
 
     /** SJ BARU - tarik header+baris dari PKB yg masih ada sisa (lihat SjWriter::fromPkb()). */
+    protected function hakCari(): bool
+    {
+        return can_do('sales/sj', 'add');
+    }
+
+    /** Dialog ini cuma punya satu sumber - SJ selalu lahir dari PKB. */
+    protected function sumberCari(): array
+    {
+        return [self::SUMBER_PKB_SJ];
+    }
+
+    /**
+     * Pilih/ganti PKB selagi mengisi, lewat dialog "Cari Transaksi" DI FORM INI - persis
+     * VB6, yg `fFrmSuratJalan::cmdCariSJOnline` menempel di kotak No PO. Sejak 2026-10-10
+     * inilah SATU-SATUNYA cara memilih PKB - daftar SJ cuma punya tombol "Input Baru".
+     *
+     * Baris lama DIBUANG dan diganti baris PKB baru - termasuk Qty yg sudah sempat diubah.
+     * Peringatannya ada di tombol (lihat sj-form.blade.php).
+     */
+    protected function terapkanCari(string $sumber, int $id, string $nomor): void
+    {
+        // SJ tersimpan SELALU read-only - jangan sampai sumbernya bisa ditukar.
+        if ($this->locked) {
+            return;
+        }
+
+        $this->lines = [];
+        $this->pullFromPkb($id);
+
+        $this->dispatch('toast', message: 'Baris diisi dari PKB ' . $nomor . '.', type: 'success');
+    }
+
     private function pullFromPkb(int $pkbId): void
     {
         $w = app(SjWriter::class);
@@ -329,21 +363,12 @@ class SjForm extends Component
         $this->cabangTujuanLabel = $this->cabangTujuan
             ? (string) DB::table('bgudang')->where('GID', $this->cabangTujuan)->value('GNAMA') : null;
 
-        $stokCol = $this->stokColumn($this->cabangKirim);
+        // Dulu tiap baris diisi `stok` gudang asal (satu kueri `bitem` per baris) utk kolom
+        // Stok di grid. Kolom itu dibuang atas permintaan user 2026-10-10 - VB6 tidak
+        // punya kolom Stok di layar SJ - jadi kueri per-barisnya ikut dibuang.
         foreach ($data['lines'] as $l) {
-            $l['stok'] = $l['item'] ? (float) DB::table('bitem')->where('IID', $l['item'])->value($stokCol) : 0;
             $this->lines[] = $l;
         }
-    }
-
-    private function stokColumn(?int $gid): string
-    {
-        if (! $gid) {
-            return 'ISTOKPG';
-        }
-        $col = (string) (DB::selectOne('SELECT F_KOLOMGUDANG(?) AS c', [$gid])->c ?? '');
-
-        return preg_match('/^ISTOK[A-Z0-9]+$/', $col) ? $col : 'ISTOKPG';
     }
 
     protected function rules(): array
@@ -368,7 +393,7 @@ class SjForm extends Component
         // DULU `return` diam-diam juga saat `! $this->pkbId` - tombol Simpan jadi mati tanpa
         // sebab yg terlihat. SJ memang HARUS berasal dari PKB, tapi katakan alasannya.
         if (! $this->pkbId) {
-            $this->addError('lines', 'Surat Jalan harus ditarik dari PKB - tutup tab ini dan mulai dari tombol "SJ Baru".');
+            $this->addError('lines', 'Pilih dulu PKB yang mau dikirim - pakai tombol cari di kotak "No PKB Asal" di atas.');
 
             return;
         }
@@ -471,11 +496,11 @@ class SjForm extends Component
             'cabangKirimLabel' => $this->cabangKirim
                 ? (string) DB::table('bgudang')->where('GID', $this->cabangKirim)->value('GNAMA') : null,
             'totalQty' => array_sum(array_map(fn ($l) => (float) $l['qty'], $this->lines)),
-            // Total box utk footer - hanya baris yg PUNYA isi per box > 1 yg dihitung
-            // (lihat komentar konversi di blade). Tampilan saja, tidak disimpan.
-            'totalBox' => array_sum(array_map(
-                fn ($l) => (float) ($l['qtyPerBox'] ?? 0) > 1
-                    ? (float) $l['qty'] / (float) $l['qtyPerBox'] : 0.0,
+            // Total kolom "Qty Depo" - pembaginya HARUS sama dgn pembagi per baris di blade
+            // (`IQTYPERBOX`, 0/NULL dianggap 1 spt `coalesce` VB6), kalau tidak totalnya tidak
+            // sama dgn jumlah yg kelihatan. Tampilan saja, tidak disimpan.
+            'totalDepo' => array_sum(array_map(
+                fn ($l) => (float) $l['qty'] / ((float) ($l['qtyPerBox'] ?? 0) > 0 ? (float) $l['qtyPerBox'] : 1.0),
                 $this->lines
             )),
         ]);

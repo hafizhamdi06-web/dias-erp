@@ -4,7 +4,6 @@ namespace App\Livewire\Purchase;
 
 use App\Models\Branch;
 use App\Models\User;
-use App\Services\KmbWriter;
 use App\Services\TmbWriter;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -27,10 +26,6 @@ class TmbList extends Component
     public string $fCabang = '';
     public string $fFrom = '';
     public string $fTo = '';
-
-    // modal picker "Terima dari KMB"
-    public bool $showPicker = false;
-    public string $pickerQ = '';
 
     public function mount(): void
     {
@@ -66,28 +61,17 @@ class TmbList extends Component
     public function updatingFFrom(): void { $this->resetPage(); }
     public function updatingFTo(): void { $this->resetPage(); }
 
-    public function openPicker(): void
+    /** Satu-satunya tombol di daftar: buka form TMB KOSONG. KMB sumbernya dipilih DI
+     *  DALAM form lewat tombol cari di kotak "No Kirim Mutasi Barang" - persis VB6, yg
+     *  `fFrmPenerimaanMutasi::cmdCariNoReff` memang menempel di form (permintaan user
+     *  2026-10-10, sama spt yg sudah dilakukan di KMB). */
+    public function inputBaru(): void
     {
         if (! can_do('inventory/tmb', 'add')) {
             return;
         }
-        $this->pickerQ = '';
-        $this->showPicker = true;
-    }
-
-    public function closePicker(): void
-    {
-        $this->showPicker = false;
-    }
-
-    public function pickKmb(int $kmbId, string $nomor): void
-    {
-        if (! can_do('inventory/tmb', 'add')) {
-            return;
-        }
-        $this->showPicker = false;
-        $this->dispatch('open-tab', cmp: 'purchase.tmb-form', args: ['kmbId' => $kmbId],
-            label: 'TMB dari ' . $nomor, icon: 'fas fa-dolly');
+        $this->dispatch('open-tab', cmp: 'purchase.tmb-form', args: [],
+            label: 'TMB Baru', icon: 'fas fa-dolly');
     }
 
     public function editTmb(int $id, string $nomor): void
@@ -129,7 +113,6 @@ class TmbList extends Component
     {
         $q = trim($this->search);
         $allowed = $this->allowedBranchIds();
-        $kmbWriter = app(KmbWriter::class);
 
         $rows = DB::table('fstoku as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
@@ -155,21 +138,9 @@ class TmbList extends Component
                 'kmb.SUNOTRANSAKSI as noKmb', 'pr.PBUNOTRANSAKSI as noPr',
             ]);
 
-        // KMB yg boleh ditarik = SUGUDANGTUJUAN (cabang peminta/tujuan mutasi) SAMA
-        // dgn cabang user login SEKARANG - PERSIS UCABANG yg dipakai TmbForm sbg
-        // SUCABANG TMB (single, tidak bisa dipilih), lihat docblock
-        // `KmbWriter::pullableForTmb()`.
-        $ucabang = (int) (auth()->user()->UCABANG ?? 0);
-
         return view('livewire.purchase.tmb-list', [
             'rows'      => $rows,
             'branches'  => $this->branchOptions(),
-            'pullable'  => $this->showPicker && $ucabang
-                ? $kmbWriter->pullableForTmb($ucabang)->when($this->pickerQ !== '', fn ($c) => $c->filter(
-                    fn ($r) => str_contains(strtolower($r->nomor), strtolower($this->pickerQ))
-                        || str_contains(strtolower((string) $r->karyawan), strtolower($this->pickerQ))
-                ))
-                : collect(),
         ]);
     }
 }

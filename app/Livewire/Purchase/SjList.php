@@ -4,7 +4,6 @@ namespace App\Livewire\Purchase;
 
 use App\Models\Branch;
 use App\Models\User;
-use App\Services\PkbWriter;
 use App\Services\SjWriter;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -30,17 +29,6 @@ class SjList extends Component
     public string $fTo = '';
 
     // modal picker "Tarik dari PKB"
-    public bool $showPicker = false;
-    public string $pickerQ = '';
-
-    /**
-     * Batas baris PKB yg dirender di modal pemilih. TANPA batas, 342 PKB di data nyata membuat
-     * satu respons Livewire jadi **196 KB** (vs 3,9 KB saat pemilih tertutup) - di jaringan
-     * klinik itu rapuh & lambat, dan dilaporkan user sbg "Failed to fetch" saat menarik PKB.
-     * User mempersempit dgn mengetik di kotak cari (penyaringannya di SQL, lihat
-     * `PkbWriter::pullableForSj()`).
-     */
-    private const BATAS_PKB = 25;
 
     public function mount(): void
     {
@@ -76,28 +64,19 @@ class SjList extends Component
     public function updatingFFrom(): void { $this->resetPage(); }
     public function updatingFTo(): void { $this->resetPage(); }
 
-    public function openPicker(): void
+    /**
+     * Satu-satunya tombol di daftar: buka form SJ KOSONG. PKB sumbernya dipilih DI DALAM
+     * form lewat tombol cari di kotak "No PKB Asal" - persis VB6, yg
+     * `fFrmSuratJalan::cmdCariSJOnline` memang menempel di form (permintaan user
+     * 2026-10-10, sama spt KMB/TMB/PKB).
+     */
+    public function inputBaru(): void
     {
         if (! can_do('sales/sj', 'add')) {
             return;
         }
-        $this->pickerQ = '';
-        $this->showPicker = true;
-    }
-
-    public function closePicker(): void
-    {
-        $this->showPicker = false;
-    }
-
-    public function pickPkb(int $pkbId, string $nomor): void
-    {
-        if (! can_do('sales/sj', 'add')) {
-            return;
-        }
-        $this->showPicker = false;
-        $this->dispatch('open-tab', cmp: 'purchase.sj-form', args: ['pkbId' => $pkbId],
-            label: 'SJ dari ' . $nomor, icon: 'fas fa-truck-fast');
+        $this->dispatch('open-tab', cmp: 'purchase.sj-form', args: [],
+            label: 'SJ Baru', icon: 'fas fa-truck-fast');
     }
 
     public function editSj(int $id, string $nomor): void
@@ -140,10 +119,6 @@ class SjList extends Component
         $q = trim($this->search);
         $allowed = $this->allowedBranchIds();
 
-        $pullable = $this->showPicker
-            ? app(PkbWriter::class)->pullableForSj($this->pickerQ, self::BATAS_PKB + 1)
-            : collect();
-
         $rows = DB::table('fstoku as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
             ->leftJoin('bgudang as gc', 'gc.GID', '=', 'u.SUCABANG')
@@ -171,12 +146,6 @@ class SjList extends Component
         return view('livewire.purchase.sj-list', [
             'rows'      => $rows,
             'branches'  => $this->branchOptions(),
-            // Pemilih PKB DIBATASI - lihat docblock `PkbWriter::pullableForSj()`. Diambil
-            // `BATAS_PKB + 1` baris supaya bisa tahu "masih ada lagi" tanpa query COUNT
-            // terpisah; baris lebihnya dibuang sebelum dirender.
-            'pullable'  => $pullable->take(self::BATAS_PKB),
-            'pullableAdaLagi' => $pullable->count() > self::BATAS_PKB,
-            'pullableBatas'   => self::BATAS_PKB,
         ]);
     }
 }

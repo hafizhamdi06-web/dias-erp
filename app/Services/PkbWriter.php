@@ -240,16 +240,66 @@ class PkbWriter
     {
         $cari = trim((string) $cari);
 
-        return DB::table('fperintahkirimbarangu as u')
-            ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PKBUKONTAK')
-            ->where('u.PKBUSUMBER', self::SUMBER)
-            ->where('u.PKBUSTATUS', 0)
-            ->whereRaw('(select coalesce(sum(d.PKBDQTY - d.PKBDQTYPAKAI), 0) from fperintahkirimbarangd d where d.PKBDIDSU = u.PKBUID) > 0')
+        return $this->kueriPullableForSj()
             ->when($cari !== '', fn ($b) => $b->where(fn ($w) => $w
                 ->where('u.PKBUNOTRANSAKSI', 'like', "%{$cari}%")
                 ->orWhere('k.KNAMA', 'like', "%{$cari}%")))
             ->orderByDesc('u.PKBUID')
             ->limit(max(1, $batas))
             ->get(['u.PKBUID as id', 'u.PKBUNOTRANSAKSI as nomor', 'u.PKBUTANGGAL as tanggal', 'k.KNAMA as karyawan']);
+    }
+
+    /** Bagian WAJIB dari aturan "bisa ditarik ke SJ" - lihat docblock `pullableForSj()`. */
+    private function kueriPullableForSj()
+    {
+        return DB::table('fperintahkirimbarangu as u')
+            ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PKBUKONTAK')
+            ->where('u.PKBUSUMBER', self::SUMBER)
+            ->where('u.PKBUSTATUS', 0)
+            ->whereRaw('(select coalesce(sum(d.PKBDQTY - d.PKBDQTYPAKAI), 0) from fperintahkirimbarangd d where d.PKBDIDSU = u.PKBUID) > 0');
+    }
+
+    /**
+     * Versi BERSARING utk dialog "Cari Transaksi" sumber **`RS_SJ`**
+     * (`fFrmSuratJalan::cmdCariSJOnline_Click`). Aturan "bisa ditarik"-nya TIDAK berubah -
+     * lihat `pullableForSj()`; ini cuma menambah saringan isian user.
+     *
+     * **Kolom ke-3 adalah NOMOR PR, bukan nama orang** - `xFormatString` VB6-nya
+     * `<ID|<No Transaksi|<Tanggal|<No PO`. Tetap di-alias `karyawan` supaya satu komponen
+     * dialog melayani semua sumber; judul kolomnya yg membedakan (lihat
+     * `CariTransaksi::ctKolom()`).
+     *
+     * Cabang menyaring `PBUGUDANGSUMBER` (cabang yg diminta mengirim) lewat PR asalnya -
+     * sama spt VB6. Defaultnya KOSONG = semua cabang, menjaga perilaku sebelum dialog ini
+     * ada (`pullableForSj()` memang tidak pernah membatasi cabang).
+     *
+     * @param array{nomor?:string,nama?:string,from?:string,to?:string,cabang?:string|int} $saring
+     */
+    public function cariPullableForSj(array $saring = [], int $batas = 200)
+    {
+        $teks = fn ($v) => trim((string) $v);
+
+        return $this->kueriPullableForSj()
+            ->leftJoin('fpermintaanbarangu as pr', 'pr.PBUID', '=', 'u.PKBUNORS')
+            ->when($teks($saring['nomor'] ?? '') !== '',
+                fn ($b) => $b->where('u.PKBUNOTRANSAKSI', 'like', $teks($saring['nomor']) . '%'))
+            ->when($teks($saring['nama'] ?? '') !== '',
+                fn ($b) => $b->where('k.KNAMA', 'like', '%' . $teks($saring['nama']) . '%'))
+            ->when($teks($saring['from'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PKBUTANGGAL', '>=', $teks($saring['from'])))
+            ->when($teks($saring['to'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PKBUTANGGAL', '<=', $teks($saring['to'])))
+            ->when($teks($saring['cabang'] ?? '') !== '',
+                fn ($b) => $b->where('pr.PBUGUDANGSUMBER', (int) $saring['cabang']))
+            ->orderByDesc('u.PKBUTANGGAL')->orderByDesc('u.PKBUID')
+            ->limit(max(1, $batas))
+            ->get(['u.PKBUID as id', 'u.PKBUNOTRANSAKSI as nomor', 'u.PKBUTANGGAL as tanggal',
+                'pr.PBUNOTRANSAKSI as karyawan']);
+    }
+
+    /** Berapa PKB yg bisa ditarik ke SJ TANPA saringan dialog - utk peringatan "bukan habis". */
+    public function jumlahPullableForSj(): int
+    {
+        return (int) $this->kueriPullableForSj()->count();
     }
 }

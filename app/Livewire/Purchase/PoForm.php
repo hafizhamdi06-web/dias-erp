@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Livewire\Concerns\CariBarang;
+use App\Livewire\Concerns\CariKontak;
 use App\Models\Branch;
 use App\Services\PurchaseOrderWriter;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +18,9 @@ use Livewire\Component;
  */
 class PoForm extends Component
 {
+    use CariBarang;
+    use CariKontak;
+
     public ?string $tabKey = null;
     public ?int $poId = null;
     public bool $locked = false;
@@ -51,8 +56,6 @@ class PoForm extends Component
 
     /** @var array<int,array{item:int,kode:string,nama:string,qty:float,satuan:?int,satuanKode:string,kemasan:?string,harga:float,disc1:float,disc2:float,disc3:float,discRp:float,total:float,catatan:?string}> */
     public array $lines = [];
-
-    public string $itemQ = '';
 
     public function mount(?int $poId = null): void
     {
@@ -195,6 +198,91 @@ class PoForm extends Component
         $this->diskonPersen = $sub > 0 ? round($rp / $sub * 100, 4) : 0.0;
     }
 
+    // ---- dialog "Cari Barang" (trait CariBarang) ---------------------------------
+    // VB6: `dFrmOrderPembelian::IG_CellButtonClick` Case 0 -> `bMod_Cari.bas::CariBarang`
+    // (tanpa FilterTambahan), juga lewat F12. Dialog yg SAMA dgn form Permintaan Barang.
+    protected function hakCariBarang(): bool
+    {
+        return ! $this->locked && can_do('purchase/po', $this->poId ? 'edit' : 'add');
+    }
+
+    /** Cabang yg stoknya ditampilkan di kolom "Stok" dialog. */
+    protected function gudangCariBarang(): ?int
+    {
+        return $this->gudang;
+    }
+
+    /**
+     * Item juga dicari lewat kode/nama SUPPLIER - kemampuan yg sudah ada di kotak cari
+     * lama layar ini ("kode/nama internal atau kode/nama supplier") dan memang masuk akal
+     * di PO. 1.102 dari 2.764 item aktif mengisi salah satunya.
+     */
+    protected function kolomCariTambahan(): array
+    {
+        return ['ICODING', 'IPONAMA'];
+    }
+
+    /**
+     * Saringan `ICABANG` DIMATIKAN di sini - sengaja beda dari `bFrmCariItem` & form
+     * Permintaan Barang.
+     *
+     * Alasannya: perubahan yg diminta adalah bentuk pencariannya jadi modal, BUKAN
+     * mempersempit barang yg bisa dipesan. Saringan itu memangkas 2.764 -> 1.696 item di
+     * cabang 1 (39% hilang), padahal kotak cari lama layar ini tidak pernah memakainya -
+     * jadi memasangnya diam-diam akan membuat item yg kemarin bisa di-PO mendadak tidak
+     * ketemu. Kalau memang PO harus dibatasi item cabang sendiri, hapus override ini.
+     */
+    protected function saringCabangCariBarang(): bool
+    {
+        return false;
+    }
+
+    protected function terapkanBarang(int $itemId): void
+    {
+        $this->addItem($itemId);
+    }
+
+    // ---- dialog "Cari Kontak" (trait CariKontak) ---------------------------------
+    protected function hakCariKontak(): bool
+    {
+        return ! $this->locked && can_do('purchase/po', $this->poId ? 'edit' : 'add');
+    }
+
+    /**
+     * Kategori bawaan per tombol, persis VB6:
+     *   `cmdCariVendor_Click` -> "SUPPLIER", `cmdCariSales_Click` -> "Karyawan".
+     */
+    protected function kategoriAwalCariKontak(string $tujuan): ?string
+    {
+        return match ($tujuan) {
+            'karyawan' => 'KARYAWAN',
+            default    => 'SUPPLIER',
+        };
+    }
+
+    /**
+     * Setelah "Pilih". Utk vendor dilanjutkan `onVendorChanged()` - padanan
+     * `SetDataKontak()` VB6 yg mengisi Alamat + default Bag Pembelian & Termin.
+     * Utk Bag Pembelian cukup nama kontaknya (VB6 `cmdCariSales_Click` memang tidak
+     * punya efek lanjutan apa pun).
+     *
+     * TIDAK meniru konfirmasi VB6 "Yakin kontak akan diganti / data transaksi akan hilang"
+     * yg MENGOSONGKAN grid saat vendor diganti: di sini mengganti vendor tidak pernah
+     * membuang baris item, jadi tidak ada yg perlu dikonfirmasi.
+     */
+    protected function terapkanKontak(int $kontakId): void
+    {
+        if ($this->ckTujuan === 'karyawan') {
+            $this->karyawan = $kontakId;
+            $this->karyawanLabel = (string) DB::table('bkontak')->where('KID', $kontakId)->value('KNAMA');
+
+            return;
+        }
+
+        $this->vendor = $kontakId;
+        $this->onVendorChanged();
+    }
+
     private function onVendorChanged(): void
     {
         if (! $this->vendor) {
@@ -240,10 +328,9 @@ class PoForm extends Component
         if ($this->locked) {
             return;
         }
+        // Item yg sudah ada tidak ditambah dua kali - diam saja, spt sebelumnya.
         foreach ($this->lines as $l) {
             if ($l['item'] === $id) {
-                $this->itemQ = '';
-
                 return;
             }
         }
@@ -273,7 +360,6 @@ class PoForm extends Component
             'total'      => $harga,
             'catatan'    => null,
         ];
-        $this->itemQ = '';
         $this->hitungDiskonHeader(); // Sub Total bertambah
     }
 
@@ -399,18 +485,9 @@ class PoForm extends Component
 
     public function render()
     {
-        $itemResults = [];
-        if (trim($this->itemQ) !== '' && ! $this->locked) {
-            $q = trim($this->itemQ);
-            $itemResults = DB::table('bitem')
-                ->where('ISTATUS', 0)
-                ->where(fn ($b) => $b
-                    ->where('IKODE', 'like', "%{$q}%")->orWhere('INAMA', 'like', "%{$q}%")
-                    ->orWhere('ICODING', 'like', "%{$q}%")->orWhere('IPONAMA', 'like', "%{$q}%"))
-                ->orderBy('INAMA')->limit(15)
-                ->get(['IID as id', 'IKODE as kode', 'INAMA as nama', 'ICODING', 'IPONAMA']);
-        }
-
+        // Kotak ketik-cari + daftar melayang DIGANTI dialog "Cari Barang" (2026-10-11),
+        // jadi kueri `$itemResults` yg dulu jalan tiap render ikut dibuang. Pencariannya
+        // sekarang di `CariBarang::cariBarang()`.
         $subtotal = $this->subTotal();
         // Pajak dihitung SETELAH diskon header - sama VB6 baris 1121
         // (`zSubTotal = lblSubTotal - txtDiskon`).
@@ -419,11 +496,18 @@ class PoForm extends Component
         $pajakInfo = $writer->hitungPajak($subtotalSetelahDiskon, $this->pajak, $this->nilaiPajak);
 
         return view('livewire.purchase.po-form', [
-            'itemResults'   => $itemResults,
             'branches'      => Branch::options(),
+            // Isi dropdown Kategori di dialog Cari Kontak - VB6 `Form_Load`:
+            // `select KTID,KTNAMA from bkontaktipe order by KTNAMA`.
+            'kategoriList'  => $this->ckShow
+                ? DB::table('bkontaktipe')->orderBy('KTNAMA')->get(['KTID', 'KTNAMA'])
+                : collect(),
             'uangList'      => DB::table('buang')->orderBy('UKODE')->get(['UID', 'UKODE', 'UNAMA']),
             'nilaiPajakOpt' => [11, 1, 1.1, 10],
             'subtotal'      => $subtotal,
+            // VB6 `dFrmOrderPembelian` menampilkan `lblTotalQty` sbg baris PERTAMA panel
+            // total, di atas Sub Total - sebelumnya tidak ada di sini.
+            'totalQty'      => array_sum(array_map(fn ($l) => (float) ($l['qty'] ?? 0), $this->lines)),
             'totalPajak'    => $pajakInfo['pajak'],
             'totalTransaksi' => $pajakInfo['total'],
         ]);

@@ -54,7 +54,9 @@
 
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+                <table class="table table-bordered align-middle vb-list">
                     <thead class="table-light"><tr>
                         <th style="width: 160px">No Transaksi</th>
                         <th style="width: 105px">Tanggal</th>
@@ -62,26 +64,21 @@
                         <th>Kontak</th>
                         <th>Gudang</th>
                         <th class="text-end" style="width: 110px">Keluar</th>
-                        <th class="text-center" style="width: 85px">Status</th>
+                        <th style="width: 85px">Status</th>
                         <th class="text-end" style="width: 100px">Aksi</th>
                     </tr></thead>
                     <tbody>
                         @forelse ($rows as $r)
                             @php $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, ',', '.'), '0'), ','); @endphp
                             <tr wire:key="pl-{{ $r->id }}">
-                                <td class="font-monospace small fw-semibold">{{ $r->nomor }}</td>
+                                <td>{{ $r->nomor }}</td>
                                 <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
-                                <td class="small">{{ $r->jenis ?: '—' }}</td>
-                                <td class="text-muted small">{{ $r->kontak ?: '—' }}</td>
-                                <td class="text-muted small">{{ $r->gudang ?: '—' }}</td>
+                                <td>{{ $r->jenis ?: '—' }}</td>
+                                <td>{{ $r->kontak ?: '—' }}</td>
+                                <td>{{ $r->gudang ?: '—' }}</td>
                                 <td class="text-end text-danger">{{ $fmt($r->totalKeluar) }}</td>
-                                <td class="text-center">
-                                    @if ((int) $r->status === 9)
-                                        <span class="badge text-bg-danger">Batal</span>
-                                    @else
-                                        <span class="badge text-bg-success">Aktif</span>
-                                    @endif
-                                </td>
+                                <td><x-status-teks :bg="(int) $r->status === 9 ? 'text-bg-danger' : 'text-bg-success'"
+                                                   :teks="(int) $r->status === 9 ? 'Batal' : 'Aktif'" /></td>
                                 <td class="text-end text-nowrap">
                                     <button class="btn btn-outline-secondary btn-sm"
                                             wire:click="editPl({{ $r->id }}, @js($r->nomor))" title="Buka">

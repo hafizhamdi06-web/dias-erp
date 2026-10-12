@@ -1,6 +1,6 @@
 <div>
     <form wire:submit="save">
-        <div class="card">
+        <div class="card vb-card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span class="card-title mb-0">
                     {{ $prId ? 'Permintaan ' . $nomor : 'Permintaan Barang Baru' }}
@@ -30,238 +30,263 @@
                      sblm ini (baru kelihatan skrg krn data hasil import beneran
                      mengandung status lanjutan itu, v1 sblmnya cuma pernah test 0/1/2/9). --}}
                 @php
-                    $statusBadge = match ($status) {
-                        1 => ['text-bg-warning', 'Pending'],
-                        2 => ['text-bg-success', 'Disetujui'],
-                        3 => ['text-bg-info', 'Perintah Kirim'],
-                        4 => ['text-bg-info', 'Sedang Dikirim'],
-                        5 => ['text-bg-primary', 'Progress Diterima Cabang'],
-                        6 => ['text-bg-success', 'Selesai Diterima Cabang'],
-                        7 => ['text-bg-primary', 'Konfirmasi Bag Pembelian'],
-                        9 => ['text-bg-danger', 'Batal'],
-                        default => ['text-bg-secondary', 'Belum Verifikasi'],
+                    // [teks, warna titik]. VB6 menampilkan status sbg combo polos tanpa warna;
+                    // titik berwarna ini satu-satunya isyarat warna yg dipertahankan dari versi
+                    // badge sebelumnya, krn cukup berguna dan tidak mengganggu tata letak.
+                    [$statusTeks, $statusDot] = match ($status) {
+                        1 => ['Pending', '#f0ad4e'],
+                        2 => ['Disetujui', '#198754'],
+                        3 => ['Perintah Kirim', '#0dcaf0'],
+                        4 => ['Sedang Dikirim', '#0dcaf0'],
+                        5 => ['Progress Diterima Cabang', '#0d6efd'],
+                        6 => ['Selesai Diterima Cabang', '#198754'],
+                        7 => ['Konfirmasi Bag Pembelian', '#0d6efd'],
+                        9 => ['Batal', '#dc3545'],
+                        default => ['Belum Verifikasi', '#6c757d'],
                     };
                 @endphp
 
-                <style>
-                    .pr-field { display: flex; align-items: flex-start; gap: .5rem; margin-bottom: .5rem; }
-                    .pr-field > label { flex: 0 0 40%; max-width: 40%; padding-top: .3rem; margin-bottom: 0; }
-                    .pr-field > .pr-input { flex: 1 1 60%; min-width: 0; }
-                </style>
+                {{-- ============================================================================
+                     Tata letak MENGIKUTI form VB6 `fFrmPermintaanBarang2.frm` (caption
+                     "Permintaan Barang"), permintaan user 2026-10-10: beberapa user menilai
+                     tampilan sistem baru "sangat berbeda" dgn yg sedang berjalan.
 
-                <div class="row g-3">
-                    {{-- ===== Kolom kiri: isi permintaan ===== --}}
-                    <div class="col-md-6">
-                        <fieldset @disabled($locked)>
-                            <div class="pr-field">
-                                <label class="form-label">Nama Karyawan</label>
-                                <div class="pr-input">
-                                    <span class="badge text-bg-secondary fs-6"><i class="fas fa-user-tie me-1"></i>{{ $karyawanLabel ?: '—' }}</span>
-                                    <div class="form-text">{{ $prId ? 'Data tersimpan, tidak bisa diubah.' : 'Otomatis user yang login, tidak bisa diubah.' }}</div>
+                     Yg ditiru: urutan & nama label, label di KIRI field (bukan di atas), field
+                     berlebar TETAP (VB6: 3090 twip ~ 206px; Keterangan 5625 twip ~ 375px) bukan
+                     melar seluruh kolom, kotak ber-caption di kanan (Tanggal/No PO/Status/
+                     Catatan Verifikasi), dan susunan kolom grid persis `FormatString` VB6.
+
+                     WARNA LATAR juga ikut disamakan (susulan user 2026-10-10: "warna latar
+                     belakangnya masih kurang sama") - abu-abu COLOR_BTNFACE #F0F0F0 utk badan
+                     form, abu-abu sedang utk area kosong grid, dan strip judul abu bergradasi.
+                     Yg TIDAK ditiru: bingkai 3D cekung tiap kontrol - kontrolnya tetap kontrol
+                     Bootstrap biasa, sesuai pilihan "tata letak VB6, gaya tetap bersih".
+
+                     Teks bantuan di bawah field DIHAPUS semua (VB6 tidak punya, dan itu yg bikin
+                     form ini jadi 2x lebih tinggi) - keterangannya dipindah ke `title=` supaya
+                     tetap bisa dibaca saat kursor ditahan di atas field.
+
+                     Gaya-nya ada di `public/css/vb-form.css` (dipakai bersama form lain yg
+                     ikut pola ini).
+                     ============================================================================ --}}
+                <div class="vb-form">
+                    <div class="row g-3">
+                        {{-- ===== Kolom kiri: urutan PERSIS VB6 =====
+                             Nama Karyawan > Depo/Farmasi > (sela) > Tujuan > Tipe Permintaan >
+                             PO Ke > (sela) > Keterangan --}}
+                        <div class="col-lg-7">
+                            <fieldset @disabled($locked)>
+                                <div class="vb-row">
+                                    <label class="form-label">Nama Karyawan</label>
+                                    <input type="text" class="form-control form-control-sm vb-ctl bg-body-secondary"
+                                           value="{{ $karyawanLabel ?: '—' }}" disabled
+                                           title="{{ $prId ? 'Data tersimpan, tidak bisa diubah.' : 'Otomatis user yang login, tidak bisa diubah.' }}">
                                 </div>
-                            </div>
-                            {{-- Urutan baris: Nama Karyawan > Depo/Farmasi > Tujuan > Gudang
-                                 Tujuan > Tipe Permintaan > Keterangan (permintaan user
-                                 2026-09-25) - murni urutan tampilan, logika/binding tiap
-                                 field TIDAK diubah. --}}
-                            <div class="pr-field">
-                                <label class="form-label">Depo / Farmasi</label>
-                                <div class="pr-input">
-                                    <select class="form-select form-select-sm" wire:model="gudang" disabled>
+                                <div class="vb-row">
+                                    <label class="form-label">Depo / Farmasi</label>
+                                    <select class="form-select form-select-sm vb-ctl" wire:model="gudang" disabled
+                                            title="{{ $prId ? 'Data tersimpan, tidak bisa diubah.' : 'Otomatis cabang Anda, tidak bisa diubah.' }}">
                                         <option value="">—</option>
                                         @foreach ($branches as $b)
                                             <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                                         @endforeach
                                     </select>
-                                    <div class="form-text">{{ $prId ? 'Data tersimpan, tidak bisa diubah.' : 'Otomatis cabang Anda, tidak bisa diubah.' }}</div>
-                                    @error('gudang') <div class="text-danger small">{{ $message }}</div> @enderror
                                 </div>
-                            </div>
-                            <div class="pr-field">
-                                <label class="form-label">Tujuan <span class="text-danger">*</span></label>
-                                <div class="pr-input">
-                                    <select class="form-select form-select-sm" wire:model.live="tujuan">
+                                @error('gudang') <div class="vb-err text-danger small">{{ $message }}</div> @enderror
+
+                                <div class="vb-sela"></div>
+
+                                <div class="vb-row">
+                                    <label class="form-label">Tujuan <span class="text-danger">*</span></label>
+                                    <select class="form-select form-select-sm vb-ctl" wire:model.live="tujuan">
                                         <option value="">— pilih —</option>
                                         @foreach ($tujuanList as $t)
                                             <option value="{{ $t->lid }}">{{ $t->lnama }}</option>
                                         @endforeach
                                     </select>
-                                    @error('tujuan') <div class="text-danger small">{{ $message }}</div> @enderror
                                 </div>
-                            </div>
-                            <div class="pr-field">
-                                <label class="form-label">Gudang Tujuan (PO Ke) <span class="text-danger">*</span></label>
-                                <div class="pr-input">
-                                    <select class="form-select form-select-sm" wire:model="gudangSumber" @disabled($locked || $gudangSumberLocked)>
+                                @error('tujuan') <div class="vb-err text-danger small">{{ $message }}</div> @enderror
+
+                                {{-- VB6 menaruh Tipe Permintaan SEBELUM PO Ke. Di sini isinya
+                                     tetap ikut Tujuan (tidak bisa diubah manual), spt sebelumnya. --}}
+                                <div class="vb-row">
+                                    <label class="form-label">Tipe Permintaan</label>
+                                    <input type="text" class="form-control form-control-sm vb-ctl bg-body-secondary"
+                                           value="{{ $jenis === 1 ? 'Permintaan Pembelian' : 'Permintaan Barang' }}" disabled
+                                           title="Otomatis mengikuti Tujuan yang dipilih, tidak bisa diubah manual.">
+                                </div>
+                                <div class="vb-row">
+                                    <label class="form-label">PO Ke <span class="text-danger">*</span></label>
+                                    <select class="form-select form-select-sm vb-ctl" wire:model="gudangSumber"
+                                            @disabled($locked || $gudangSumberLocked)
+                                            title="{{ $gudangSumberLocked && ! $locked ? 'Otomatis sesuai Tujuan yang dipilih, tidak bisa diubah.' : 'Gudang tujuan PO.' }}">
                                         <option value="">— pilih —</option>
                                         @foreach ($branches as $b)
                                             <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                                         @endforeach
                                     </select>
-                                    @if ($gudangSumberLocked && ! $locked)
-                                        <div class="form-text">Otomatis sesuai Tujuan yang dipilih, tidak bisa diubah.</div>
-                                    @endif
-                                    @error('gudangSumber') <div class="text-danger small">{{ $message }}</div> @enderror
                                 </div>
-                            </div>
-                            <div class="pr-field">
-                                <label class="form-label">Tipe Permintaan</label>
-                                <div class="pr-input">
-                                    <span class="badge text-bg-info fs-6">{{ $jenis === 1 ? 'Permintaan Pembelian' : 'Permintaan Barang' }}</span>
-                                    <div class="form-text">Otomatis mengikuti Tujuan yang dipilih, tidak bisa diubah manual.</div>
-                                </div>
-                            </div>
-                            <div class="pr-field">
-                                <label class="form-label">Keterangan</label>
-                                <div class="pr-input">
-                                    <input type="text" class="form-control form-control-sm" wire:model="uraian">
-                                </div>
-                            </div>
-                        </fieldset>
-                    </div>
+                                @error('gudangSumber') <div class="vb-err text-danger small">{{ $message }}</div> @enderror
 
-                    {{-- ===== Kolom kanan: info dokumen ===== --}}
-                    <div class="col-md-6">
-                        <div class="pr-field">
-                            <label class="form-label">Tanggal <span class="text-danger">*</span></label>
-                            <div class="pr-input">
-                                <input type="date" class="form-control form-control-sm" wire:model="tanggal" @disabled($locked)>
-                                @error('tanggal') <div class="text-danger small">{{ $message }}</div> @enderror
-                            </div>
+                                <div class="vb-sela"></div>
+
+                                <div class="vb-row">
+                                    <label class="form-label">Keterangan</label>
+                                    <input type="text" class="form-control form-control-sm vb-ctl-wide" wire:model="uraian">
+                                </div>
+                            </fieldset>
                         </div>
-                        <div class="pr-field">
-                            <label class="form-label">No. Transaksi</label>
-                            <div class="pr-input">
-                                <input type="text" class="form-control form-control-sm bg-body-secondary" value="{{ $nomor ?: '[otomatis]' }}" disabled>
-                            </div>
-                        </div>
-                        <div class="pr-field">
-                            <label class="form-label">Status</label>
-                            <div class="pr-input">
-                                <span class="badge {{ $statusBadge[0] }} fs-6">{{ $statusBadge[1] }}</span>
-                            </div>
-                        </div>
-                        @if ($status !== 0)
-                            <div class="pr-field">
-                                <label class="form-label">Catatan Verifikasi</label>
-                                <div class="pr-input">
-                                    <textarea class="form-control form-control-sm bg-body-secondary" rows="2" disabled>{{ $catatanVerifikasi ?: '—' }}</textarea>
+
+                        {{-- ===== Kolom kanan: kotak ber-caption, spt VB6 ===== --}}
+                        <div class="col-lg-5">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="vb-box">
+                                        <div class="cap">Tanggal</div>
+                                        <div class="isi">
+                                            <input type="date" class="form-control form-control-sm border-0 p-0 px-1"
+                                                   wire:model="tanggal" @disabled($locked)>
+                                        </div>
+                                    </div>
+                                    @error('tanggal') <div class="text-danger small">{{ $message }}</div> @enderror
+                                </div>
+                                <div class="col-6">
+                                    <div class="vb-box">
+                                        <div class="cap">No PO</div>
+                                        <div class="isi">
+                                            <input type="text" class="form-control form-control-sm border-0 p-0 px-1"
+                                                   value="{{ $nomor ?: '[otomatis]' }}" disabled>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="pr-field">
-                                <label class="form-label"></label>
-                                <div class="pr-input text-muted small">
+
+                            <div class="vb-box">
+                                <div class="cap">Status</div>
+                                <div class="isi d-flex align-items-center gap-2 px-2">
+                                    <span style="width:.6rem; height:.6rem; border-radius:50%; background:{{ $statusDot }}"></span>
+                                    <span>{{ $statusTeks }}</span>
+                                </div>
+                            </div>
+
+                            <div class="vb-box">
+                                <div class="cap">Catatan Verifikasi</div>
+                                <div class="isi">
+                                    <input type="text" class="form-control form-control-sm border-0 p-0 px-1"
+                                           value="{{ $catatanVerifikasi ?: '' }}" disabled>
+                                </div>
+                            </div>
+                            @if ($status !== 0 && $verifiedBy)
+                                <div class="text-muted small">
                                     <i class="fas fa-user-check me-1"></i>
-                                    Diverifikasi oleh <span class="fw-semibold">{{ $verifiedBy ?: '—' }}</span>
+                                    Diverifikasi oleh <span class="fw-semibold">{{ $verifiedBy }}</span>
                                     @if ($verifiedAt)
                                         pada {{ \Carbon\Carbon::parse($verifiedAt)->translatedFormat('d F Y') }}
                                     @endif
                                 </div>
-                            </div>
-                        @endif
-                    </div>
-                </div>
-
-                {{-- ---- Baris item ---- --}}
-                <hr class="my-3">
-                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-                    @unless ($locked)
-                        <div class="position-relative" style="max-width: 420px; flex: 1 1 auto">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text"><i class="fas fa-plus"></i></span>
-                                <input type="text" class="form-control" placeholder="Cari item untuk ditambahkan…"
-                                       wire:model.live.debounce.300ms="itemQ" autocomplete="off">
-                            </div>
-                            @if (count($itemResults))
-                                <div class="list-group position-absolute w-100 shadow-sm" style="z-index: 1055; max-height: 260px; overflow-y:auto">
-                                    @foreach ($itemResults as $r)
-                                        <button type="button" wire:key="ir-{{ $r->id }}"
-                                                class="list-group-item list-group-item-action small"
-                                                wire:click="addItem({{ $r->id }})">
-                                            <span class="fw-semibold">{{ $r->kode }}</span> — {{ $r->nama }}
-                                        </button>
-                                    @endforeach
-                                </div>
                             @endif
                         </div>
-                    @else
-                        <div></div>
-                    @endif
-                    {{-- Real Stok default DISEMBUNYIKAN - user isi Qty dari hitungan manual
-                         sendiri, bukan nyontek stok sistem. Toggle ini KHUSUS verifikator
-                         (`can_do('inventory/pr','approve')` - SAMA persis hak yg dipakai
-                         tombol Verifikasi/notif lonceng, permintaan user 2026-09-24, BUKAN
-                         "siapa pun" lagi spt niat awal). --}}
-                    @if (can_do('inventory/pr', 'approve'))
-                        <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="toggleStok">
-                            <i class="fas fa-{{ $showStok ? 'eye-slash' : 'eye' }} me-1"></i>
-                            {{ $showStok ? 'Sembunyikan' : 'Tampilkan' }} Stok Sistem
-                        </button>
-                    @endif
-                </div>
+                    </div>
 
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead>
-                            <tr>
-                                <th style="width: 34%">Item</th>
-                                <th class="text-center" style="width: 110px">Qty</th>
-                                <th style="width: 90px">Satuan</th>
-                                <th class="text-end" style="width: 100px">Stok</th>
-                                @if ($showStok)
-                                    <th class="text-end" style="width: 100px">Real Stok</th>
-                                @endif
-                                <th>Catatan</th>
-                                <th style="width: 36px"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($lines as $i => $l)
-                                <tr wire:key="line-{{ $l['item'] }}">
-                                    <td>
-                                        <div class="fw-semibold small">{{ $l['nama'] }}</div>
-                                        <div class="text-muted small">{{ $l['kode'] }}</div>
-                                    </td>
-                                    <td>
-                                        <input type="number" min="0" step="any" class="form-control form-control-sm text-center"
-                                               wire:model.live.debounce.400ms="lines.{{ $i }}.qty" @disabled($locked)>
-                                    </td>
-                                    <td class="text-muted small">{{ $l['satuanKode'] ?: '—' }}</td>
-                                    <td>
-                                        <input type="number" min="0" step="any" class="form-control form-control-sm text-end"
-                                               wire:model.live.debounce.400ms="lines.{{ $i }}.stokManual" @disabled($locked)>
-                                    </td>
-                                    @if ($showStok)
-                                        <td class="text-end">{{ rtrim(rtrim(number_format($l['stok'], 2), '0'), '.') }}</td>
-                                    @endif
-                                    <td>
-                                        <input type="text" class="form-control form-control-sm"
-                                               wire:model="lines.{{ $i }}.catatan" @disabled($locked)>
-                                    </td>
-                                    <td class="text-center">
-                                        @unless ($locked)
-                                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" wire:click="removeLine({{ $i }})">
-                                                <i class="fas fa-xmark"></i>
-                                            </button>
-                                        @endunless
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="{{ $showStok ? 7 : 6 }}" class="text-center text-muted py-4">Belum ada item.</td></tr>
-                            @endforelse
-                        </tbody>
-                        @if (count($lines))
-                            <tfoot>
-                                <tr class="fw-semibold">
-                                    <td class="text-end">Total Qty</td>
-                                    <td class="text-center">{{ rtrim(rtrim(number_format($totalQty, 2), '0'), '.') }}</td>
-                                    <td colspan="{{ $showStok ? 5 : 4 }}"></td>
-                                </tr>
-                            </tfoot>
+                    {{-- ---- Baris item ---- --}}
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mt-3 mb-1">
+                        {{-- Pencarian item lewat dialog "Cari Barang" (port VB6 `bFrmCariItem`,
+                             permintaan user 2026-10-10) - menggantikan kotak sebaris + daftar
+                             gantung. Di VB6 dialognya dibuka dari tombol di sel Kode grid;
+                             di sini tombolnya ditaruh di atas grid karena baris kosong untuk
+                             diklik memang tidak ada. --}}
+                        @unless ($locked)
+                            <button type="button" class="btn btn-primary btn-sm" wire:click="bukaCariBarang">
+                                <i class="fas fa-magnifying-glass me-1"></i> Cari Barang
+                            </button>
+                        @else
+                            <div></div>
+                        @endunless
+                        {{-- Real Stok default DISEMBUNYIKAN - user isi Qty dari hitungan manual
+                             sendiri, bukan nyontek stok sistem. Toggle ini KHUSUS verifikator
+                             (`can_do('inventory/pr','approve')` - SAMA persis hak yg dipakai
+                             tombol Verifikasi/notif lonceng, permintaan user 2026-09-24, BUKAN
+                             "siapa pun" lagi spt niat awal). SENGAJA TIDAK diseragamkan dgn VB6
+                             yg menampilkannya ke semua orang. --}}
+                        @if (can_do('inventory/pr', 'approve'))
+                            <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="toggleStok">
+                                <i class="fas fa-{{ $showStok ? 'eye-slash' : 'eye' }} me-1"></i>
+                                {{ $showStok ? 'Sembunyikan' : 'Tampilkan' }} Stok Sistem
+                            </button>
                         @endif
-                    </table>
+                    </div>
+
+                    {{-- Susunan kolom = `FormatString` VB6:
+                         <Kode|<Nama|>Qty|<Satuan|<Catatan|…|>Real Stok|>Stok Akhir|<Refresh Stok
+                         QtyDasar/SatuanDasar/Konversi/Stok Konfirmasi lebarnya 0 di VB6 (tidak
+                         pernah tampil), jadi tidak ikut. "Refresh Stok" juga tidak ikut: di VB6
+                         itu tombol per baris utk membaca ulang stok, di sini stoknya sudah ikut
+                         terbaca saat item ditambahkan. --}}
+                    <div class="table-responsive vb-grid-area">
+                        <table class="table table-sm table-bordered align-middle vb-grid mb-1">
+                            <thead>
+                                <tr>
+                                    <th style="width: 20%">Kode</th>
+                                    <th>Nama</th>
+                                    <th class="text-end" style="width: 100px">Qty</th>
+                                    <th style="width: 80px">Satuan</th>
+                                    <th style="width: 22%">Catatan</th>
+                                    @if ($showStok)
+                                        <th class="text-end" style="width: 100px">Real Stok</th>
+                                    @endif
+                                    <th class="text-end" style="width: 110px">Stok Akhir</th>
+                                    <th style="width: 32px"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($lines as $i => $l)
+                                    <tr wire:key="line-{{ $l['item'] }}">
+                                        <td>{{ $l['kode'] }}</td>
+                                        <td>{{ $l['nama'] }}</td>
+                                        <td>
+                                            <input type="number" min="0" step="any" class="form-control form-control-sm text-end"
+                                                   wire:model.live.debounce.400ms="lines.{{ $i }}.qty" @disabled($locked)>
+                                        </td>
+                                        <td>{{ $l['satuanKode'] ?: '—' }}</td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   wire:model="lines.{{ $i }}.catatan" @disabled($locked)>
+                                        </td>
+                                        @if ($showStok)
+                                            <td class="text-end">{{ number_format($l['stok'], 2, ',', '.') }}</td>
+                                        @endif
+                                        <td>
+                                            <input type="number" min="0" step="any" class="form-control form-control-sm text-end"
+                                                   wire:model.live.debounce.400ms="lines.{{ $i }}.stokManual" @disabled($locked)>
+                                        </td>
+                                        <td class="text-center">
+                                            @unless ($locked)
+                                                <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" wire:click="removeLine({{ $i }})">
+                                                    <i class="fas fa-xmark"></i>
+                                                </button>
+                                            @endunless
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="{{ $showStok ? 8 : 7 }}" class="text-center text-muted py-4">Belum ada item.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {{-- VB6 menaruh Total Qty di TENGAH bawah grid, bukan di kaki tabel. --}}
+                    <div class="vb-total">
+                        <span>Total Qty</span>
+                        <span class="nilai">{{ number_format($totalQty, 2, ',', '.') }}</span>
+                    </div>
                 </div>
             </div>
         </div>
     </form>
+    {{-- Dialog "Cari Barang" (port VB6 `bFrmCariItem`) - markup & logikanya dipakai
+         bersama, lihat trait `App\Livewire\Concerns\CariBarang`. --}}
+    @if ($cbShow)
+        <x-cari-barang :hasil="$cbHasil" :pilih="$cbPilih" :data="$cbData"
+                       :total="$cbTotal" :batas="$cbBatas" :ditambah="$cbDitambah" />
+    @endif
 </div>

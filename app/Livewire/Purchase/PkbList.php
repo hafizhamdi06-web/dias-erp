@@ -5,7 +5,6 @@ namespace App\Livewire\Purchase;
 use App\Models\Branch;
 use App\Models\User;
 use App\Services\PkbWriter;
-use App\Services\PurchaseRequestWriter;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -27,10 +26,6 @@ class PkbList extends Component
     public string $fCabang = '';
     public string $fFrom = '';
     public string $fTo = '';
-
-    // modal picker "Tarik dari PR"
-    public bool $showPicker = false;
-    public string $pickerQ = '';
 
     public function mount(): void
     {
@@ -66,28 +61,19 @@ class PkbList extends Component
     public function updatingFFrom(): void { $this->resetPage(); }
     public function updatingFTo(): void { $this->resetPage(); }
 
-    public function openPicker(): void
+    /**
+     * Satu-satunya tombol di daftar: buka form PKB KOSONG. PR sumbernya dipilih DI DALAM
+     * form lewat tombol cari di kotak "No PR Asal" - persis VB6, yg
+     * `fFrmPermintaanBarang::cmdCariPermintaan` memang menempel di form (permintaan user
+     * 2026-10-10, sama spt yg sudah dilakukan di KMB & TMB).
+     */
+    public function inputBaru(): void
     {
         if (! can_do('purchase/pkb', 'add')) {
             return;
         }
-        $this->pickerQ = '';
-        $this->showPicker = true;
-    }
-
-    public function closePicker(): void
-    {
-        $this->showPicker = false;
-    }
-
-    public function pickPr(int $prId, string $nomor, PurchaseRequestWriter $writer): void
-    {
-        if (! can_do('purchase/pkb', 'add')) {
-            return;
-        }
-        $this->showPicker = false;
-        $this->dispatch('open-tab', cmp: 'purchase.pkb-form', args: ['prId' => $prId],
-            label: 'PKB dari ' . $nomor, icon: 'fas fa-dolly-flatbed');
+        $this->dispatch('open-tab', cmp: 'purchase.pkb-form', args: [],
+            label: 'PKB Baru', icon: 'fas fa-dolly-flatbed');
     }
 
     public function editPkb(int $id, string $nomor): void
@@ -129,7 +115,6 @@ class PkbList extends Component
     {
         $q = trim($this->search);
         $allowed = $this->allowedBranchIds();
-        $writer = app(PurchaseRequestWriter::class);
 
         $rows = DB::table('fperintahkirimbarangu as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PKBUKONTAK')
@@ -157,13 +142,6 @@ class PkbList extends Component
         return view('livewire.purchase.pkb-list', [
             'rows'      => $rows,
             'branches'  => $this->branchOptions(),
-            'pullable'  => $this->showPicker
-                ? $writer->pullableForPkb()->when($this->pickerQ !== '', fn ($c) => $c->filter(
-                    fn ($r) => str_contains(strtolower($r->nomor), strtolower($this->pickerQ))
-                        || str_contains(strtolower((string) $r->karyawan), strtolower($this->pickerQ))
-                        || str_contains(strtolower((string) $r->cabang), strtolower($this->pickerQ))
-                ))
-                : collect(),
         ]);
     }
 }

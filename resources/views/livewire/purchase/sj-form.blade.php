@@ -1,10 +1,29 @@
+@php
+    // Dipakai badge di JUDUL, jadi harus dihitung sebelum header dirender.
+    [$statusTeks, $statusKelas] = match ((int) $status) {
+        0 => ['Pending', 'text-bg-warning'],
+        3 => ['Diterima', 'text-bg-info'],
+        9 => ['Batal', 'text-bg-danger'],
+        default => ['Aktif', 'text-bg-success'],
+    };
+@endphp
 <div>
     <form wire:submit="save">
-        <div class="card">
+        <div class="card vb-card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span class="card-title mb-0">
-                    {{ $sjId ? 'SJ ' . $nomor : 'SJ Baru dari PKB ' . $noPkb }}
-                    @if ($locked) <span class="badge text-bg-success ms-2">terkunci</span> @endif
+                    @if ($sjId)
+                        SJ {{ $nomor }}
+                    @elseif ($pkbId)
+                        SJ Baru dari PKB {{ $noPkb }}
+                    @else
+                        SJ Baru
+                    @endif
+                    {{-- Status jadi badge di judul (bukan kotak di badan form) - pola sama
+                         KMB/TMB/PKB, dan VB6 pun tidak punya field Status di form ini. --}}
+                    @if ($sjId)
+                        <span class="badge {{ $statusKelas }} ms-2">{{ $statusTeks }}</span>
+                    @endif
                 </span>
                 <div>
                     @if ($sjId && can_do('sales/sj', 'print'))
@@ -25,204 +44,247 @@
             <div class="card-body">
                 @error('lines') <div class="alert alert-danger py-2">{{ $message }}</div> @enderror
 
-                @php
-                    $statusBadge = match ($status) {
-                        0 => ['text-bg-warning', 'Pending'],
-                        3 => ['text-bg-info', 'Diterima'],
-                        9 => ['text-bg-danger', 'Batal'],
-                        default => ['text-bg-success', 'Aktif'],
-                    };
-                @endphp
+                {{-- ============================================================================
+                     Tata letak MENGIKUTI form VB6 `fFrmSuratJalanDepo.frm` ("Surat Jalan
+                     Pabrik") - `amenu` MID **728** -> `aMod_Menu.bas` `Case 728: Set xForm =
+                     fFrmSuratJalanDepo`. Acuan itu DITUNJUK USER 2026-10-10; sebelumnya di sini
+                     tertulis MID 442 `fFrmSuratJalan`, yg salah layar.
+                     (AWAS: ada ENAM berkas bernama mirip - `_new`, `_coret`, `2`, `Data`, dan
+                     `Depo_CL` yg cuma dialog pilih batch.)
 
-                <style>
-                    .sj-field { display: flex; align-items: flex-start; gap: .5rem; margin-bottom: .5rem; }
-                    .sj-field > label { flex: 0 0 40%; max-width: 40%; padding-top: .3rem; margin-bottom: 0; }
-                    .sj-field > .sj-input { flex: 1 1 60%; min-width: 0; }
-                </style>
+                     Untungnya KOORDINAT kedua form itu identik, jadi tata letak yg terlanjur
+                     dibangun dari 442 tetap sahih. Beda nyatanya cuma tiga: 728 menambah kotak
+                     **No PO** pelanggan di (8115,1620), caption-nya "Surat Jalan Pabrik", dan
+                     caption di atas kotak tanggal berbunyi "Tgl Transaksi" - di 442 caption itu
+                     salah ketik jadi "No Transaksi" (spt KMB/TMB/PY/PL). Di sini dipakai
+                     "Tanggal", yg sejalan dgn 728.
+                     Gaya di `public/css/vb-form.css`.
 
-                <div class="row g-3">
-                    {{-- ===== Kolom kiri: isi SJ ===== --}}
-                    <div class="col-md-6">
-                        <fieldset @disabled($locked)>
-                            <div class="sj-field">
-                                <label class="form-label">No PKB Asal</label>
-                                <div class="sj-input">
-                                    <span class="badge text-bg-primary fs-6">{{ $noPkb ?: '—' }}</span>
-                                </div>
-                            </div>
-                            <div class="sj-field">
+                     Urutan field kiri menurut koordinat Top VB6:
+                       675 Kontak | 1020 Gudang | 1320 Gudang Tujuan | 1965 Jenis Penyesuaian
+                       2250 Divisi | 2550 Keterangan
+                     Kanan: (10080,750) Tanggal | (12135,750) No Transaksi |
+                            (10095,1590) No PKB | (12135,1590) No. PO
+
+                     Tidak ikut krn belum ada padanannya di sini: **Jenis Penyesuaian**,
+                     **Divisi**, **No. PO**, **No PO pelanggan** (khas 728), dan centang
+                     **Pending**.
+                     ============================================================================ --}}
+                <div class="vb-form">
+                    <div class="row g-3">
+                        {{-- ===== Kolom kiri ===== --}}
+                        <div class="col-lg-7">
+                            <div class="vb-row">
                                 <label class="form-label">Kontak <span class="text-danger">*</span></label>
-                                <div class="sj-input">
+                                <div class="vb-ctl">
                                     @if ($locked)
-                                        <span class="badge text-bg-secondary fs-6"><i class="fas fa-user me-1"></i>{{ $kontakLabel ?: '—' }}</span>
+                                        <input type="text" class="form-control form-control-sm bg-body-secondary" disabled
+                                               value="{{ $kontakLabel ?: '—' }}">
                                     @else
                                         <x-search-select model="kontak" :value="$kontak" :selected-text="$kontakLabel"
-                                                          :endpoint="route('lookup.kontak')" placeholder="cari kontak…" />
-                                        @error('kontak') <div class="text-danger small">{{ $message }}</div> @enderror
+                                                         :endpoint="route('lookup.kontak')" placeholder="cari kontak…" />
                                     @endif
                                 </div>
                             </div>
-                            <div class="sj-field">
-                                <label class="form-label">Cabang Kirim</label>
-                                <div class="sj-input">
-                                    <select class="form-select form-select-sm" wire:model="cabangKirim" disabled>
-                                        <option value="">—</option>
-                                        @foreach ($branches as $b)
-                                            <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
-                                        @endforeach
-                                    </select>
-                                    <div class="form-text">Otomatis cabang Anda, tidak bisa diubah.</div>
-                                </div>
-                            </div>
-                            <div class="sj-field">
-                                <label class="form-label">Cabang Tujuan</label>
-                                <div class="sj-input">
-                                    <span class="badge text-bg-info fs-6">{{ $cabangTujuanLabel ?: '—' }}</span>
-                                    <div class="form-text">Otomatis dari PR sumber, tidak bisa diubah.</div>
-                                </div>
-                            </div>
-                            <div class="sj-field">
-                                <label class="form-label">Keterangan</label>
-                                <div class="sj-input">
-                                    <input type="text" class="form-control form-control-sm" wire:model="uraian">
-                                </div>
-                            </div>
-                        </fieldset>
-                    </div>
+                            @error('kontak') <div class="vb-err text-danger small">{{ $message }}</div> @enderror
 
-                    {{-- ===== Kolom kanan: info dokumen ===== --}}
-                    <div class="col-md-6">
-                        <div class="sj-field">
-                            <label class="form-label">Tanggal <span class="text-danger">*</span></label>
-                            <div class="sj-input">
-                                <input type="date" class="form-control form-control-sm" wire:model="tanggal" @disabled($locked)>
-                                @error('tanggal') <div class="text-danger small">{{ $message }}</div> @enderror
+                            <div class="vb-row">
+                                <label class="form-label">Gudang</label>
+                                <select class="form-select form-select-sm vb-ctl" wire:model="cabangKirim" disabled
+                                        title="Otomatis cabang Anda, tidak bisa diubah.">
+                                    <option value="">—</option>
+                                    @foreach ($branches as $b)
+                                        <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="vb-row">
+                                <label class="form-label">Gudang Tujuan</label>
+                                <input type="text" class="form-control form-control-sm vb-ctl bg-body-secondary"
+                                       value="{{ $cabangTujuanLabel ?: '—' }}" disabled
+                                       title="Otomatis dari PR asal (transitif lewat PKB), tidak bisa diubah.">
                             </div>
                         </div>
-                        <div class="sj-field">
-                            <label class="form-label">No. Transaksi</label>
-                            <div class="sj-input">
-                                <input type="text" class="form-control form-control-sm bg-body-secondary" value="{{ $nomor ?: '[otomatis]' }}" disabled>
-                            </div>
-                        </div>
-                        <div class="sj-field">
-                            <label class="form-label">Status</label>
-                            <div class="sj-input">
-                                <span class="badge {{ $statusBadge[0] }} fs-6">{{ $statusBadge[1] }}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
-                {{-- ---- Baris item (ditarik dari PKB, tidak bisa tambah bebas) ---- --}}
-                <hr class="my-3">
-                @php
-                    // Konversi TAMPILAN kolom Qty: "Qty Real / jumlah box", jumlah box =
-                    // qty real : `bitem.IQTYPERBOX` (permintaan user 2026-09-26).
-                    // Item ber-IQTYPERBOX 0 atau 1 TIDAK dikonversi - 0 tidak bisa jadi
-                    // pembagi, dan 1 box = 1 pcs jadi "/ 1 box" cuma jadi sampah visual
-                    // (5.016 dari 5.580 item nilainya 1).
-                    $ang = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, ',', '.'), '0'), ',');
-                    $box = fn ($qty, $perBox) => (float) $perBox > 1 ? (float) $qty / (float) $perBox : null;
-                @endphp
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead>
-                            <tr>
-                                <th style="width: 30%">Item</th>
-                                <th class="text-end" style="width: 110px">Qty Diminta</th>
-                                <th class="text-center" style="width: 130px">Qty Dikirim</th>
-                                <th style="width: 80px">Satuan</th>
-                                <th style="width: 150px">No Batch</th>
-                                <th>Catatan</th>
-                                @unless ($locked)
-                                    <th class="text-end" style="width: 90px">Real Stok</th>
-                                @endunless
-                                <th style="width: 36px"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($lines as $i => $l)
-                                <tr wire:key="line-{{ $l['item'] }}">
-                                    <td>
-                                        <div class="fw-semibold small">{{ $l['nama'] }}</div>
-                                        <div class="text-muted small">{{ $l['kode'] }}</div>
-                                    </td>
-                                    @php
-                                        $perBox = $l['qtyPerBox'] ?? 0;
-                                        $boxMinta = $box($l['sisa'], $perBox);
-                                        $boxKirim = $box($l['qty'], $perBox);
-                                        $tip = $perBox > 1 ? 'Isi ' . $ang($perBox) . ' per box' : null;
-                                    @endphp
-                                    <td class="text-end" @if ($tip) title="{{ $tip }}" @endif>
-                                        {{ $ang($l['sisa']) }}
-                                        @if ($boxMinta !== null)
-                                            <span class="text-muted small">/ {{ $ang($boxMinta) }} box</span>
-                                        @endif
-                                    </td>
-                                    <td>
-                                        <input type="number" min="0" step="any" max="{{ $l['sisa'] }}"
-                                               class="form-control form-control-sm text-center"
-                                               {{-- `.live` supaya konversi box (& Total di bawah)
-                                                    ikut berubah saat qty diketik; di-debounce
-                                                    spy tidak 1 request per ketikan. --}}
-                                               wire:model.live.debounce.400ms="lines.{{ $i }}.qty"
-                                               @disabled($locked)>
-                                        @if ($boxKirim !== null)
-                                            <div class="text-muted small text-center" title="{{ $tip }}">
-                                                / {{ $ang($boxKirim) }} box
-                                            </div>
-                                        @endif
-                                    </td>
-                                    <td class="text-muted small">{{ $l['satuanKode'] ?: '—' }}</td>
-                                    <td>
-                                        @if (! empty($l['serial']))
-                                            @php $bs = $l['batches'] ?? []; @endphp
-                                            <button type="button"
-                                                    class="btn btn-sm w-100 text-start {{ $bs === [] ? 'btn-outline-warning' : 'btn-outline-success' }}"
-                                                    wire:click="openBatch({{ $i }})">
-                                                <i class="fas fa-barcode me-1"></i>
-                                                {{ $bs === [] ? 'Pilih Batch' : (count($bs) === 1 ? $bs[0]['noBatch'] : count($bs) . ' batch') }}
-                                            </button>
-                                        @else
-                                            <span class="text-muted small">—</span>
-                                        @endif
-                                    </td>
-                                    <td>
-                                        <input type="text" class="form-control form-control-sm"
-                                               wire:model="lines.{{ $i }}.catatan" @disabled($locked)>
-                                    </td>
+                        {{-- ===== Kolom kanan: kotak ber-caption ===== --}}
+                        <div class="col-lg-5">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="vb-box">
+                                        <div class="cap">Tanggal</div>
+                                        <div class="isi">
+                                            <input type="date" class="form-control form-control-sm border-0 p-0 px-1"
+                                                   wire:model="tanggal" @disabled($locked)>
+                                        </div>
+                                    </div>
+                                    @error('tanggal') <div class="text-danger small">{{ $message }}</div> @enderror
+                                </div>
+                                <div class="col-6">
+                                    <div class="vb-box">
+                                        <div class="cap">No Transaksi</div>
+                                        <div class="isi">
+                                            <input type="text" class="form-control form-control-sm border-0 p-0 px-1"
+                                                   value="{{ $nomor ?: '[otomatis]' }}" disabled>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Tombol cari menempel di kotak "No PKB" - persis VB6, yg
+                                 `cmdCariSJOnline` letaknya memang di situ. Sejak daftar SJ
+                                 disederhanakan jadi satu tombol "Input Baru" (2026-10-10),
+                                 DI SINILAH satu-satunya tempat memilih PKB. --}}
+                            <div class="vb-box">
+                                <div class="cap">No PKB</div>
+                                <div class="isi d-flex align-items-center gap-1">
+                                    <input type="text" class="form-control form-control-sm border-0 p-0 px-1"
+                                           value="{{ $noPkb ?: '—' }}" disabled>
                                     @unless ($locked)
-                                        <td class="text-end">{{ rtrim(rtrim(number_format($l['stok'], 2), '0'), '.') }}</td>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                                wire:click="bukaCari('{{ $this::SUMBER_PKB_SJ }}')"
+                                                title="Cari PKB yang masih ada sisa qty"
+                                                @if (count($lines)) data-confirm="Ganti PKB? Baris yang sekarang — termasuk Qty yang sudah Anda ubah — akan diganti dengan isi PKB yang baru." @endif>
+                                            <i class="fas fa-magnifying-glass"></i>
+                                        </button>
                                     @endunless
-                                    <td class="text-center"></td>
+                                </div>
+                            </div>
+
+                            @unless ($locked || $pkbId)
+                                <div class="alert alert-info py-2 px-3 small mb-0">
+                                    <i class="fas fa-circle-info me-1"></i>
+                                    Pilih dulu PKB-nya lewat tombol <i class="fas fa-magnifying-glass"></i>
+                                    di <strong>No PKB</strong>.
+                                </div>
+                            @endunless
+                        </div>
+                    </div>
+
+                    {{-- VB6: txtKeterangan lebarnya 12060 twip, membentang di bawah kedua kolom. --}}
+                    <div class="vb-row mt-2">
+                        <label class="form-label">Keterangan</label>
+                        <input type="text" class="form-control form-control-sm vb-ctl-full" wire:model="uraian"
+                               @disabled($locked)>
+                    </div>
+
+                    @php
+                        $ang = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, ',', '.'), '0'), ',');
+
+                        // Pembagi konversi = `bitem.IQTYPERBOX`. VB6 saat MEMUAT SJ tersimpan
+                        // memakai `SDKELUAR/coalesce(IQTYPERBOX,1)` (baris 1136
+                        // `fFrmSuratJalanDepo.frm`), jadi 0/NULL diperlakukan sbg 1 - bukan
+                        // kolom kosong. Diikuti apa adanya di sini supaya Qty Depo selalu
+                        // terisi, sama spt yg user lihat di VB6. (Di jalur TARIK-DARI-PKB, VB6
+                        // membagi tanpa coalesce sehingga hasilnya NULL kalau IQTYPERBOX
+                        // kosong - itu bug-nya VB6, tidak ditiru.)
+                        $perBoxEfektif = fn ($p) => (float) $p > 0 ? (float) $p : 1.0;
+                    @endphp
+
+                    {{-- ---- Baris item (ditarik dari PKB, tidak bisa tambah bebas) ----
+                         Acuan VB6-nya **menu 728 `fFrmSuratJalanDepo`** ("Surat Jalan Pabrik"),
+                         DIBETULKAN oleh user 2026-10-10 - sebelumnya salah ambil menu 442
+                         `fFrmSuratJalan`. `FormatString` grid-nya:
+                         <Kode|<Nama|>Qty PKB|<Satuan|>Qty Keluar|<Satuan|>Qty Konversi|<Satuan|
+                         QtyDasar|SatuanDasar|Konversi|<Id PO|<Id PKB|<Pakai Batch|<No Batch|
+                         <Satuan Unit|<Keterangan|<ID PO
+
+                         Tidak ikut: kolom simpanan tak kasatmata (QtyDasar/SatuanDasar/Konversi/
+                         Id PO/Id PKB/Pakai Batch/ID PO).
+
+                         **Konversi box** ditampilkan sbg DUA KOLOM - `Qty Perbox` (IQTYPERBOX) dan
+                         `Qty Depo` (Qty Keluar : Qty Perbox) - permintaan user 2026-10-10. Ini
+                         MENGGANTI tampilan menyatu "100 / 5 box" di kolom Qty (keputusan
+                         2026-09-26); jangan dikembalikan. Penamaannya mengikuti user, bukan VB6:
+                         di VB6 kolom hasil-bagi ini bernama "Qty Keluar" (satuan depo) dan kolom
+                         satuan dasarnya "Qty Konversi" - membingungkan krn di sini "Qty Keluar"
+                         adalah isian satuan dasar.
+
+                         **Kode & Nama digabung** jadi satu kolom (lihat `x-nama-produk`): 74% item
+                         aktif `IKODE`-nya persis sama dgn `INAMA`, dan dua kolom terpisah saling
+                         menyempitkan. Sama spt yg sudah dilakukan di form PKB.
+
+                         Kolom **Stok** pernah ada di sini sbg tambahan (bantu memutuskan berapa yg
+                         sanggup dikirim); DIBUANG atas permintaan user 2026-10-10 - VB6 tidak punya
+                         kolom itu di layar ini. Jangan dipasang lagi. --}}
+                    <div class="table-responsive vb-grid-area mt-3">
+                        <table class="table table-sm table-bordered align-middle vb-grid">
+                            <thead>
+                                <tr>
+                                    <th>Nama Produk</th>
+                                    <th class="text-end" style="width: 110px">Qty PKB</th>
+                                    <th class="text-end" style="width: 120px">Qty Keluar</th>
+                                    <th style="width: 65px">Satuan</th>
+                                    <th class="text-end" style="width: 90px">Qty Perbox</th>
+                                    <th class="text-end" style="width: 95px">Qty Depo</th>
+                                    <th style="width: 140px">No Batch</th>
+                                    <th style="width: 18%">Keterangan</th>
                                 </tr>
-                            @empty
-                                <tr><td colspan="8" class="text-center text-muted py-4">Tidak ada item tersisa dari PKB ini.</td></tr>
-                            @endforelse
-                        </tbody>
-                        @if (count($lines))
-                            <tfoot>
-                                <tr class="fw-semibold">
-                                    <td class="text-end">Total Qty Dikirim</td>
-                                    <td></td>
-                                    <td class="text-center">
-                                        {{ $ang($totalQty) }}
-                                        @if ($totalBox > 0)
-                                            {{-- Total box = jumlah box SEMUA baris yg punya
-                                                 isi per box; baris tanpa konversi tidak ikut. --}}
-                                            <span class="text-muted small">/ {{ $ang($totalBox) }} box</span>
-                                        @endif
-                                    </td>
-                                    <td colspan="{{ $locked ? 4 : 5 }}"></td>
-                                </tr>
-                            </tfoot>
-                        @endif
-                    </table>
+                            </thead>
+                            <tbody>
+                                @forelse ($lines as $i => $l)
+                                    <tr wire:key="line-{{ $l['item'] }}">
+                                        <td><x-nama-produk :kode="$l['kode']" :nama="$l['nama']" /></td>
+                                        @php $perBox = $perBoxEfektif($l['qtyPerBox'] ?? 0); @endphp
+                                        <td class="text-end">{{ $ang($l['sisa']) }}</td>
+                                        <td>
+                                            <input type="number" min="0" step="any" max="{{ $l['sisa'] }}"
+                                                   class="form-control form-control-sm text-end"
+                                                   {{-- `.live` supaya Qty Depo (& Total di bawah)
+                                                        ikut berubah saat qty diketik; di-debounce
+                                                        spy tidak 1 request per ketikan. --}}
+                                                   wire:model.live.debounce.400ms="lines.{{ $i }}.qty"
+                                                   @disabled($locked)>
+                                        </td>
+                                        <td>{{ $l['satuanKode'] ?: '—' }}</td>
+                                        <td class="text-end">{{ $ang($perBox) }}</td>
+                                        <td class="text-end">{{ $ang((float) $l['qty'] / $perBox) }}</td>
+                                        <td>
+                                            @if (! empty($l['serial']))
+                                                @php $bs = $l['batches'] ?? []; @endphp
+                                                <button type="button"
+                                                        class="btn btn-sm w-100 text-start {{ $bs === [] ? 'btn-outline-warning' : 'btn-outline-success' }}"
+                                                        wire:click="openBatch({{ $i }})">
+                                                    <i class="fas fa-barcode me-1"></i>
+                                                    {{ $bs === [] ? 'Pilih Batch' : (count($bs) === 1 ? $bs[0]['noBatch'] : count($bs) . ' batch') }}
+                                                </button>
+                                            @else
+                                                <span class="text-muted">—</span>
+                                            @endif
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   wire:model="lines.{{ $i }}.catatan" @disabled($locked)>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="8" class="text-center text-muted py-4">Tidak ada item tersisa dari PKB ini.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {{-- VB6 menampilkan Total Qty Masuk DAN Total Qty Keluar; di Surat Jalan
+                         hanya yg Keluar yg punya arti - barangnya keluar, bukan masuk. --}}
+                    <div class="vb-total">
+                        <span>Total Qty Keluar</span>
+                        <span class="nilai">{{ $ang($totalQty) }}</span>
+                        <span>Total Qty Depo</span>
+                        <span class="nilai">{{ $ang($totalDepo) }}</span>
+                    </div>
                 </div>
             </div>
         </div>
     </form>
+
+    {{-- Dialog "Cari Transaksi" sumber RS_SJ - dipakai bersama form KMB/TMB/PKB,
+         lihat trait `App\Livewire\Concerns\CariTransaksi`. --}}
+    @if ($ctShow)
+        <x-cari-transaksi :branches="$branches" :kolom="$this->ctKolom()" :hasil="$ctHasil"
+                          :pilih="$ctPilih" :total-tanpa-saringan="$ctTotalTanpaSaringan"
+                          :batas="$ctBatas" :cabang="$ctCabang"
+                          :cabang-terkunci="$this->ctCabangTerkunci()"
+                          :pakai-kode-produk="$this->ctPakaiKodeProduk()" />
+    @endif
 
     @if ($showBatch && $batchIdx !== null && isset($lines[$batchIdx]))
         @php
@@ -300,5 +362,14 @@
                 @endunless
             </div>
         </x-lw-modal>
+    @endif
+    {{-- Dialog "Cari Transaksi" sumber RS_SJ - dipakai bersama form KMB/TMB/PKB,
+         lihat trait `App\Livewire\Concerns\CariTransaksi`. --}}
+    @if ($ctShow)
+        <x-cari-transaksi :branches="$branches" :kolom="$this->ctKolom()" :hasil="$ctHasil"
+                          :pilih="$ctPilih" :total-tanpa-saringan="$ctTotalTanpaSaringan"
+                          :batas="$ctBatas" :cabang="$ctCabang"
+                          :cabang-terkunci="$this->ctCabangTerkunci()"
+                          :pakai-kode-produk="$this->ctPakaiKodeProduk()" />
     @endif
 </div>

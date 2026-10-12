@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Livewire\Concerns\CariTransaksi;
 use App\Models\Branch;
 use App\Services\KmbWriter;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,8 @@ use Livewire\Component;
  */
 class KmbForm extends Component
 {
+    use CariTransaksi;
+
     public ?string $tabKey = null;
     public ?int $kmbId = null;
     public ?int $prId = null; // PR sumber (SUPBUID) - TIDAK bisa diubah stlh dibuat
@@ -122,6 +125,44 @@ class KmbForm extends Component
         $this->lines = $data['lines'];
     }
 
+    protected function hakCari(): bool
+    {
+        return can_do('inventory/kmb', 'add');
+    }
+
+    /**
+     * Pilih/ganti rujukan selagi mengisi, lewat dialog "Cari Transaksi" DI FORM INI -
+     * persis VB6, yg kedua tombol carinya memang menempel di form: `cmdCariSJOnline` di
+     * sebelah "No PO" (PR) dan `cmdCariNoReff` di sebelah "No Job Order" (JOP). Sejak
+     * 2026-10-10 inilah SATU-SATUNYA cara memilih rujukan - daftar KMB cuma punya tombol
+     * "Input Baru" yg membuka form kosong.
+     *
+     * Dua hal yg HARUS ikut dibereskan, dan di VB6 tidak dilakukan:
+     * 1. Baris lama DIBUANG dan diganti baris rujukan baru - termasuk Qty Keluar yg sudah
+     *    sempat diubah user. Peringatannya ada di tombol (lihat kmb-form.blade.php).
+     * 2. Rujukan yg SATUNYA DILEPAS - satu KMB hanya boleh lahir dari SALAH SATU sumber
+     *    (`KmbWriter` menulis `SUPBUID` ATAU `SUIDJOP`, tidak pernah keduanya).
+     */
+    protected function terapkanCari(string $sumber, int $id, string $nomor): void
+    {
+        // KMB tersimpan SELALU read-only - jangan sampai bisa ditukar sumbernya.
+        if ($this->locked) {
+            return;
+        }
+
+        if ($sumber === self::SUMBER_JOP) {
+            $this->prId = null;
+            $this->noPr = null;
+            $this->pullFromJop($id);
+        } else {
+            $this->jopId = null;
+            $this->noJop = null;
+            $this->pullFromPr($id);
+        }
+
+        $this->dispatch('toast', message: 'Baris diisi dari ' . $nomor . '.', type: 'success');
+    }
+
     /**
      * KMB BARU dari JOP/JOT - tarik baris BAHAN (`PDKELUAR`) yg masih bersisa.
      * Port `fFrmKirimMutasiBarang::cmdCariNoReff_Click`, lihat `KmbWriter::fromJop()`.
@@ -162,7 +203,7 @@ class KmbForm extends Component
         // Jangan `return` diam-diam - tombol Simpan yg mati tanpa sebab sudah pernah jadi
         // laporan "tidak respon" di modul lain.
         if (! $this->prId && ! $this->jopId) {
-            $this->addError('lines', 'KMB harus ditarik dari PR atau JOP - tutup tab ini dan mulai dari daftar KMB.');
+            $this->addError('lines', 'KMB harus ditarik dari PR atau JOP dulu - pakai tombol cari di kotak "No PO" atau "No Job Order" di atas.');
 
             return;
         }

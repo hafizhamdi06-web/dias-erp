@@ -1,0 +1,217 @@
+/* ============================================================================
+   Tata letak form ala VB6 - dipakai form2 entri yg menirukan layar legacy
+   (`fFrmPermintaanBarang2.frm`, `fFrmKirimMutasiBarang.frm`, dst).
+
+   Permintaan user 2026-10-10: beberapa user menilai tampilan sistem baru "sangat
+   berbeda" dgn sistem yg sedang berjalan. Yg ditiru: KERAPATAN, URUTAN & LETAK
+   field, kotak ber-caption, susunan kolom grid, dan WARNA LATAR. Kontrolnya
+   sendiri tetap kontrol Bootstrap biasa (pilihan user: "tata letak VB6, gaya
+   tetap bersih").
+
+   Berkas STATIS di `public/`, bukan `resources/css/app.css`: app.css itu Tailwind
+   dan TIDAK dimuat layout ini (layout pakai Bootstrap CDN + AdminLTE). Juga bukan
+   `@push('styles')` - tab Workspace bisa dibuka BELAKANGAN lewat permintaan
+   Livewire, saat stack layout sudah selesai dirender, jadi gaya-nya tidak ikut
+   terpasang. Berkas statis di layout selalu ada.
+   ============================================================================ */
+
+/* ---- Warna. Nilainya dari konstanta sistem Windows yg dipakai VB6 (form VB6
+   tidak menyetel BackColor sendiri = COLOR_BTNFACE). ---- */
+:root {
+    --vb-face: #f0f0f0;        /* COLOR_BTNFACE - latar form */
+    --vb-grid-empty: #c0c0c0;  /* area kosong di bawah baris grid */
+    --vb-line: #a0a0a0;        /* garis kotak & grid */
+    --vb-title-1: #b8b8b8;     /* strip judul (gradasi) */
+    --vb-title-2: #8f8f8f;
+    --vb-title-text: #ffffff;
+}
+
+/* Mode gelap: abu-abu VB6 akan menyilaukan & merusak kontras, jadi semuanya
+   dikembalikan ke variabel Bootstrap. Tata letaknya tetap sama. */
+[data-bs-theme="dark"] {
+    --vb-face: var(--bs-body-bg);
+    --vb-grid-empty: var(--bs-tertiary-bg);
+    --vb-line: var(--bs-border-color);
+    --vb-title-1: var(--bs-secondary-bg);
+    --vb-title-2: var(--bs-secondary-bg);
+    --vb-title-text: var(--bs-body-color);
+}
+
+/* ---- Kerangka form ---- */
+.vb-form { font-size: .8125rem; background: var(--vb-face); }
+.vb-card > .card-body { background: var(--vb-face); }
+
+/* Strip judul abu-abu bergradasi dgn teks putih tebal, spt caption VB6. */
+.vb-card > .card-header {
+    background: linear-gradient(var(--vb-title-1), var(--vb-title-2));
+    border-bottom: 1px solid var(--vb-line);
+    color: var(--vb-title-text);
+    padding: .25rem .5rem;
+}
+.vb-card > .card-header .card-title { font-weight: 700; }
+
+/* ---- Baris label + field ----
+   Label di KIRI (bukan di atas) dan field berlebar TETAP: di VB6 field-nya 3090
+   twip (~206px) dan TIDAK melar mengikuti lebar kolom. */
+.vb-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .25rem; min-height: 1.9rem; }
+.vb-row > label { flex: 0 0 9rem; max-width: 9rem; margin-bottom: 0; }
+.vb-ctl { width: 13rem; }
+.vb-ctl-wide { width: 23.5rem; max-width: 100%; }
+.vb-ctl-full { width: 100%; }
+.vb-sela { height: .6rem; }                       /* jarak antar kelompok field */
+.vb-err { margin-left: 9.5rem; }
+
+/* ---- Kotak ber-caption (padanan SSPanel ber-caption di VB6) ---- */
+.vb-box { border: 1px solid var(--vb-line); border-radius: .25rem; margin-bottom: .5rem; background: var(--bs-body-bg); }
+.vb-box > .cap {
+    text-align: center; font-size: .75rem; padding: .1rem .25rem;
+    border-bottom: 1px solid var(--vb-line); background: var(--vb-face);
+}
+.vb-box > .isi { padding: .25rem; }
+.vb-box .form-control { background: transparent; }
+
+/* ---- Grid ----
+   Rapat, bergaris penuh, angka rata kanan. Area di bawah baris terakhir berwarna
+   abu-abu sedang spt grid VB6 - bukan putih kosong. */
+.vb-grid-area { min-height: 16rem; background: var(--vb-grid-empty); border: 1px solid var(--vb-line); }
+.vb-grid { font-size: .8125rem; background: var(--bs-body-bg); margin-bottom: 0; }
+.vb-grid > :not(caption) > * > * { padding: .15rem .4rem; border-color: var(--vb-line); }
+.vb-grid thead th { background: var(--vb-face); font-weight: 600; white-space: nowrap; }
+/* Judul kolom yg panjang: boleh turun dua baris. Tanpa ini `nowrap` di atas memaksa
+   kolomnya selebar judulnya - "Pemakaian Bln Lalu" saja sudah ~110px, dan ruang itu
+   dirampas dari kolom Nama. Dipakai supaya judulnya tetap kata penuh, bukan disingkat. */
+.vb-grid thead th.th-wrap { white-space: normal; }
+.vb-grid tbody tr:hover > * { background: var(--bs-primary-bg-subtle); }
+.vb-grid .form-control-sm { padding: .05rem .35rem; font-size: .8125rem; }
+
+/* Total di tengah bawah grid, spt VB6 (bukan di kaki tabel). */
+.vb-total { display: flex; justify-content: center; gap: 2.5rem; padding-top: .4rem; }
+.vb-total .nilai { font-weight: 600; }
+
+/* ============================================================================
+   Baris saringan di kepala daftar - permintaan user 2026-10-10: "filter Tanggal
+   jangan turun ke bawah".
+
+   Dua sebabnya: kontrolnya kebesaran, dan kedua kotak tanggal berdiri sendiri-
+   sendiri sehingga yang kedua bisa terpisah ke baris berikutnya. Keduanya
+   diurus di sini - lebar diatur lewat kelas (bukan `style="max-width"` per
+   kontrol, yang tidak bisa ditimpa stylesheet), dan tanggalnya dibungkus
+   kelompok yang TIDAK BOLEH pecah.
+   ============================================================================ */
+.vb-filter { font-size: .8125rem; }
+.vb-filter .form-control,
+.vb-filter .form-select,
+.vb-filter .input-group-text { font-size: .8125rem; padding-top: .15rem; padding-bottom: .15rem; }
+
+/* Lebar baku tiap jenis kontrol - cukup untuk isinya, tidak lebih.
+   Kotak pencarian sengaja LENTUR: dialah yang mengalah duluan saat ruangnya kurang,
+   supaya yang berukuran pas (pilihan & tanggal) tidak terdorong turun. */
+.vb-filter .f-cari { flex: 1 1 8rem; min-width: 7rem; max-width: 13rem; }
+.vb-filter .f-pilih { width: 8.5rem; }
+.vb-filter .f-pilih-lebar { width: 10rem; }
+/* 8.2rem = 131px: cukup untuk "31/10/2026" + ikon pemilih tanggal bawaan peramban. */
+.vb-filter input[type="date"] { width: 8.2rem; min-width: 8.2rem; }
+
+/* Pasangan tanggal: boleh pindah baris BERSAMA, tapi tidak pernah terbelah. */
+.vb-filter .vb-tanggal { display: flex; flex-wrap: nowrap; gap: .5rem; align-items: center; }
+
+/* ============================================================================
+   Daftar (layar "Data ...") - permintaan user 2026-10-10: "dibuat lebih rapat
+   lagi, font disamakan untuk semua kolom".
+
+   Di grid VB6 SEMUA kolom satu font & satu ukuran; yg membedakan cuma WARNA per
+   kolom. Versi Bootstrap sebelumnya mencampur `small` + `text-muted` di sebagian
+   kolom saja, jadi tiap kolom terlihat beda besar & beda abu-abu.
+   ============================================================================ */
+/* 0.75rem = 12px. VB6 memakai Tahoma 8.25pt (~11px); tidak diturunkan sampai ke sana
+   karena di layar modern ber-DPI tinggi 11px sudah di ambang terbaca, sedangkan grid ini
+   dipelototi seharian. Kalau masih terasa besar, turunkan DI SINI saja - seluruh layar
+   daftar ikut. */
+.vb-list { font-size: .75rem; margin-bottom: 0; }
+
+/* Rapat: padding kecil, baris tidak melar. */
+.vb-list > :not(caption) > * > * { padding: .2rem .45rem; border-color: var(--vb-line); }
+
+/* Judul kolom: abu-abu rata spt header grid VB6, menempel saat digulir. */
+.vb-list thead th {
+    background: var(--vb-face); font-weight: 600; white-space: nowrap;
+    position: sticky; top: 0; z-index: 2;
+}
+
+/* **Inti permintaannya**: semua sel satu font & satu ukuran. Kelas pengecil/
+   pengabu Bootstrap yg terlanjur menempel di sebagian kolom dinetralkan di sini
+   supaya tidak perlu diburu satu per satu di tiap view. */
+.vb-list td, .vb-list th { font-size: inherit; }
+.vb-list td.small, .vb-list td .small { font-size: inherit; }
+.vb-list td.text-muted, .vb-list td .text-muted { color: inherit; }
+
+/* Tombol aksi ikut mengecil supaya tidak menggelembungkan tinggi baris - ikonnya yg
+   menentukan tinggi, jadi harus turun bersama font selnya. */
+.vb-list .btn-sm { padding: .05rem .28rem; font-size: .7rem; line-height: 1.3; }
+.vb-list tbody tr:hover > * { background: var(--bs-primary-bg-subtle); }
+
+/* Status sbg TEKS berwarna, bukan badge - badge punya ukuran font sendiri
+   (0.75em) dan latar blok, jadi merusak keseragaman yg diminta. */
+.vb-list .status { font-weight: 600; white-space: nowrap; }
+
+/* ============================================================================
+   `.vb-rapat` - KECILKAN & RAPATKAN saja (permintaan user 2026-10-12 utk layar JOP
+   & Produksi: "jenis font dipertahankan, hanya font size dikecilkan dan lebih
+   dirapatkan").
+
+   SENGAJA TERPISAH dari `.vb-form`. `.vb-form` ikut membawa tampilan VB6 - latar abu-abu
+   COLOR_BTNFACE, strip judul bergradasi, label kiri berlebar tetap. Layar JOP & Produksi
+   BELUM dialihkan ke tata letak VB6, jadi memakainya di sini akan mengubah jauh lebih
+   banyak daripada yg diminta.
+
+   Yg TIDAK disentuh di sini: `font-family` (tetap font aplikasi), warna, lebar kolom,
+   dan susunan field. Murni ukuran + kerapatan.
+   ============================================================================ */
+.vb-rapat { font-size: .8125rem; }
+
+/* Kontrol isian & tombol ikut turun. `em`, bukan `rem`, supaya kalau ukuran dasar di atas
+   diubah sekali, semuanya ikut tanpa perlu disetel satu per satu. */
+.vb-rapat .form-control,
+.vb-rapat .form-select,
+.vb-rapat .input-group-text,
+.vb-rapat .btn { font-size: 1em; }
+.vb-rapat .form-control-sm,
+.vb-rapat .form-select-sm { padding: .15rem .4rem; }
+.vb-rapat .btn-sm { padding: .15rem .45rem; }
+
+/* Label & teks bantu: jarak bawahnya yg paling banyak memakan ruang vertikal. */
+.vb-rapat .form-label { margin-bottom: .1rem; }
+.vb-rapat .form-text { margin-top: .1rem; font-size: .9em; }
+
+/* Jarak antar baris kisi Bootstrap - `row g-3` di form ini ~1rem, terlalu lega. */
+.vb-rapat .row { --bs-gutter-y: .4rem; }
+
+/* Tabel: padding sel dirapatkan & semua sel satu ukuran, spt layar daftar. */
+.vb-rapat .table { font-size: 1em; margin-bottom: 0; }
+.vb-rapat .table > :not(caption) > * > * { padding: .2rem .4rem; }
+.vb-rapat .table td.small, .vb-rapat .table td .small,
+.vb-rapat .table th.small { font-size: inherit; }
+.vb-rapat .table .btn-sm { padding: .05rem .28rem; font-size: .9em; line-height: 1.3; }
+
+/* Kartu & modal: padding bawaannya 1rem, ikut dikecilkan supaya rapatnya terasa. */
+.vb-rapat > .card > .card-body,
+.vb-rapat .card > .card-body { padding: .6rem .75rem; }
+.vb-rapat .card > .card-header { padding: .35rem .75rem; }
+.vb-rapat .modal-body { padding: .6rem .75rem; }
+
+/* Pemisah antar bagian - `hr.my-3` = 1rem atas-bawah. */
+.vb-rapat hr { margin-top: .6rem; margin-bottom: .6rem; }
+
+/* `fs-6` = 1rem MUTLAK, jadi badge yg memakainya tidak ikut mengecil & malah jadi lebih
+   besar dari teks di sebelahnya. Dikembalikan ke ukuran induknya. Dua kelas di pemilih
+   ini sudah cukup mengalahkan `.fs-6` bawaan Bootstrap - tidak perlu `!important`. */
+.vb-rapat .badge.fs-6 { font-size: 1em; }
+.vb-rapat .badge { padding: .25em .5em; }
+
+/* Baris label+field milik layar JOP & Produksi. Keduanya masih memakai kelas sendiri
+   (`<style>` di dalam blade-nya) krn BELUM dialihkan ke tata letak VB6; begitu nanti
+   pindah ke `.vb-row`, dua aturan di bawah ini bisa dihapus. */
+.vb-rapat .jop-field,
+.vb-rapat .pro-field { margin-bottom: .25rem; }
+.vb-rapat .jop-field > label,
+.vb-rapat .pro-field > label { padding-top: .15rem; }

@@ -27,13 +27,13 @@
 
     <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div class="d-flex flex-wrap gap-2">
-                <div class="input-group input-group-sm" style="max-width: 240px">
+            <div class="d-flex flex-wrap gap-2 vb-filter">
+                <div class="input-group input-group-sm f-cari">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" placeholder="no PO / vendor / no ref"
                            wire:model.live.debounce.400ms="search">
                 </div>
-                <select class="form-select form-select-sm" style="max-width: 160px" wire:model.live="fStatus">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fStatus">
                     {{-- Nilai HARUS cocok dgn PoList::statusExpr(). (Dulu "Aktif" bernilai 1 -
                          salah, tidak ada status 1, jadi filternya selalu nihil.) --}}
                     <option value="">Semua status</option>
@@ -42,14 +42,18 @@
                     <option value="3">Selesai</option>
                     <option value="9">Batal</option>
                 </select>
-                <select class="form-select form-select-sm" style="max-width: 180px" wire:model.live="fCabang">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fCabang">
                     <option value="">Semua cabang</option>
                     @foreach ($branches as $b)
                         <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                     @endforeach
                 </select>
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fFrom">
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fTo">
+                {{-- Dibungkus `.vb-tanggal` supaya pasangan tanggalnya tidak pernah terbelah
+                     ke baris berikutnya - sama spt daftar PR/KMB/TMB/SJ. --}}
+                <div class="vb-tanggal">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fFrom">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fTo">
+                </div>
             </div>
             <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary btn-sm" wire:click="$refresh" title="Muat ulang daftar">
@@ -61,21 +65,23 @@
             </div>
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+            <table class="table table-bordered align-middle vb-list">
                 <thead><tr>
                     <th>Nomor</th><th>Tanggal</th><th>Vendor</th><th>Gudang</th><th class="text-end">Total</th>
-                    <th class="text-center">Status</th><th class="text-end">Aksi</th>
+                    <th>Status</th><th class="text-end">Aksi</th>
                 </tr></thead>
                 <tbody>
                     @forelse ($rows as $r)
                         @php [$bg, $lbl] = $statusBadge($r->status); @endphp
                         <tr wire:key="po-{{ $r->id }}">
                             <td>{{ $r->nomor }}</td>
-                            <td class="text-muted small">{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
                             <td>{{ $r->vendor ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
+                            <td>{{ $r->cabang ?: '—' }}</td>
                             <td class="text-end">{{ number_format($r->total, 0, ',', '.') }}</td>
-                            <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
+                            <td><x-status-teks :bg="$bg" :teks="$lbl" /></td>
                             <td class="text-end text-nowrap">
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editPo({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-{{ (int) $r->status === 0 ? 'pen' : 'eye' }}"></i>
@@ -110,12 +116,18 @@
     @if ($showHistory)
         <x-lw-modal :show="$showHistory" title="Histori Penerimaan — {{ $historyNomor }}" close="closeHistory">
             <div class="modal-body">
+                @php $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, ',', '.'), '0'), ','); @endphp
+                {{-- Gaya ringkas `.vb-list` spt layar daftar (permintaan user 2026-10-10):
+                     satu font utk SEMUA kolom. Sebelumnya isi modal ini mencampur `small`,
+                     `text-muted` & badge sehingga tiap kolom tampak beda ukuran - persis
+                     keluhan yg dulu diperbaiki di layar daftarnya. --}}
                 <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
+                    <table class="table table-bordered align-middle vb-list">
+                        <thead>
                             <tr>
                                 <th style="width: 28%">Item</th>
                                 <th class="text-end" style="width: 90px">Qty Order</th>
+                                <th style="width: 60px">Satuan</th>
                                 <th class="text-end" style="width: 100px">Diterima</th>
                                 <th class="text-end" style="width: 90px">Sisa</th>
                                 <th>Penerimaan (PB)</th>
@@ -123,26 +135,31 @@
                         </thead>
                         <tbody>
                             @forelse ($historyLines as $l)
-                                @php $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, ',', '.'), '0'), ','); @endphp
                                 <tr wire:key="hist-{{ $loop->index }}">
-                                    <td>
-                                        <div class="fw-semibold small">{{ $l['nama'] }}</div>
-                                        <div class="text-muted small">{{ $l['item'] }}</div>
-                                    </td>
-                                    <td class="text-end">{{ $fmt($l['qtyOrder']) }} <span class="text-muted small">{{ $l['satuan'] }}</span></td>
+                                    {{-- Kode & nama digabung satu kolom spt di form PKB/SJ - dua
+                                         kolom terpisah saling menyempitkan. --}}
+                                    <td><x-nama-produk :kode="$l['item']" :nama="$l['nama']" /></td>
+                                    <td class="text-end">{{ $fmt($l['qtyOrder']) }}</td>
+                                    {{-- Satuan dikeluarkan jadi kolom sendiri: dulu menempel di
+                                         kolom Qty Order dgn font lebih kecil, jadi angkanya tidak
+                                         sejajar antar baris. --}}
+                                    <td>{{ $l['satuan'] ?: '—' }}</td>
                                     <td class="text-end fw-semibold">{{ $fmt($l['qtyTerima']) }}</td>
-                                    <td class="text-end {{ $l['sisa'] > 0 ? 'text-warning fw-semibold' : 'text-muted' }}">
+                                    {{-- `-emphasis`, bukan `text-warning` polos: terlalu pucat di
+                                         latar terang (pelajaran yg sama dgn `x-status-teks`). --}}
+                                    <td class="text-end {{ $l['sisa'] > 0 ? 'text-warning-emphasis fw-semibold' : '' }}">
                                         {{ $fmt($l['sisa']) }}
                                     </td>
                                     <td>
                                         @forelse ($l['penerimaan'] as $p)
-                                            <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+                                            <div class="d-flex justify-content-between align-items-center gap-2
+                                                        {{ $loop->last ? '' : 'border-bottom' }} py-1">
                                                 <div>
-                                                    <span class="font-monospace small fw-semibold">{{ $p['nomor'] }}</span>
+                                                    <span class="font-monospace fw-semibold">{{ $p['nomor'] }}</span>
                                                     @if ($p['batal'])
-                                                        <span class="badge text-bg-danger ms-1">Batal</span>
+                                                        <x-status-teks bg="text-bg-danger" teks="Batal" class="ms-1" />
                                                     @endif
-                                                    <div class="text-muted small">
+                                                    <div>
                                                         {{ \Carbon\Carbon::parse($p['tanggal'])->format('d/m/Y') }}
                                                         @if ($p['noInvoice']) · Inv: {{ $p['noInvoice'] }} @endif
                                                     </div>
@@ -150,12 +167,12 @@
                                                 <span class="fw-semibold">{{ $fmt($p['qty']) }}</span>
                                             </div>
                                         @empty
-                                            <span class="text-muted small">Belum pernah diterima.</span>
+                                            Belum pernah diterima.
                                         @endforelse
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="5" class="text-center text-muted py-4">PO ini tidak punya baris item.</td></tr>
+                                <tr><td colspan="6" class="text-center text-muted py-4">PO ini tidak punya baris item.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

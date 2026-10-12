@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Livewire\Concerns\CariTransaksi;
 use App\Models\Branch;
 use App\Services\SerialBatch;
 use App\Services\TmbWriter;
@@ -16,6 +17,8 @@ use Livewire\Component;
  */
 class TmbForm extends Component
 {
+    use CariTransaksi;
+
     public ?string $tabKey = null;
     public ?int $tmbId = null;
     public ?int $kmbId = null; // KMB sumber (SUPRUID) - TIDAK bisa diubah stlh dibuat
@@ -219,6 +222,39 @@ class TmbForm extends Component
         $this->fillTraceability();
     }
 
+    protected function hakCari(): bool
+    {
+        return can_do('inventory/tmb', 'add');
+    }
+
+    /** Dialog ini cuma punya satu sumber - TMB selalu lahir dari KMB. */
+    protected function sumberCari(): array
+    {
+        return [self::SUMBER_KMB];
+    }
+
+    /**
+     * Pilih/ganti KMB selagi mengisi, lewat dialog "Cari Transaksi" DI FORM INI - persis
+     * VB6, yg `fFrmPenerimaanMutasi::cmdCariNoReff` menempel di kotak "No Kirim Mutasi
+     * Barang" lalu memanggil `TampilkanRetur` utk mengisi ulang grid. Sejak 2026-10-10
+     * inilah SATU-SATUNYA cara memilih KMB - daftar TMB cuma punya tombol "Input Baru".
+     *
+     * Baris lama DIBUANG dan diganti baris KMB baru - termasuk Qty Masuk dan **No Batch**
+     * yg sudah sempat diisi user. Peringatannya ada di tombol (lihat tmb-form.blade.php).
+     */
+    protected function terapkanCari(string $sumber, int $id, string $nomor): void
+    {
+        // TMB tersimpan SELALU read-only - jangan sampai bisa ditukar sumbernya.
+        if ($this->locked) {
+            return;
+        }
+
+        $this->noPr = null;
+        $this->pullFromKmb($id);
+
+        $this->dispatch('toast', message: 'Baris diisi dari KMB ' . $nomor . '.', type: 'success');
+    }
+
     /** No PR asal - TRANSITIF via KMB->SUPBUID (TMB sendiri tidak py referensi PR). */
     private function fillTraceability(): void
     {
@@ -247,7 +283,15 @@ class TmbForm extends Component
 
     public function save(TmbWriter $writer): void
     {
-        if ($this->locked || ! $this->kmbId) {
+        if ($this->locked) {
+            return;
+        }
+        // Jangan `return` diam-diam - tombol Simpan yg mati tanpa sebab sudah pernah jadi
+        // laporan "tidak respon" di modul lain. Sejak form bisa dibuka KOSONG (2026-10-10)
+        // keadaan ini jadi wajar, jadi harus dijelaskan.
+        if (! $this->kmbId) {
+            $this->addError('lines', 'Pilih dulu KMB yang mau diterima - pakai tombol cari di kotak "No Kirim Mutasi Barang" di atas.');
+
             return;
         }
         $this->validate();

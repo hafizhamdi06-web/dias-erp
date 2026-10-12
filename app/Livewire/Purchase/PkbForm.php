@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Livewire\Concerns\CariTransaksi;
 use App\Models\Branch;
 use App\Services\PkbWriter;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,8 @@ use Livewire\Component;
  */
 class PkbForm extends Component
 {
+    use CariTransaksi;
+
     public ?string $tabKey = null;
     public ?int $pkbId = null;
     public ?int $prId = null; // PR sumber (PKBUNORS) - TIDAK bisa diubah stlh dibuat
@@ -123,6 +126,39 @@ class PkbForm extends Component
     }
 
     /** PKB BARU - tarik header+baris dari PR yg sudah Disetujui (lihat PkbWriter::fromPr()). */
+    protected function hakCari(): bool
+    {
+        return can_do('purchase/pkb', 'add');
+    }
+
+    /** Dialog ini cuma punya satu sumber - PKB selalu lahir dari PR yg sudah Disetujui. */
+    protected function sumberCari(): array
+    {
+        return [self::SUMBER_PR_PKB];
+    }
+
+    /**
+     * Pilih/ganti PR selagi mengisi, lewat dialog "Cari Transaksi" DI FORM INI - persis
+     * VB6, yg `fFrmPermintaanBarang::cmdCariPermintaan` menempel di kotak No Permintaan
+     * lalu memanggil `TampilkanRS` utk mengisi ulang grid. Sejak 2026-10-10 inilah
+     * SATU-SATUNYA cara memilih PR - daftar PKB cuma punya tombol "Input Baru".
+     *
+     * Baris lama DIBUANG dan diganti baris PR baru - termasuk Qty yg sudah sempat diubah
+     * user. Peringatannya ada di tombol (lihat pkb-form.blade.php).
+     */
+    protected function terapkanCari(string $sumber, int $id, string $nomor): void
+    {
+        // PKB tersimpan read-only - jangan sampai sumbernya bisa ditukar.
+        if ($this->locked) {
+            return;
+        }
+
+        $this->lines = [];
+        $this->pullFromPr($id);
+
+        $this->dispatch('toast', message: 'Baris diisi dari PR ' . $nomor . '.', type: 'success');
+    }
+
     private function pullFromPr(int $prId): void
     {
         $w = app(PkbWriter::class);
@@ -190,7 +226,15 @@ class PkbForm extends Component
 
     public function save(PkbWriter $writer): void
     {
-        if ($this->locked || ! $this->prId) {
+        if ($this->locked) {
+            return;
+        }
+        // Jangan `return` diam-diam - tombol Simpan yg mati tanpa sebab sudah pernah jadi
+        // laporan "tidak respon" di modul lain. Sejak form bisa dibuka KOSONG (2026-10-10)
+        // keadaan ini jadi wajar, jadi harus dijelaskan.
+        if (! $this->prId) {
+            $this->addError('lines', 'Pilih dulu PR yang mau ditarik - pakai tombol cari di kotak "No PR Asal" di atas.');
+
             return;
         }
         $this->validate();

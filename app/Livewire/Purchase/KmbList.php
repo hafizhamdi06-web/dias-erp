@@ -5,7 +5,6 @@ namespace App\Livewire\Purchase;
 use App\Models\Branch;
 use App\Models\User;
 use App\Services\KmbWriter;
-use App\Services\PurchaseRequestWriter;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -29,17 +28,6 @@ class KmbList extends Component
     public string $fCabang = '';
     public string $fFrom = '';
     public string $fTo = '';
-
-    // modal picker "Tarik dari PR"
-    public bool $showPicker = false;
-    public string $pickerQ = '';
-
-    // pemilih "Tarik dari JOP" - terpisah dari pemilih PR, lihat `pickJop()`.
-    public bool $showJopPicker = false;
-    public string $jopQ = '';
-
-    /** Batas baris di pemilih JOP - lihat pelajaran `SjList::BATAS_PKB`. */
-    private const BATAS_JOP = 25;
 
     public function mount(): void
     {
@@ -75,56 +63,17 @@ class KmbList extends Component
     public function updatingFFrom(): void { $this->resetPage(); }
     public function updatingFTo(): void { $this->resetPage(); }
 
-    public function openPicker(): void
+    /** Satu-satunya tombol di daftar: buka form KMB KOSONG. Rujukannya (PR atau JOP)
+     *  dipilih DI DALAM form lewat tombol cari di kotak "No PO"/"No Job Order" -
+     *  persis VB6, yg kedua tombol carinya memang menempel di form (permintaan user
+     *  2026-10-10: "di data KMB, cukup 1 tombol yaitu INPUT BARU"). */
+    public function inputBaru(): void
     {
         if (! can_do('inventory/kmb', 'add')) {
             return;
         }
-        $this->pickerQ = '';
-        $this->showPicker = true;
-    }
-
-    public function closePicker(): void
-    {
-        $this->showPicker = false;
-    }
-
-    public function pickPr(int $prId, string $nomor): void
-    {
-        if (! can_do('inventory/kmb', 'add')) {
-            return;
-        }
-        $this->showPicker = false;
-        $this->dispatch('open-tab', cmp: 'purchase.kmb-form', args: ['prId' => $prId],
-            label: 'KMB dari ' . $nomor, icon: 'fas fa-truck-ramp-box');
-    }
-
-    /* ---- Tarik dari JOP (port VB6 `fFrmKirimMutasiBarang::cmdCariNoReff_Click`) ----
-     | Pemilih TERPISAH dari pemilih PR: sumbernya beda tabel, isi barisnya beda, dan satu
-     | KMB hanya boleh lahir dari SALAH SATU. Lihat `KmbWriter::fromJop()`. */
-
-    public function openJopPicker(): void
-    {
-        if (! can_do('inventory/kmb', 'add')) {
-            return;
-        }
-        $this->jopQ = '';
-        $this->showJopPicker = true;
-    }
-
-    public function closeJopPicker(): void
-    {
-        $this->showJopPicker = false;
-    }
-
-    public function pickJop(int $jopId, string $nomor): void
-    {
-        if (! can_do('inventory/kmb', 'add')) {
-            return;
-        }
-        $this->showJopPicker = false;
-        $this->dispatch('open-tab', cmp: 'purchase.kmb-form', args: ['jopId' => $jopId],
-            label: 'KMB dari ' . $nomor, icon: 'fas fa-truck-ramp-box');
+        $this->dispatch('open-tab', cmp: 'purchase.kmb-form', args: [],
+            label: 'KMB Baru', icon: 'fas fa-truck-ramp-box');
     }
 
     public function editKmb(int $id, string $nomor): void
@@ -166,7 +115,6 @@ class KmbList extends Component
     {
         $q = trim($this->search);
         $allowed = $this->allowedBranchIds();
-        $prWriter = app(PurchaseRequestWriter::class);
 
         $rows = DB::table('fstoku as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
@@ -191,29 +139,9 @@ class KmbList extends Component
                 'gt.GNAMA as cabangTujuan', 'pr.PBUNOTRANSAKSI as noPr',
             ]);
 
-        // PR yg boleh ditarik = PBUGUDANGSUMBER (cabang yg DIMINTA mengirim/sumber stok)
-        // SAMA dgn cabang user login SEKARANG - PERSIS UCABANG yg dipakai KmbForm sbg
-        // SUCABANG KMB (single, tidak bisa dipilih), lihat docblock
-        // `PurchaseRequestWriter::pullableForKmb()`.
-        $ucabang = (int) (auth()->user()->UCABANG ?? 0);
-
-        $pullableJop = $this->showJopPicker
-            ? app(KmbWriter::class)->pullableJop($this->jopQ, self::BATAS_JOP + 1)
-            : collect();
-
         return view('livewire.purchase.kmb-list', [
             'rows'      => $rows,
             'branches'  => $this->branchOptions(),
-            'pullable'  => $this->showPicker && $ucabang
-                ? $prWriter->pullableForKmb($ucabang)->when($this->pickerQ !== '', fn ($c) => $c->filter(
-                    fn ($r) => str_contains(strtolower($r->nomor), strtolower($this->pickerQ))
-                        || str_contains(strtolower((string) $r->karyawan), strtolower($this->pickerQ))
-                ))
-                : collect(),
-            // Pemilih JOP: dibatasi & disaring di SQL sejak awal (pelajaran pemilih PKB).
-            'pullableJop' => $pullableJop->take(self::BATAS_JOP),
-            'jopAdaLagi'  => $pullableJop->count() > self::BATAS_JOP,
-            'jopBatas'    => self::BATAS_JOP,
         ]);
     }
 }

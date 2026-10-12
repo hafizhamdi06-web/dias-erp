@@ -19,51 +19,57 @@
 
     <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div class="d-flex flex-wrap gap-2">
-                <div class="input-group input-group-sm" style="max-width: 240px">
+            <div class="d-flex flex-wrap gap-2 vb-filter">
+                <div class="input-group input-group-sm f-cari">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" placeholder="no KMB / kontak / no PR"
                            wire:model.live.debounce.400ms="search">
                 </div>
-                <select class="form-select form-select-sm" style="max-width: 160px" wire:model.live="fStatus">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fStatus">
                     <option value="">Semua status</option>
                     <option value="1">Aktif</option>
                     <option value="3">Diterima</option>
                     <option value="9">Batal</option>
                 </select>
-                <select class="form-select form-select-sm" style="max-width: 180px" wire:model.live="fCabang">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fCabang">
                     <option value="">Semua cabang</option>
                     @foreach ($branches as $b)
                         <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                     @endforeach
                 </select>
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fFrom">
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fTo">
+                <div class="vb-tanggal">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fFrom">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fTo">
+                </div>
             </div>
+            {{-- SATU tombol saja (permintaan user 2026-10-10). Rujukannya - PR atau JOP -
+                 dipilih DI DALAM form, lewat tombol cari di kotak "No PO"/"No Job Order",
+                 persis spt VB6 yg kedua tombol carinya memang menempel di form. --}}
             @if (can_do('inventory/kmb', 'add'))
-                <button class="btn btn-primary btn-sm" wire:click="openPicker"><i class="fas fa-truck-ramp-box me-1"></i> Tarik dari PR</button>
-                {{-- Sumber KEDUA: JOP/JOT (port VB6 cmdCariNoReff). Tombol TERPISAH - satu KMB
-                     hanya boleh lahir dari salah satu sumber. --}}
-                <button class="btn btn-outline-primary btn-sm" wire:click="openJopPicker"><i class="fas fa-industry me-1"></i> Tarik dari JOP</button>
+                <button class="btn btn-primary btn-sm" wire:click="inputBaru">
+                    <i class="fas fa-plus me-1"></i> Input Baru
+                </button>
             @endif
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+            <table class="table table-bordered align-middle vb-list">
                 <thead><tr>
                     <th>Nomor</th><th>Tanggal</th><th>Kontak</th><th>Cabang Pengirim</th><th>Cabang Tujuan</th><th>No PR Asal</th>
-                    <th class="text-center">Status</th><th class="text-end">Aksi</th>
+                    <th>Status</th><th class="text-end">Aksi</th>
                 </tr></thead>
                 <tbody>
                     @forelse ($rows as $r)
                         @php [$bg, $lbl] = $statusBadge($r->status); @endphp
                         <tr wire:key="kmb-{{ $r->id }}">
                             <td>{{ $r->nomor }}</td>
-                            <td class="text-muted small">{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
                             <td>{{ $r->kontak ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabangTujuan ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->noPr ?: '—' }}</td>
-                            <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
+                            <td>{{ $r->cabang ?: '—' }}</td>
+                            <td>{{ $r->cabangTujuan ?: '—' }}</td>
+                            <td>{{ $r->noPr ?: '—' }}</td>
+                            <td><x-status-teks :bg="$bg" :teks="$lbl" /></td>
                             <td class="text-end text-nowrap">
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editKmb({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>
@@ -89,69 +95,4 @@
         <div class="card-footer">{{ $rows->links() }}</div>
     </div>
 
-    @if ($showPicker)
-        <x-lw-modal :show="$showPicker" title="Tarik dari PR (Permintaan Barang yang belum ditarik)" close="$set('showPicker', false)">
-            <div class="modal-body">
-                <input type="text" class="form-control form-control-sm mb-2" placeholder="cari no PR / kontak…"
-                       wire:model.live.debounce.300ms="pickerQ">
-                <div class="list-group" style="max-height: 360px; overflow-y:auto">
-                    @forelse ($pullable as $pr)
-                        <button type="button" class="list-group-item list-group-item-action"
-                                wire:click="pickPr({{ $pr->id }}, @js($pr->nomor))">
-                            <div class="d-flex justify-content-between">
-                                <span class="fw-semibold">{{ $pr->nomor }}</span>
-                                <span class="text-muted small">{{ \Carbon\Carbon::parse($pr->tanggal)->format('d/m/Y') }}</span>
-                            </div>
-                            <div class="text-muted small">{{ $pr->karyawan ?: '—' }}</div>
-                        </button>
-                    @empty
-                        <div class="text-center text-muted py-4">Tidak ada PR yang bisa ditarik.</div>
-                    @endforelse
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" wire:click="$set('showPicker', false)">Tutup</button>
-            </div>
-        </x-lw-modal>
-    @endif
-
-    {{-- ===== Tarik dari JOP (port VB6 fFrmKirimMutasiBarang::cmdCariNoReff_Click) =====
-         Yang ditarik baris BAHAN (PDKELUAR) yang masih bersisa, bukan hasil produksinya. --}}
-    @if ($showJopPicker)
-        <x-lw-modal :show="$showJopPicker" title="Tarik dari JOP (Job Order Produksi yang masih butuh bahan)" close="closeJopPicker">
-            <div class="modal-body">
-                <input type="text" class="form-control form-control-sm mb-2" placeholder="cari no JOP / kontak…"
-                       wire:model.live.debounce.300ms="jopQ">
-                <div class="list-group" style="max-height: 360px; overflow-y:auto">
-                    @forelse ($pullableJop as $jop)
-                        <button type="button" class="list-group-item list-group-item-action"
-                                wire:click="pickJop({{ $jop->id }}, @js($jop->nomor))">
-                            <div class="d-flex justify-content-between">
-                                <span class="fw-semibold">{{ $jop->nomor }}</span>
-                                <span class="text-muted small">{{ \Carbon\Carbon::parse($jop->tanggal)->format('d/m/Y') }}</span>
-                            </div>
-                            <div class="text-muted small">
-                                {{ $jop->karyawan ?: '—' }}
-                                @if ($jop->cabang) &middot; produksi di <strong>{{ $jop->cabang }}</strong> @endif
-                            </div>
-                        </button>
-                    @empty
-                        <div class="text-center text-muted py-4">
-                            {{ trim($jopQ) !== '' ? 'Tidak ada JOP yang cocok.' : 'Tidak ada JOP yang masih butuh bahan.' }}
-                        </div>
-                    @endforelse
-                </div>
-                @if ($jopAdaLagi)
-                    <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">
-                        <i class="fas fa-circle-info me-1"></i>
-                        Menampilkan <strong>{{ $jopBatas }}</strong> JOP terbaru saja.
-                        Ketik no JOP atau nama untuk menemukan yang lain.
-                    </div>
-                @endif
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" wire:click="closeJopPicker">Tutup</button>
-            </div>
-        </x-lw-modal>
-    @endif
 </div>

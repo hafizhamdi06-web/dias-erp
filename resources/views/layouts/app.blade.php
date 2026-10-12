@@ -22,6 +22,8 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.0/styles/overlayscrollbars.min.css">
     <link rel="stylesheet" href="{{ asset('vendor/adminlte/dist/css/adminlte.min.css') }}">
+    {{-- Tata letak form ala VB6 (lihat berkasnya utk alasan kenapa statis, bukan @push). --}}
+    <link rel="stylesheet" href="{{ asset('css/vb-form.css') }}?v={{ @filemtime(public_path('css/vb-form.css')) }}">
     <style>
         :root { --dias-font: 'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
         /* Tema terang default Bootstrap (--bs-tertiary-bg: #f8f9fa) terlalu pucat/silau -

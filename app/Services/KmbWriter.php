@@ -140,6 +140,19 @@ class KmbWriter
     {
         $cari = trim((string) $cari);
 
+        return $this->kueriPullableJop()
+            ->when($cari !== '', fn ($b) => $b->where(fn ($w) => $w
+                ->where('u.PUNOTRANSAKSI', 'like', "%{$cari}%")
+                ->orWhere('k.KNAMA', 'like', "%{$cari}%")))
+            ->orderByDesc('u.PUTANGGAL')->orderByDesc('u.PUID')
+            ->limit(max(1, $batas))
+            ->get(['u.PUID as id', 'u.PUNOTRANSAKSI as nomor', 'u.PUTANGGAL as tanggal',
+                'k.KNAMA as karyawan', 'g.GNAMA as cabang']);
+    }
+
+    /** Bagian WAJIB dari aturan "masih butuh bahan" - lihat docblock `pullableJop()`. */
+    private function kueriPullableJop()
+    {
         return DB::table('fproduksiu as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PUKONTAK')
             ->leftJoin('bgudang as g', 'g.GID', '=', 'u.PUCABANG')
@@ -148,14 +161,45 @@ class KmbWriter
             ->whereExists(fn ($q) => $q->selectRaw(1)->from('fproduksid as d')
                 ->whereColumn('d.PDIDSU', 'u.PUID')
                 ->where('d.PDKELUAR', '>', 0)
-                ->whereRaw('d.PDKELUAR - d.PDKELUARPAKAI > 0'))
-            ->when($cari !== '', fn ($b) => $b->where(fn ($w) => $w
-                ->where('u.PUNOTRANSAKSI', 'like', "%{$cari}%")
-                ->orWhere('k.KNAMA', 'like', "%{$cari}%")))
+                ->whereRaw('d.PDKELUAR - d.PDKELUARPAKAI > 0'));
+    }
+
+    /**
+     * Versi BERSARING utk dialog "Cari Transaksi" sumber **`PRO_JOP`**
+     * (`fFrmKirimMutasiBarang::cmdCariNoReff_Click`). Aturan "masih butuh bahan"-nya TIDAK
+     * berubah - lihat `pullableJop()`; ini cuma menambah saringan isian user.
+     *
+     * Cabang yg disaring `PUCABANG` = tempat PRODUKSI berjalan (VB6:
+     * `Flt = " and PUCABANG = " & cboCabang.ListIndex`), boleh beda dari cabang pengirim -
+     * itu justru tujuan mutasinya. Kosong = semua cabang, sama spt perilaku sebelumnya.
+     *
+     * @param array{nomor?:string,nama?:string,from?:string,to?:string,cabang?:string|int} $saring
+     */
+    public function cariPullableJop(array $saring = [], int $batas = 200)
+    {
+        $teks = fn ($v) => trim((string) $v);
+
+        return $this->kueriPullableJop()
+            ->when($teks($saring['nomor'] ?? '') !== '',
+                fn ($b) => $b->where('u.PUNOTRANSAKSI', 'like', $teks($saring['nomor']) . '%'))
+            ->when($teks($saring['nama'] ?? '') !== '',
+                fn ($b) => $b->where('k.KNAMA', 'like', '%' . $teks($saring['nama']) . '%'))
+            ->when($teks($saring['from'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PUTANGGAL', '>=', $teks($saring['from'])))
+            ->when($teks($saring['to'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PUTANGGAL', '<=', $teks($saring['to'])))
+            ->when($teks($saring['cabang'] ?? '') !== '',
+                fn ($b) => $b->where('u.PUCABANG', (int) $saring['cabang']))
             ->orderByDesc('u.PUTANGGAL')->orderByDesc('u.PUID')
             ->limit(max(1, $batas))
             ->get(['u.PUID as id', 'u.PUNOTRANSAKSI as nomor', 'u.PUTANGGAL as tanggal',
                 'k.KNAMA as karyawan', 'g.GNAMA as cabang']);
+    }
+
+    /** Berapa JOP yg masih butuh bahan TANPA saringan dialog - utk peringatan "bukan habis". */
+    public function jumlahPullableJop(): int
+    {
+        return (int) $this->kueriPullableJop()->count();
     }
 
     /**
@@ -454,12 +498,55 @@ class KmbWriter
      */
     public function pullableForTmb(int $gudangTujuan)
     {
+        return $this->kueriPullableForTmb($gudangTujuan)
+            ->orderByDesc('u.SUID')
+            ->get(['u.SUID as id', 'u.SUNOTRANSAKSI as nomor', 'u.SUTANGGAL as tanggal', 'k.KNAMA as karyawan']);
+    }
+
+    /** Bagian WAJIB dari aturan "bisa diterima" - lihat docblock `pullableForTmb()`. */
+    private function kueriPullableForTmb(int $gudangTujuan)
+    {
         return DB::table('fstoku as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
             ->where('u.SUSUMBER', self::SUMBER)
             ->where('u.SUSTATUS', 1)
-            ->where('u.SUGUDANGTUJUAN', $gudangTujuan)
-            ->orderByDesc('u.SUID')
+            ->where('u.SUGUDANGTUJUAN', $gudangTujuan);
+    }
+
+    /**
+     * Versi BERSARING utk dialog "Cari Transaksi" sumber **`KMB2`**
+     * (`fFrmPenerimaanMutasi::cmdCariNoReff_Click`). Aturan "bisa diterima"-nya TIDAK
+     * berubah - lihat `pullableForTmb()`; ini cuma menambah saringan isian user.
+     *
+     * Dua beda yg DISENGAJA dari VB6, keduanya lebih ketat:
+     * 1. VB6 `Case "KMB2"` memakai `SUSTATUS <> 3` - itu ikut memuat KMB **BATAL**
+     *    (`SUSTATUS = 9`). Di sini tetap `SUSTATUS = 1` (aktif saja).
+     * 2. VB6 juga memuat `SUSUMBER = 'PRO'` (hasil produksi). Alur TMB di sini khusus dari
+     *    KMB, jadi tidak ikut.
+     *
+     * @param array{nomor?:string,nama?:string,from?:string,to?:string} $saring
+     */
+    public function cariPullableForTmb(int $gudangTujuan, array $saring = [], int $batas = 200)
+    {
+        $teks = fn ($v) => trim((string) $v);
+
+        return $this->kueriPullableForTmb($gudangTujuan)
+            ->when($teks($saring['nomor'] ?? '') !== '',
+                fn ($b) => $b->where('u.SUNOTRANSAKSI', 'like', $teks($saring['nomor']) . '%'))
+            ->when($teks($saring['nama'] ?? '') !== '',
+                fn ($b) => $b->where('k.KNAMA', 'like', '%' . $teks($saring['nama']) . '%'))
+            ->when($teks($saring['from'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.SUTANGGAL', '>=', $teks($saring['from'])))
+            ->when($teks($saring['to'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.SUTANGGAL', '<=', $teks($saring['to'])))
+            ->orderByDesc('u.SUNOTRANSAKSI')
+            ->limit(max(1, $batas))
             ->get(['u.SUID as id', 'u.SUNOTRANSAKSI as nomor', 'u.SUTANGGAL as tanggal', 'k.KNAMA as karyawan']);
+    }
+
+    /** Berapa KMB yg bisa diterima TANPA saringan dialog - utk peringatan "bukan habis". */
+    public function jumlahPullableForTmb(int $gudangTujuan): int
+    {
+        return (int) $this->kueriPullableForTmb($gudangTujuan)->count();
     }
 }

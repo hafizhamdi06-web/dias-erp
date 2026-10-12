@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Livewire\Concerns\CariBarang;
 use App\Models\Branch;
 use App\Services\PurchaseRequestWriter;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,8 @@ use Livewire\Component;
  */
 class PrForm extends Component
 {
+    use CariBarang;
+
     public ?string $tabKey = null;
     public ?int $prId = null;
     public bool $locked = false; // sudah diverifikasi -> read-only
@@ -69,8 +72,6 @@ class PrForm extends Component
 
     /** @var array<int,array{item:int,kode:string,nama:string,qty:float,satuan:?int,satuanKode:string,catatan:?string,stok:float,stokManual:float}> */
     public array $lines = [];
-
-    public string $itemQ = '';
 
     /**
      * Kolom "Real Stok" (stok SISTEM, `bitem.ISTOK{kode}` -> `PBDSTOKREAL`) DISEMBUNYIKAN
@@ -251,8 +252,6 @@ class PrForm extends Component
         foreach ($this->lines as $i => $l) {
             if ($l['item'] === $id) {
                 $this->lines[$i]['qty'] += 1;
-                $this->itemQ = '';
-
                 return;
             }
         }
@@ -279,7 +278,22 @@ class PrForm extends Component
             'stok'       => $stok,
             'stokManual' => 0.0,
         ];
-        $this->itemQ = '';
+    }
+
+    protected function hakCariBarang(): bool
+    {
+        return ! $this->locked && can_do('inventory/pr', $this->prId ? 'edit' : 'add');
+    }
+
+    /** Stok yg ditampilkan = stok CABANG USER LOGIN (`$gudang` otomatis dari UCABANG). */
+    protected function gudangCariBarang(): ?int
+    {
+        return $this->gudang;
+    }
+
+    protected function terapkanBarang(int $itemId): void
+    {
+        $this->addItem($itemId);
     }
 
     public function removeLine(int $i): void
@@ -417,18 +431,9 @@ class PrForm extends Component
 
     public function render()
     {
-        $itemResults = [];
-        if (trim($this->itemQ) !== '' && ! $this->locked) {
-            $q = trim($this->itemQ);
-            $itemResults = DB::table('bitem')
-                ->where('ISTATUS', 0)
-                ->where(fn ($b) => $b->where('IKODE', 'like', "%{$q}%")->orWhere('INAMA', 'like', "%{$q}%"))
-                ->orderBy('INAMA')->limit(15)
-                ->get(['IID as id', 'IKODE as kode', 'INAMA as nama']);
-        }
-
+        // Pencarian item sekarang di dialog "Cari Barang" (trait `CariBarang`), bukan
+        // lagi kotak sebaris + daftar gantung di sini.
         return view('livewire.purchase.pr-form', [
-            'itemResults'        => $itemResults,
             'branches'           => Branch::options(),
             'tujuanList'         => DB::table('blain')->where('ltipe', 'Jenis Permintaan')->orderBy('lnama')->get(['lid', 'lnama']),
             'totalQty'           => array_sum(array_map(fn ($l) => (float) $l['qty'], $this->lines)),

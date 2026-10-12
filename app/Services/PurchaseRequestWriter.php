@@ -476,14 +476,65 @@ class PurchaseRequestWriter
      */
     public function pullableForPkb()
     {
+        return $this->kueriPullableForPkb()
+            ->orderByDesc('u.PBUID')
+            ->get(['u.PBUID as id', 'u.PBUNOTRANSAKSI as nomor', 'u.PBUTANGGAL as tanggal', 'k.KNAMA as karyawan', 'g.GNAMA as cabang']);
+    }
+
+    /** Bagian WAJIB dari aturan "bisa ditarik ke PKB" - lihat docblock `pullableForPkb()`. */
+    private function kueriPullableForPkb()
+    {
         return DB::table('fpermintaanbarangu as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PBUKONTAK')
             ->leftJoin('bgudang as g', 'g.GID', '=', 'u.PBUGUDANG')
             ->where('u.PBUSUMBER', self::SUMBER)
             ->where('u.PBUSTATUS', 2)
-            ->whereRaw('(select coalesce(sum(d.PBDQTY - d.PBDQTYPAKAI), 0) from fpermintaanbarangd d where d.PBDIDSU = u.PBUID) > 0')
-            ->orderByDesc('u.PBUID')
-            ->get(['u.PBUID as id', 'u.PBUNOTRANSAKSI as nomor', 'u.PBUTANGGAL as tanggal', 'k.KNAMA as karyawan', 'g.GNAMA as cabang']);
+            ->whereRaw('(select coalesce(sum(d.PBDQTY - d.PBDQTYPAKAI), 0) from fpermintaanbarangd d where d.PBDIDSU = u.PBUID) > 0');
+    }
+
+    /**
+     * Versi BERSARING utk dialog "Cari Transaksi" sumber **`PRS`**
+     * (`fFrmPermintaanBarang::cmdCariPermintaan_Click` - form VB6 "Perintah Kirim Barang").
+     * Aturan "bisa ditarik"-nya TIDAK berubah; ini cuma menambah saringan isian user.
+     *
+     * **Beda DISENGAJA dari VB6, dan yg ini lebih ketat**: VB6 memakai `PBUSTATUS <= 2`
+     * (komentarnya sendiri: `'tanpa verif langsung pkb`) sehingga PR yg BELUM diverifikasi
+     * pun bisa langsung dijadikan PKB. Di sini tetap `PBUSTATUS = 2` - gerbang verifikasi
+     * tidak dilonggarkan. VB6 juga menambah `PBUJENIS = 1`; tidak ditiru karena tidak perlu:
+     * PR jenis=0 `PBUSTATUS`-nya memang tidak pernah beranjak dari 0 (terbukti di data -
+     * tidak ada satu pun PR jenis=0 berstatus 2).
+     *
+     * Cabang menyaring **`PBUGUDANG`** (cabang PEMINTA), bukan `PBUGUDANGSUMBER` - sama
+     * spt VB6, dan defaultnya SEMUA cabang (VB6 menyetel `cboCabang.ListIndex = 0`), sesuai
+     * sifat picker ini yg memang lintas cabang - lihat docblock `pullableForPkb()`.
+     *
+     * @param array{nomor?:string,nama?:string,from?:string,to?:string,cabang?:string|int} $saring
+     */
+    public function cariPullableForPkb(array $saring = [], int $batas = 200)
+    {
+        $teks = fn ($v) => trim((string) $v);
+
+        return $this->kueriPullableForPkb()
+            ->when($teks($saring['nomor'] ?? '') !== '',
+                fn ($b) => $b->where('u.PBUNOTRANSAKSI', 'like', $teks($saring['nomor']) . '%'))
+            ->when($teks($saring['nama'] ?? '') !== '',
+                fn ($b) => $b->where('k.KNAMA', 'like', '%' . $teks($saring['nama']) . '%'))
+            ->when($teks($saring['from'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PBUTANGGAL', '>=', $teks($saring['from'])))
+            ->when($teks($saring['to'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PBUTANGGAL', '<=', $teks($saring['to'])))
+            ->when($teks($saring['cabang'] ?? '') !== '',
+                fn ($b) => $b->where('u.PBUGUDANG', (int) $saring['cabang']))
+            ->orderByDesc('u.PBUNOTRANSAKSI')
+            ->limit(max(1, $batas))
+            ->get(['u.PBUID as id', 'u.PBUNOTRANSAKSI as nomor', 'u.PBUTANGGAL as tanggal',
+                'k.KNAMA as karyawan', 'g.GNAMA as cabang']);
+    }
+
+    /** Berapa PR yg bisa ditarik ke PKB TANPA saringan dialog - utk peringatan "bukan habis". */
+    public function jumlahPullableForPkb(): int
+    {
+        return (int) $this->kueriPullableForPkb()->count();
     }
 
     /**
@@ -628,6 +679,24 @@ class PurchaseRequestWriter
      */
     public function pullableForKmb(int $gudangPengirim)
     {
+        return $this->kueriPullableForKmb($gudangPengirim)
+            ->orderByDesc('u.PBUID')
+            ->get(['u.PBUID as id', 'u.PBUNOTRANSAKSI as nomor', 'u.PBUTANGGAL as tanggal', 'k.KNAMA as karyawan']);
+    }
+
+    /**
+     * Bagian WAJIB dari aturan "bisa ditarik" - lihat docblock `pullableForKmb()`.
+     *
+     * Ditambah syarat **punya minimal satu baris ber-`PBDQTY > 0`** (2026-10-10): di data
+     * nyata ada PR header-only (terbukti `BW-RS26080004`, dan 2 dari 11 PR yg "bisa
+     * ditarik" di seluruh DB sama kosongnya). VB6 tidak memeriksanya, jadi PR spt itu ikut
+     * terdaftar - user memilihnya, grid-nya kosong, dan KMB-nya tidak mungkin disimpan.
+     * Syarat ini TIDAK melonggarkan apa pun: ambangnya persis sama dgn baris yg dilewati
+     * `KmbWriter::fromPr()` (`$qty <= 0` -> `continue`), jadi yg disembunyikan hanya PR yg
+     * memang tidak akan menghasilkan satu baris pun.
+     */
+    private function kueriPullableForKmb(int $gudangPengirim)
+    {
         return DB::table('fpermintaanbarangu as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.PBUKONTAK')
             ->where('u.PBUSUMBER', self::SUMBER)
@@ -635,7 +704,58 @@ class PurchaseRequestWriter
             ->where('u.PBUSTATUS', '<>', self::STATUS_BATAL)
             ->where('u.PBUSTATUSKM', 0)
             ->where('u.PBUGUDANGSUMBER', $gudangPengirim)
-            ->orderByDesc('u.PBUID')
+            ->whereExists(fn ($q) => $q->selectRaw(1)->from('fpermintaanbarangd as dd')
+                ->whereColumn('dd.PBDIDSU', 'u.PBUID')->where('dd.PBDQTY', '>', 0));
+    }
+
+    /**
+     * Versi BERSARING utk dialog "Cari Transaksi" di pemilih PR milik KMB (port
+     * `bFrmCariTransaksi` sumber **`RS_KM`**, dipanggil dari
+     * `fFrmKirimMutasiBarang::cmdCariSJOnline_Click` - nama tombolnya menyesatkan,
+     * isinya memang pemilih PR).
+     *
+     * Aturan "bisa ditarik"-nya TIDAK berubah (lihat `pullableForKmb()`); ini cuma
+     * menambah saringan yg bisa diisi user di dialog.
+     *
+     * **Di VB6 hanya Cabang & Tanggal yg benar-benar menyaring** utk sumber `RS_KM`:
+     * kotak "No Transaksi"/"Nama" memanggil `Filter()` yg **tidak pernah dipanggil**
+     * di seluruh berkas, dan saringan `IKODE` cuma ada di cabang `PKB*`/`IV1*`, bukan
+     * `RS_KM`. Di sini ketiganya DIBUAT BEKERJA - kotak saringan yg diam saja lebih
+     * menyesatkan daripada tidak ada.
+     *
+     * @param array{nomor?:string,nama?:string,from?:string,to?:string,kode?:string} $saring
+     */
+    public function cariPullableForKmb(int $gudangPengirim, array $saring = [], int $batas = 200)
+    {
+        $teks = fn (?string $v) => trim((string) $v);
+
+        return $this->kueriPullableForKmb($gudangPengirim)
+            ->when($teks($saring['nomor'] ?? '') !== '',
+                fn ($b) => $b->where('u.PBUNOTRANSAKSI', 'like', $teks($saring['nomor']) . '%'))
+            // Nama karyawan: `bkontak` raksasa, tapi di sini sudah tersempit ke PR yg
+            // bisa ditarik lebih dulu, jadi LIKE di `k.KNAMA` aman.
+            ->when($teks($saring['nama'] ?? '') !== '',
+                fn ($b) => $b->where('k.KNAMA', 'like', '%' . $teks($saring['nama']) . '%'))
+            ->when($teks($saring['from'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PBUTANGGAL', '>=', $teks($saring['from'])))
+            ->when($teks($saring['to'] ?? '') !== '',
+                fn ($b) => $b->whereDate('u.PBUTANGGAL', '<=', $teks($saring['to'])))
+            // VB6 memakai `IKODE = '...'` (sama persis, bukan LIKE) - diikuti.
+            ->when($teks($saring['kode'] ?? '') !== '', fn ($b) => $b->whereExists(
+                fn ($q) => $q->selectRaw(1)->from('fpermintaanbarangd as d')
+                    ->join('bitem as i', 'i.IID', '=', 'd.PBDITEM')
+                    ->whereColumn('d.PBDIDSU', 'u.PBUID')
+                    ->where('i.IKODE', $teks($saring['kode']))
+            ))
+            ->orderByDesc('u.PBUNOTRANSAKSI')
+            ->limit($batas)
             ->get(['u.PBUID as id', 'u.PBUNOTRANSAKSI as nomor', 'u.PBUTANGGAL as tanggal', 'k.KNAMA as karyawan']);
+    }
+
+    /** Berapa PR yg bisa ditarik TANPA saringan dialog - utk memperingatkan user kalau
+     *  hasilnya kosong gara-gara rentang tanggalnya, bukan karena memang habis. */
+    public function jumlahPullableForKmb(int $gudangPengirim): int
+    {
+        return (int) $this->kueriPullableForKmb($gudangPengirim)->count();
     }
 }

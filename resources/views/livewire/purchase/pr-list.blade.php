@@ -41,17 +41,18 @@
                 ? ['text-bg-success', 'Diterima (TMB)']
                 : ['text-bg-info', 'Dikirim (KMB)'];
         };
+
     @endphp
 
     <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div class="d-flex flex-wrap gap-2">
-                <div class="input-group input-group-sm" style="max-width: 240px">
+            <div class="d-flex flex-wrap gap-2 vb-filter">
+                <div class="input-group input-group-sm f-cari">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" placeholder="no / karyawan / uraian"
                            wire:model.live.debounce.400ms="search">
                 </div>
-                <select class="form-select form-select-sm" style="max-width: 160px" wire:model.live="fStatus">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fStatus">
                     <option value="">Semua status</option>
                     <option value="0">Belum Verifikasi</option>
                     <option value="1">Pending</option>
@@ -63,7 +64,7 @@
                     <option value="7">Konfirmasi Bag Pembelian</option>
                     <option value="9">Batal</option>
                 </select>
-                <select class="form-select form-select-sm" style="max-width: 180px" wire:model.live="fCabang"
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fCabang"
                         title="Cabang peminta">
                     <option value="">Semua cabang</option>
                     @foreach ($branches as $b)
@@ -72,16 +73,16 @@
                 </select>
                 {{-- Cabang Tujuan = PBUGUDANGSUMBER (kolom "Gudang Asal" di tabel) - lihat
                      docblock `PrList::$fGudangTujuan`. --}}
-                <select class="form-select form-select-sm" style="max-width: 190px" wire:model.live="fGudangTujuan"
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fGudangTujuan"
                         title="Cabang tujuan (gudang yang diminta mengirim)">
                     <option value="">Semua cabang tujuan</option>
                     @foreach ($branchesTujuan as $b)
                         <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                     @endforeach
                 </select>
-                <div class="d-flex gap-2">
-                    <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fFrom">
-                    <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fTo">
+                <div class="vb-tanggal">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fFrom">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fTo">
                 </div>
             </div>
             @if (can_do('inventory/pr', 'add'))
@@ -89,10 +90,12 @@
             @endif
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+            <table class="table table-bordered align-middle vb-list">
                 <thead><tr>
                     <th>Nomor</th><th>Tanggal</th><th>Karyawan</th><th>Cabang</th><th>Tujuan</th><th>Gudang Asal</th><th>Jenis</th>
-                    <th class="text-center">Status</th><th class="text-end">Aksi</th>
+                    <th>Status</th><th class="text-end">Aksi</th>
                 </tr></thead>
                 <tbody>
                     @forelse ($rows as $r)
@@ -110,14 +113,16 @@
                             };
                         @endphp
                         <tr wire:key="pr-{{ $r->id }}">
+                            {{-- Tidak ada lagi `small`/`text-muted` per kolom - semua sel satu
+                                 font & satu warna, spt grid VB6. --}}
                             <td>{{ $r->nomor }}</td>
-                            <td class="text-muted small">{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
                             <td>{{ $r->karyawan ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->tujuan ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->gudangAsal ?: '—' }}</td>
-                            <td class="small">{{ (int) $r->jenis === 1 ? 'Permintaan Pembelian' : 'Permintaan Barang' }}</td>
-                            <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
+                            <td>{{ $r->cabang ?: '—' }}</td>
+                            <td>{{ $r->tujuan ?: '—' }}</td>
+                            <td>{{ $r->gudangAsal ?: '—' }}</td>
+                            <td>{{ (int) $r->jenis === 1 ? 'Permintaan Pembelian' : 'Permintaan Barang' }}</td>
+                            <td><x-status-teks :bg="$bg" :teks="$lbl" /></td>
                             <td class="text-end text-nowrap">
                                 @if (can_do('inventory/pr', 'view'))
                                     <button class="btn btn-outline-secondary btn-sm" wire:click="editPr({{ $r->id }}, @js($r->nomor))" title="Buka">

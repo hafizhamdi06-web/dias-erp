@@ -1,7 +1,7 @@
 <div>
-    <div class="card">
+    <div class="card vb-card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <div>
+            <div class="card-title mb-0">
                 <strong>Penerimaan Barang (PB)</strong>
                 @if ($nomor)
                     <span class="text-muted">— {{ $nomor }}</span>
@@ -29,135 +29,163 @@
                 <div class="alert alert-danger">{{ $errors->first('lines') }}</div>
             @endif
 
-            {{-- Susunan header MENGIKUTI VB6 `fFrmPenerimaanBarangPBDepo` (screenshot user
-                 2026-09-26): KIRI = Kontak (nama vendor) & Gudang dgn label di samping,
-                 KANAN = 2 baris field berlabel DI ATAS (Tanggal|No Transaksi, No PO|No.
-                 Invoice), lalu Keterangan selebar form.
-                 Catatan: di VB6 kotak TANGGAL ikut berlabel "No Transaksi" (jelas salah
-                 label di form lama) - di sini dilabeli "Tanggal" sesuai isinya. --}}
-            <style>
-                .pb-field { display: flex; align-items: flex-start; gap: .5rem; margin-bottom: .5rem; }
-                .pb-field > label { flex: 0 0 100px; max-width: 100px; padding-top: .35rem; margin-bottom: 0; }
-                .pb-field > .pb-input { flex: 1 1 auto; min-width: 0; }
-                .pb-top label.form-label { margin-bottom: .15rem; font-size: .8rem; }
-            </style>
+            {{-- ============================================================================
+                 Tata letak MENGIKUTI form VB6 `fFrmPenerimaanBarangPBDepo.frm` ("Penerimaan
+                 Barang Supplier Di Depo") - `amenu` MID **729** -> `aMod_Menu.bas`
+                 `Case 729: Set xForm = fFrmPenerimaanBarangPBDepo`. MID-nya DIPASTIKAN KE
+                 USER 2026-10-11.
 
+                 AWAS jangan tertukar: MID 234 & 443 sama-sama menunjuk `fFrmPenerimaanBarang`,
+                 dan form itu caption-nya **"Retur Barang"** dgn grid Qty Masuk/Qty Keluar -
+                 bukan layar penerimaan PO sama sekali.
+
+                 Gaya di `public/css/vb-form.css`; blade ini dulu punya blok gaya inline
+                 sendiri (kelas `pb-field`/`pb-top`).
+
+                 Urutan field kiri menurut Top VB6: 675 Kontak | 1020 Gudang | 2550 Keterangan
+                 Kanan baris 1 (750): (10080) Tanggal | (12135) No Transaksi
+                 Kanan baris 2 (~1600): (10080) No PO | (12135) No. Invoice
+                 Grid Top 3120. Bawah: Total Qty Masuk / Total Qty Keluar.
+
+                 Caption VB6 di atas kotak tanggal lagi-lagi salah ketik "No Transaksi" (sama
+                 spt KMB/TMB/PY/PL) - ditulis "Tanggal" yg benar.
+
+                 Tidak ikut: centang **Pending** (`Visible = 0` di VB6, sudah dicek). --}}
             @php
                 $noPoList = collect($lines)->pluck('noPo')->filter()->unique()->values();
             @endphp
 
-            <div class="row g-3 mb-2">
+            <div class="vb-form">
+            <div class="row g-3">
                 {{-- ===== KIRI: Kontak & Gudang ===== --}}
-                <div class="col-xl-6">
-                    <div class="pb-field">
+                <div class="col-lg-6">
+                    <div class="vb-row">
                         <label class="form-label">Kontak</label>
-                        <div class="pb-input">
-                            <input type="text" class="form-control form-control-sm bg-body-secondary" disabled
-                                   value="{{ $vendorLabel }}" placeholder="otomatis dari PO yang ditarik…">
-                            @error('vendor') <div class="text-danger small">{{ $message }}</div> @enderror
-                        </div>
+                        <input type="text" class="form-control form-control-sm vb-ctl-wide" disabled
+                               value="{{ $vendorLabel }}" placeholder="otomatis dari PO yang ditarik…">
                     </div>
-                    <div class="pb-field">
+                    @error('vendor') <div class="text-danger small vb-err">{{ $message }}</div> @enderror
+                    <div class="vb-row">
                         <label class="form-label">Gudang</label>
-                        <div class="pb-input">
-                            {{-- Selalu cabang user login, tidak bisa diubah. --}}
-                            <input type="text" class="form-control form-control-sm bg-body-secondary" disabled
-                                   value="{{ $gudangLabel ?: '—' }}">
-                            @error('gudang') <div class="text-danger small">{{ $message }}</div> @enderror
-                            @unless ($locked)
-                                <div class="form-text">Otomatis cabang Anda, tidak bisa diubah.</div>
-                            @endunless
-                        </div>
+                        {{-- Selalu cabang user login, tidak bisa diubah. --}}
+                        <input type="text" class="form-control form-control-sm vb-ctl-wide" disabled
+                               value="{{ $gudangLabel ?: '—' }}">
                     </div>
+                    @error('gudang') <div class="text-danger small vb-err">{{ $message }}</div> @enderror
                 </div>
 
-                {{-- ===== KANAN: 2 baris, label di atas ===== --}}
-                <div class="col-xl-6 pb-top">
+                {{-- ===== KANAN: kotak ber-caption, spt SSPanel VB6 ===== --}}
+                <div class="col-lg-6">
                     <div class="row g-2">
-                        <div class="col-md-6">
-                            <label class="form-label">Tanggal</label>
-                            <input type="date" class="form-control form-control-sm @error('tanggal') is-invalid @enderror"
-                                   wire:model="tanggal" {{ $locked ? 'disabled' : '' }}>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">No Transaksi</label>
-                            <input type="text" class="form-control form-control-sm bg-body-secondary" disabled
-                                   value="{{ $nomor ?: '[otomatis]' }}">
-                        </div>
-                    </div>
-                    <div class="row g-2 mt-1">
-                        <div class="col-md-6">
-                            <label class="form-label">No PO</label>
-                            <div class="input-group input-group-sm">
-                                <input type="text" class="form-control bg-body-secondary" disabled
-                                       value="{{ $noPoList->implode(', ') }}"
-                                       title="{{ $noPoList->implode(', ') }}">
-                                @unless ($locked)
-                                    <button type="button" class="btn btn-primary" wire:click="openPicker"
-                                            title="Tarik dari PO">
-                                        <i class="fas fa-magnifying-glass"></i>
-                                    </button>
-                                @endunless
+                        <div class="col-6">
+                            <div class="vb-box">
+                                <div class="cap">Tanggal</div>
+                                <div class="isi">
+                                    <input type="date" class="form-control form-control-sm @error('tanggal') is-invalid @enderror"
+                                           wire:model="tanggal" {{ $locked ? 'disabled' : '' }}>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label">No. Invoice</label>
-                            <input type="text" class="form-control form-control-sm" wire:model="noReff"
-                                   {{ $locked ? 'disabled' : '' }}>
+                        <div class="col-6">
+                            <div class="vb-box">
+                                <div class="cap">No Transaksi</div>
+                                <div class="isi">
+                                    <input type="text" class="form-control form-control-sm" disabled
+                                           value="{{ $nomor ?: '[otomatis]' }}">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="vb-box">
+                                <div class="cap">No PO</div>
+                                <div class="isi">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control" disabled
+                                               value="{{ $noPoList->implode(', ') }}"
+                                               title="{{ $noPoList->implode(', ') }}">
+                                        @unless ($locked)
+                                            <button type="button" class="btn btn-outline-secondary" wire:click="openPicker"
+                                                    title="Tarik dari PO">
+                                                <i class="fas fa-magnifying-glass"></i>
+                                            </button>
+                                        @endunless
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="vb-box">
+                                <div class="cap">No. Invoice</div>
+                                <div class="isi">
+                                    <input type="text" class="form-control form-control-sm" wire:model="noReff"
+                                           {{ $locked ? 'disabled' : '' }}>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <div class="col-12">
-                    <div class="pb-field">
+                    <div class="vb-row">
                         <label class="form-label">Keterangan</label>
-                        <div class="pb-input">
-                            <input type="text" class="form-control form-control-sm" wire:model="catatan"
-                                   {{ $locked ? 'disabled' : '' }}>
-                        </div>
+                        <input type="text" class="form-control form-control-sm vb-ctl-full" wire:model="catatan"
+                               {{ $locked ? 'disabled' : '' }}>
                     </div>
                 </div>
             </div>
 
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <strong>Item</strong>
-                @unless ($locked)
-                    <button type="button" class="btn btn-primary btn-sm" wire:click="openPicker">
-                        <i class="fas fa-truck-ramp-box me-1"></i> Tarik dari PO
-                    </button>
-                @endunless
-            </div>
+            @unless ($locked)
+                <button type="button" class="btn btn-outline-primary btn-sm mb-2" wire:click="openPicker">
+                    <i class="fas fa-truck-ramp-box me-1"></i> Tarik dari PO
+                </button>
+            @endunless
 
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered align-middle mb-0">
-                    <thead class="table-light">
+            {{-- Susunan kolom = `FormatString` VB6:
+                 <Kode|<Nama|>Qty PO|>Qty Terima|<Satuan|>Harga|<Catatan|ID POdetail|>Disc|
+                 >Disc % 1|>Disc % 2|>Disc % 3|>Cabang|<No PO|<Pakai Batch|<No Batch|<Kode|
+                 <Id PO Header|>Qty Depo|<Satuan Depo|>Konversi|>Qty Klinik|<Satuan Klinik|^Print
+
+                 Nama kolom disamakan dgn VB6: "Sisa PO" -> **Qty PO**, "Qty Diterima" ->
+                 **Qty Terima**.
+
+                 Tidak ikut: kolom simpanan tak kasatmata (ID POdetail/Pakai Batch/Kode kedua/
+                 Id PO Header), **Disc + Disc % 1/2/3** & **Cabang** (diskon dipegang di PO,
+                 tidak diubah saat menerima), serta **Qty Depo / Satuan Depo / Konversi /
+                 Qty Klinik / Satuan Klinik / Print** yg belum ada padanannya di app ini.
+
+                 Kolom **Harga** SENGAJA DISEMBUNYIKAN dari tampilan (permintaan user
+                 2026-09-26) tapi nilainya TETAP DITARIK dari PO dan TETAP DISIMPAN ke
+                 `fstokd.SDHARGA` - sumber perhitungan HPP. Jangan hapus `harga` dari
+                 state/`save()` hanya karena kolomnya tidak kelihatan di sini.
+
+                 Kode & Nama digabung satu kolom (`x-nama-produk`) spt form PKB/SJ/PO. --}}
+            <div class="table-responsive vb-grid-area">
+                <table class="table table-sm table-bordered align-middle vb-grid">
+                    <thead>
                         <tr>
-                            <th>No PO</th><th>Kode</th><th>Nama Item</th>
-                            <th class="text-end">Sisa PO</th><th>Satuan PO</th>
-                            <th class="text-end" style="width:120px">Qty Diterima</th><th>Satuan</th>
-                            <th style="width:150px">No Batch</th>
-                            {{-- Kolom "Harga" SENGAJA DISEMBUNYIKAN dari tampilan (permintaan
-                                 user 2026-09-26) tapi nilainya TETAP DITARIK dari PO dan TETAP
-                                 DISIMPAN ke `fstokd.SDHARGA` - akan jadi sumber perhitungan HPP.
-                                 Jangan hapus `harga` dari state/`save()` hanya karena kolomnya
-                                 tidak kelihatan di sini. --}}
+                            <th style="width: 12%">No PO</th>
+                            <th>Nama Produk</th>
+                            <th class="text-end" style="width: 90px">Qty PO</th>
+                            <th style="width: 70px">Satuan PO</th>
+                            <th class="text-end" style="width: 110px">Qty Terima</th>
+                            <th style="width: 70px">Satuan</th>
+                            <th style="width: 150px">No Batch</th>
                             <th>Catatan</th>
-                            @unless ($locked) <th></th> @endunless
+                            @unless ($locked) <th style="width: 36px"></th> @endunless
                         </tr>
                     </thead>
                     <tbody>
                         @forelse ($lines as $i => $l)
                             <tr wire:key="pb-line-{{ $i }}">
-                                <td class="text-muted small">{{ $l['noPo'] }}</td>
-                                <td>{{ $l['kode'] }}</td>
-                                <td>{{ $l['nama'] }}</td>
-                                <td class="text-end text-muted small">{{ $l['sisaPoUnit'] !== null ? number_format($l['sisaPoUnit'], 2) : '—' }}</td>
-                                <td class="text-muted small">{{ $l['satuanPoKode'] }}</td>
+                                <td>{{ $l['noPo'] }}</td>
+                                <td><x-nama-produk :kode="$l['kode']" :nama="$l['nama']" /></td>
+                                <td class="text-end">{{ $l['sisaPoUnit'] !== null ? number_format($l['sisaPoUnit'], 2) : '—' }}</td>
+                                <td>{{ $l['satuanPoKode'] }}</td>
                                 <td>
                                     <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end"
                                            wire:model="lines.{{ $i }}.qty" {{ $locked ? 'disabled' : '' }}>
                                 </td>
-                                <td class="text-muted small">{{ $l['satuanDasarKode'] }}</td>
+                                <td>{{ $l['satuanDasarKode'] }}</td>
                                 <td>
                                     @if (! empty($l['serial']))
                                         @php $bs = $l['batches'] ?? []; @endphp
@@ -172,7 +200,7 @@
                                             @endif
                                         </button>
                                     @else
-                                        <span class="text-muted small">—</span>
+                                        <span class="text-muted">—</span>
                                     @endif
                                 </td>
                                 {{-- kolom Harga disembunyikan, nilainya tetap ada di state & tersimpan --}}
@@ -188,19 +216,18 @@
                                 @endunless
                             </tr>
                         @empty
-                            <tr><td colspan="10" class="text-center text-muted py-4">Belum ada item. Klik "Tarik dari PO" untuk mulai.</td></tr>
+                            <tr><td colspan="{{ $locked ? 8 : 9 }}" class="text-center text-muted py-4">Belum ada item. Klik "Tarik dari PO" untuk mulai.</td></tr>
                         @endforelse
                     </tbody>
-                    @if ($lines !== [])
-                        <tfoot>
-                            <tr class="table-light">
-                                <td colspan="5" class="text-end fw-semibold">Total Qty</td>
-                                <td class="text-end fw-semibold">{{ number_format($totalQty, 2) }}</td>
-                                <td colspan="{{ $locked ? 3 : 4 }}"></td>
-                            </tr>
-                        </tfoot>
-                    @endif
                 </table>
+            </div>
+
+            {{-- Total di TENGAH BAWAH grid, spt VB6 (bukan di kaki tabel). VB6 menampilkan
+                 Total Qty Masuk DAN Total Qty Keluar; di Penerimaan Barang hanya yg Masuk
+                 yg punya arti - barangnya masuk, bukan keluar. --}}
+            <div class="vb-total">
+                <span>Total Qty Masuk</span>
+                <span class="nilai">{{ number_format($totalQty, 2, ',', '.') }}</span>
             </div>
 
             @unless ($locked)
@@ -210,6 +237,7 @@
                     </button>
                 </div>
             @endunless
+            </div>{{-- /.vb-form --}}
         </div>
     </div>
 

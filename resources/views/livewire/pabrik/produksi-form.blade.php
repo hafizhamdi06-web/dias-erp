@@ -1,4 +1,4 @@
-<div>
+<div class="vb-rapat">
     <form wire:submit="save">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -152,24 +152,15 @@
                 <hr class="my-3">
 
                 @unless ($locked || $jopId)
-                    <div class="position-relative mb-2" style="max-width: 420px">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text"><i class="fas fa-plus"></i></span>
-                            <input type="text" class="form-control" placeholder="Cari produk jadi untuk ditambahkan…"
-                                   wire:model.live.debounce.300ms="itemQ" autocomplete="off">
-                        </div>
-                        @if (count($itemResults))
-                            <div class="list-group position-absolute w-100 shadow-sm" style="z-index: 1055; max-height: 260px; overflow-y:auto">
-                                @foreach ($itemResults as $r)
-                                    <button type="button" wire:key="ir-{{ $r->id }}"
-                                            class="list-group-item list-group-item-action small"
-                                            wire:click="addProdukJadi({{ $r->id }})">
-                                        <span class="fw-semibold">{{ $r->kode }}</span> — {{ $r->nama }}
-                                    </button>
-                                @endforeach
-                            </div>
-                        @endif
-                    </div>
+                    {{-- Produk jadi dicari lewat MODAL "Cari Barang" (permintaan user
+                         2026-10-12), sama spt di JOP. Pola VB6-nya: `fFrmProduksi` memanggil
+                         `CariBarang` (`bFrmCariItem`).
+                         Tetap disembunyikan saat produksi ditarik dari JOP - barisnya sudah
+                         tetap di sana. --}}
+                    <button type="button" class="btn btn-outline-primary btn-sm mb-2"
+                            wire:click="bukaCariBarang">
+                        <i class="fas fa-plus me-1"></i> Tambah Produk Jadi
+                    </button>
                 @endunless
 
                 <div class="table-responsive">
@@ -437,5 +428,11 @@
                 @endunless
             </div>
         </x-lw-modal>
+    @endif
+
+    {{-- Dialog "Cari Barang" utk produk jadi. --}}
+    @if ($cbShow)
+        <x-cari-barang :hasil="$cbHasil" :pilih="$cbPilih" :data="$cbData"
+                       :total="$cbTotal" :batas="$cbBatas" :ditambah="$cbDitambah" />
     @endif
 </div>

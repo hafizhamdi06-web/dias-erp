@@ -20,27 +20,31 @@
 
     <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div class="d-flex flex-wrap gap-2">
-                <div class="input-group input-group-sm" style="max-width: 240px">
+            <div class="d-flex flex-wrap gap-2 vb-filter">
+                <div class="input-group input-group-sm f-cari">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" placeholder="no JOP / kontak / uraian"
                            wire:model.live.debounce.400ms="search">
                 </div>
-                <select class="form-select form-select-sm" style="max-width: 170px" wire:model.live="fStatus">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fStatus">
                     <option value="">Semua status</option>
                     <option value="1">Belum Ditarik</option>
                     <option value="2">Sebagian Ditarik</option>
                     <option value="3">Selesai Ditarik</option>
                     <option value="9">Batal</option>
                 </select>
-                <select class="form-select form-select-sm" style="max-width: 180px" wire:model.live="fCabang">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fCabang">
                     <option value="">Semua cabang</option>
                     @foreach ($branches as $b)
                         <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                     @endforeach
                 </select>
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fFrom">
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fTo">
+                {{-- Dibungkus `.vb-tanggal` supaya pasangan tanggalnya tidak pernah terbelah
+                     ke baris berikutnya - sama spt daftar PR/KMB/TMB/SJ. --}}
+                <div class="vb-tanggal">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fFrom">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fTo">
+                </div>
             </div>
             <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary btn-sm" wire:click="$refresh" title="Muat ulang daftar">
@@ -52,20 +56,22 @@
             </div>
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+            <table class="table table-bordered align-middle vb-list">
                 <thead><tr>
                     <th>Nomor</th><th>Tanggal</th><th>Kontak</th><th>Gudang Produksi</th>
-                    <th class="text-center">Status</th><th class="text-end">Aksi</th>
+                    <th>Status</th><th class="text-end">Aksi</th>
                 </tr></thead>
                 <tbody>
                     @forelse ($rows as $r)
                         @php [$bg, $lbl] = $statusBadge($r->status); @endphp
                         <tr wire:key="jop-{{ $r->id }}">
                             <td>{{ $r->nomor }}</td>
-                            <td class="text-muted small">{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
                             <td>{{ $r->kontak ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
-                            <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
+                            <td>{{ $r->cabang ?: '—' }}</td>
+                            <td><x-status-teks :bg="$bg" :teks="$lbl" /></td>
                             <td class="text-end text-nowrap">
                                 @if (can_do('pabrik/jop', 'print'))
                                     <a href="{{ route('pabrik.jop.print', $r->id) }}" target="_blank"

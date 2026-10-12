@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Pabrik;
 
+use App\Livewire\Concerns\CariBarang;
 use App\Models\Branch;
 use App\Services\JopWriter;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,8 @@ use Livewire\Component;
  */
 class JopForm extends Component
 {
+    use CariBarang;
+
     public ?string $tabKey = null;
     public ?int $jopId = null;
     public bool $locked = false;
@@ -33,8 +36,6 @@ class JopForm extends Component
 
     /** @var array<int,array{item:int,kode:string,nama:string,qty:float,qtyPakai:float,satuan:?int,satuanKode:string,catatan:?string,komposisi:list<array>}> */
     public array $lines = [];
-
-    public string $itemQ = '';
 
     // modal komposisi bahan baku
     public bool $showKomposisi = false;
@@ -96,15 +97,44 @@ class JopForm extends Component
         'cabang.required' => 'Cabang Anda tidak valid - hubungi admin.',
     ];
 
+    // ---- dialog "Cari Barang" (trait CariBarang) ---------------------------------
+    // VB6 `fFrmProduksi_JobOrder` juga memanggil `CariBarang` polos (tanpa FilterTambahan),
+    // dialog yg SAMA dgn form Permintaan Barang & PO.
+    protected function hakCariBarang(): bool
+    {
+        return ! $this->locked && can_do('pabrik/jop', $this->jopId ? 'edit' : 'add');
+    }
+
+    /** Cabang yg stoknya ditampilkan di kolom "Stok" dialog = Gudang Produksi. */
+    protected function gudangCariBarang(): ?int
+    {
+        return $this->cabang;
+    }
+
+    /**
+     * Saringan `ICABANG` DIMATIKAN - alasan sama dgn `PoForm`: yg diminta bentuk
+     * pencariannya jadi modal, BUKAN mempersempit barang yg bisa dipilih. Kotak cari lama
+     * layar ini tidak pernah memakainya, dan saringan itu memangkas 2.764 -> 1.696 item di
+     * cabang 1. Kalau JOP memang harus dibatasi item cabang sendiri, hapus override ini.
+     */
+    protected function saringCabangCariBarang(): bool
+    {
+        return false;
+    }
+
+    protected function terapkanBarang(int $itemId): void
+    {
+        $this->addProdukJadi($itemId);
+    }
+
     public function addProdukJadi(int $id): void
     {
         if ($this->locked) {
             return;
         }
+        // Produk yg sudah ada tidak ditambah dua kali - diam saja, spt sebelumnya.
         foreach ($this->lines as $l) {
             if ($l['item'] === $id) {
-                $this->itemQ = '';
-
                 return;
             }
         }
@@ -129,7 +159,6 @@ class JopForm extends Component
             'catatan'    => null,
             'komposisi'  => [],
         ];
-        $this->itemQ = '';
     }
 
     public function removeLine(int $i): void
@@ -380,16 +409,10 @@ class JopForm extends Component
 
     public function render()
     {
-        $itemResults = [];
-        if (trim($this->itemQ) !== '' && ! $this->locked) {
-            $q = trim($this->itemQ);
-            $itemResults = DB::table('bitem')
-                ->where('ISTATUS', 0)
-                ->where(fn ($b) => $b->where('IKODE', 'like', "%{$q}%")->orWhere('INAMA', 'like', "%{$q}%"))
-                ->orderBy('INAMA')->limit(15)
-                ->get(['IID as id', 'IKODE as kode', 'INAMA as nama']);
-        }
-
+        // Kotak ketik-cari produk jadi DIGANTI dialog "Cari Barang" (2026-10-12), jadi kueri
+        // yg dulu jalan tiap render ikut dibuang. Pencariannya di `CariBarang::cariBarang()`.
+        // Pencarian KOMPOSISI di bawah TIDAK diubah: kotaknya ada DI DALAM modal Komposisi,
+        // dan modal-di-dalam-modal lebih buruk daripada kotak ketik-cari.
         $komposisiResults = [];
         if (trim($this->komposisiQ) !== '' && ! $this->locked && $this->komposisiLine !== null) {
             $q = trim($this->komposisiQ);
@@ -401,7 +424,6 @@ class JopForm extends Component
         }
 
         return view('livewire.pabrik.jop-form', [
-            'itemResults'      => $itemResults,
             'komposisiResults' => $komposisiResults,
             'jenisList'        => DB::table('blain')->where('ltipe', 'Jenis Produksi')->orderBy('lnama')->get(['lid', 'lnama']),
         ]);

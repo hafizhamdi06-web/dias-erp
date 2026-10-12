@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Pabrik;
 
+use App\Livewire\Concerns\CariBarang;
 use App\Models\Branch;
 use App\Services\ProduksiWriter;
 use App\Services\SerialBatch;
@@ -17,6 +18,8 @@ use Livewire\Component;
  */
 class ProduksiForm extends Component
 {
+    use CariBarang;
+
     public ?string $tabKey = null;
     public ?int $produksiId = null;
     public ?int $jopId = null; // JOP sumber (SUIDJOP) - opsional, TIDAK bisa diubah stlh dibuat
@@ -43,7 +46,6 @@ class ProduksiForm extends Component
     /** @var array<int,array{pdid:?int,item:int,kode:string,nama:string,qty:float,qtySisa:?float,satuan:?int,satuanKode:string,catatan:?string,komposisi:list<array>}> */
     public array $lines = [];
 
-    public string $itemQ = '';
     public string $gudangQ = '';
 
     // modal komposisi bahan baku
@@ -71,6 +73,7 @@ class ProduksiForm extends Component
             ? ((string) DB::table('bkontak')->where('KID', $this->kontak)->value('KNAMA') ?: $user->displayName())
             : $user->displayName();
         $this->cabang = (int) ($user->UCABANG ?? 0) ?: null;
+        $this->terapkanGudangBawaan();
 
         $this->uraian = (string) DB::table('aanomor')
             ->where('NKODE', ProduksiWriter::SUMBER)->value('NKETERANGAN') ?: null;
@@ -266,6 +269,41 @@ class ProduksiForm extends Component
         'gudangJadi.required' => 'Gudang Jadi (tujuan hasil produksi) wajib diisi.',
     ];
 
+    /**
+     * Isi Gudang Jadi & Gudang Sample OTOMATIS dari Gudang Produksi
+     * (permintaan user 2026-10-12 - "user tidak perlu rubah2 inputan gudang ini").
+     *
+     * Pemetaannya di `config/produksi.php` beserta dasar datanya; gudang yg tidak
+     * terdaftar di sana jatuh ke aturan **Gudang Jadi = Gudang Produksi itu sendiri**
+     * (mis. produksi di Petogogan -> jadi di Petogogan), Sample dikosongkan.
+     *
+     * Hanya mengisi saat masih KOSONG: dipanggil juga dari `updated()` saat Gudang
+     * Produksi diganti, dan di sana isian manual user TIDAK boleh ditimpa diam-diam -
+     * lihat `$paksa`.
+     */
+    private function terapkanGudangBawaan(bool $paksa = true): void
+    {
+        if ($this->locked || ! $this->cabang) {
+            return;
+        }
+
+        $peta = config('produksi.gudang_tujuan.' . (int) $this->cabang);
+        $jadi = $peta['jadi'] ?? (int) $this->cabang;   // bawaan: gudang produksi sendiri
+        $sample = $peta['sample'] ?? null;
+
+        if ($paksa || ! $this->gudangJadi) {
+            $this->gudangJadi = $jadi;
+            $this->gudangJadiLabel = $jadi
+                ? (string) DB::table('bgudang')->where('GID', $jadi)->value('GNAMA') : null;
+            $this->syncFlagBatch(); // setelan batch ikut gudang tujuan
+        }
+        if ($paksa || ! $this->gudangSample) {
+            $this->gudangSample = $sample;
+            $this->gudangSampleLabel = $sample
+                ? (string) DB::table('bgudang')->where('GID', $sample)->value('GNAMA') : null;
+        }
+    }
+
     public function pickGudangJadi(int $id, string $nama): void
     {
         if ($this->locked) {
@@ -296,15 +334,52 @@ class ProduksiForm extends Component
         $this->gudangSampleLabel = null;
     }
 
+    // ---- dialog "Cari Barang" (trait CariBarang) ---------------------------------
+    // VB6 `fFrmProduksi` juga memanggil `CariBarang` polos, dialog yg SAMA dgn form
+    // Permintaan Barang / PO / JOP.
+    //
+    // **Ikut aturan `$jopId`**: produksi yg ditarik dari Job Order barisnya sudah tetap,
+    // jadi dialognya pun tidak boleh dibuka di sana - batas yg sama dgn `addProdukJadi()`
+    // dan dgn kotak cari lama (`! $this->jopId` di `render()`).
+    protected function hakCariBarang(): bool
+    {
+        return ! $this->locked && ! $this->jopId
+            && can_do('pabrik/produksi', $this->produksiId ? 'edit' : 'add');
+    }
+
+    /**
+     * Cabang yg stoknya ditampilkan di kolom "Stok" dialog = **Gudang Jadi**, tempat produk
+     * hasil produksi mendarat - itu angka yg relevan saat memilih produk jadi. Jatuh ke
+     * Gudang Produksi kalau Gudang Jadi belum terisi.
+     */
+    protected function gudangCariBarang(): ?int
+    {
+        return $this->gudangJadi ?: $this->cabang;
+    }
+
+    /**
+     * Saringan `ICABANG` DIMATIKAN - alasan sama dgn `PoForm`/`JopForm`: yg diminta bentuk
+     * pencariannya jadi modal, BUKAN mempersempit barang yg bisa dipilih. Kotak cari lama
+     * layar ini tidak pernah memakainya.
+     */
+    protected function saringCabangCariBarang(): bool
+    {
+        return false;
+    }
+
+    protected function terapkanBarang(int $itemId): void
+    {
+        $this->addProdukJadi($itemId);
+    }
+
     public function addProdukJadi(int $id): void
     {
         if ($this->locked || $this->jopId) {
             return; // baris dari JOP sudah tetap - freeform baru boleh nambah bebas
         }
+        // Produk yg sudah ada tidak ditambah dua kali - diam saja, spt sebelumnya.
         foreach ($this->lines as $l) {
             if ($l['item'] === $id) {
-                $this->itemQ = '';
-
                 return;
             }
         }
@@ -331,7 +406,6 @@ class ProduksiForm extends Component
             'serial'     => $this->wajibBatch((int) $it->IID),
             'batches'    => [],
         ];
-        $this->itemQ = '';
     }
 
     public function removeLine(int $i): void
@@ -354,6 +428,15 @@ class ProduksiForm extends Component
      */
     public function updated(string $name, mixed $value): void
     {
+        // Gudang Produksi diganti -> Gudang Jadi & Sample ikut menyesuaikan.
+        // Hari ini kotaknya `disabled` di blade (selalu cabang user login), jadi ini jaring
+        // pengaman: kalau nanti boleh dipilih, pasangannya ikut berubah sendiri.
+        if ($name === 'cabang') {
+            $this->terapkanGudangBawaan();
+
+            return;
+        }
+
         if (preg_match('/^lines\.(\d+)\.komposisi\.(\d+)\.qtyDefault$/', $name, $m)) {
             $i = (int) $m[1];
             $k = (int) $m[2];
@@ -599,16 +682,11 @@ class ProduksiForm extends Component
 
     public function render()
     {
-        $itemResults = [];
-        if (trim($this->itemQ) !== '' && ! $this->locked && ! $this->jopId) {
-            $q = trim($this->itemQ);
-            $itemResults = DB::table('bitem')
-                ->where('ISTATUS', 0)
-                ->where(fn ($b) => $b->where('IKODE', 'like', "%{$q}%")->orWhere('INAMA', 'like', "%{$q}%"))
-                ->orderBy('INAMA')->limit(15)
-                ->get(['IID as id', 'IKODE as kode', 'INAMA as nama']);
-        }
-
+        // Kotak ketik-cari produk jadi DIGANTI dialog "Cari Barang" (2026-10-12), jadi kueri
+        // yg dulu jalan tiap render ikut dibuang. Pencariannya di `CariBarang::cariBarang()`.
+        // Pencarian KOMPOSISI & GUDANG di bawah TIDAK diubah: komposisi kotaknya ada DI DALAM
+        // modal Komposisi (modal-di-dalam-modal lebih buruk), dan pencarian gudang bukan
+        // pencarian barang - dialognya pun beda.
         $komposisiResults = [];
         if (trim($this->komposisiQ) !== '' && ! $this->locked && $this->komposisiLine !== null) {
             $q = trim($this->komposisiQ);
@@ -629,7 +707,6 @@ class ProduksiForm extends Component
         }
 
         return view('livewire.pabrik.produksi-form', [
-            'itemResults'      => $itemResults,
             'komposisiResults' => $komposisiResults,
             'gudangResults'    => $gudangResults,
             'totalQty'         => array_sum(array_map(fn ($l) => (float) $l['qty'], $this->lines)),

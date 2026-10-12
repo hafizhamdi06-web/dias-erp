@@ -18,25 +18,29 @@
 
     <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div class="d-flex flex-wrap gap-2">
-                <div class="input-group input-group-sm" style="max-width: 240px">
+            <div class="d-flex flex-wrap gap-2 vb-filter">
+                <div class="input-group input-group-sm f-cari">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" placeholder="no Produksi / kontak / no JOP"
                            wire:model.live.debounce.400ms="search">
                 </div>
-                <select class="form-select form-select-sm" style="max-width: 160px" wire:model.live="fStatus">
+                <select class="form-select form-select-sm f-pilih" wire:model.live="fStatus">
                     <option value="">Semua status</option>
                     <option value="1">Aktif</option>
                     <option value="9">Batal</option>
                 </select>
-                <select class="form-select form-select-sm" style="max-width: 180px" wire:model.live="fCabang">
+                <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fCabang">
                     <option value="">Semua cabang</option>
                     @foreach ($branches as $b)
                         <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                     @endforeach
                 </select>
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fFrom">
-                <input type="date" class="form-control form-control-sm" style="max-width: 150px" wire:model.live="fTo">
+                {{-- Dibungkus `.vb-tanggal` supaya pasangan tanggalnya tidak pernah terbelah
+                     ke baris berikutnya - sama spt daftar PR/KMB/TMB/SJ. --}}
+                <div class="vb-tanggal">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fFrom">
+                    <input type="date" class="form-control form-control-sm" wire:model.live="fTo">
+                </div>
             </div>
             <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary btn-sm" wire:click="$refresh" title="Muat ulang daftar">
@@ -49,22 +53,24 @@
             </div>
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+            <table class="table table-bordered align-middle vb-list">
                 <thead><tr>
                     <th>Nomor</th><th>Tanggal</th><th>Kontak</th><th>Gudang Produksi</th><th>Gudang Jadi</th><th>No JOP Asal</th>
-                    <th class="text-center">Status</th><th class="text-end">Aksi</th>
+                    <th>Status</th><th class="text-end">Aksi</th>
                 </tr></thead>
                 <tbody>
                     @forelse ($rows as $r)
                         @php [$bg, $lbl] = $statusBadge($r->status); @endphp
                         <tr wire:key="pro-{{ $r->id }}">
                             <td>{{ $r->nomor }}</td>
-                            <td class="text-muted small">{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
                             <td>{{ $r->kontak ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabangJadi ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->noJop ?: '—' }}</td>
-                            <td class="text-center"><span class="badge {{ $bg }}">{{ $lbl }}</span></td>
+                            <td>{{ $r->cabang ?: '—' }}</td>
+                            <td>{{ $r->cabangJadi ?: '—' }}</td>
+                            <td>{{ $r->noJop ?: '—' }}</td>
+                            <td><x-status-teks :bg="$bg" :teks="$lbl" /></td>
                             <td class="text-end text-nowrap">
                                 <button class="btn btn-outline-secondary btn-sm" wire:click="editProduksi({{ $r->id }}, @js($r->nomor))" title="Buka">
                                     <i class="fas fa-eye"></i>

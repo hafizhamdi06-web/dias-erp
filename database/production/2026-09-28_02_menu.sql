@@ -363,6 +363,41 @@ VALUES (74, 58, 'laporan.dp-per-tanggal', 'Jumlah DP Pertanggal', 'laporan/dp-pe
 ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
   icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
 
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (75, 56, 'laporan.iv', 'IV Penjualan', NULL, 'fas fa-file-invoice', 'group', 93, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (76, 75, 'laporan.iv.surat-jalan', 'IP IV Surat Jalan', 'laporan/iv-surat-jalan', 'fas fa-truck-fast', 'link', 94, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (77, 75, 'laporan.iv.mutasi', 'Daftar Invoice Mutasi', 'laporan/iv-mutasi', 'fas fa-right-left', 'link', 95, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (78, 75, 'laporan.iv.per-tanggal', 'IP IV Per Tanggal', 'laporan/iv-per-tanggal', 'fas fa-calendar-day', 'link', 96, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (79, 75, 'laporan.iv.mutasi-detail', 'Daftar IV Mutasi Detail', 'laporan/iv-mutasi-detail', 'fas fa-list-ul', 'link', 97, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (80, 75, 'laporan.iv.daftar-invoice', 'IP IV Daftar Invoice', 'laporan/iv-daftar-invoice', 'fas fa-file-invoice', 'link', 98, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
+INSERT INTO `lv_menu` (id, parent_id, segment_key, title, route, icon, menu_type, sort_order, is_active)
+VALUES (81, 75, 'laporan.iv.daftar-mutasi', 'IVM Daftar Invoice Mutasi', 'laporan/iv-daftar-mutasi', 'fas fa-file-invoice-dollar', 'link', 99, 1)
+ON DUPLICATE KEY UPDATE parent_id=VALUES(parent_id), title=VALUES(title), route=VALUES(route),
+  icon=VALUES(icon), menu_type=VALUES(menu_type), sort_order=VALUES(sort_order), is_active=VALUES(is_active);
+
 
 SET FOREIGN_KEY_CHECKS = 1;
 

@@ -1,4 +1,8 @@
-@props(['title' => null, 'subtitle' => null, 'company' => []])
+{{-- `pertama`/`terakhir` hanya dipakai laporan yg ditulis BERTAHAP (lihat
+     `PdfReport::tulisBertahap()`): kepala dokumen cuma di potongan pertama, penutup cuma di
+     potongan terakhir. Defaultnya `true` supaya laporan biasa (sekali render) tidak berubah. --}}
+@props(['title' => null, 'subtitle' => null, 'company' => [], 'pertama' => true, 'terakhir' => true])
+@if ($pertama)
 <!DOCTYPE html>
 <html>
 <head>
@@ -33,11 +37,16 @@
         <div class="subtitle">{{ $subtitle }}</div>
     @endif
 
-    {{ $slot }}
-
+    {{-- Deklarasi footer harus mendahului pemakaiannya, jadi ikut di potongan pertama saja. --}}
     <htmlpagefooter name="footer-page">
         <footer>Dicetak {{ now()->format('d/m/Y H:i') }} — Halaman {PAGENO}/{nbpg}</footer>
     </htmlpagefooter>
     <sethtmlpagefooter name="footer-page" value="on" />
+@endif
+
+    {{ $slot }}
+
+@if ($terakhir)
 </body>
 </html>
+@endif

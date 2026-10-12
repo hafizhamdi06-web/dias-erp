@@ -1014,6 +1014,292 @@ class ReportController extends Controller
         ];
     }
 
+    /* =====================================================================================
+     | KELUARGA "IV Penjualan" - VB6 form `zeFrmFilterLaporanDaftar_2022`
+     | (`Module/d/Form/zdFrmFilterLaporanDaftar_2022.frm`), menu 780/788/796/819/821/822.
+     | Tiap `Case` punya TEPAT SATU penugasan `pSQL` (diperiksa satu per satu).
+     | Filter bersama: `Case 760, 780, 788, 819, 796, 821, 822` baris 2157-2168 -
+     | rentang `IPUTANGGAL`, `IPUGUDANG`, `ikelompok2020`.
+     |
+     | LIMA dari enam (780/788/819/821/822) query-nya BENTUKNYA SAMA, hanya beda 4 hal:
+     |   `IPUSUMBER`, kolom `nopo`, sisi join gudang-pelanggan, dan kolom tambahan.
+     | Karena itu satu `dataIvDaftar()` diparametrikan - bukan lima salinan.
+     ===================================================================================== */
+
+    public function ivSuratJalan(Request $r)            // menu 780
+    {
+        return $this->ivPdf($r, 'IP IV Surat Jalan', ['sumber' => 'IV', 'gudangPelanggan' => 'tujuan']);
+    }
+
+    public function ivSuratJalanExcel(Request $r)
+    {
+        return $this->ivXls($r, 'IP IV Surat Jalan', ['sumber' => 'IV', 'gudangPelanggan' => 'tujuan']);
+    }
+
+    public function ivmDaftarInvoiceMutasi(Request $r)  // menu 788
+    {
+        return $this->ivPdf($r, 'Daftar Invoice Mutasi', ['sumber' => 'IVM', 'gudangPelanggan' => 'tujuan', 'nopo' => true]);
+    }
+
+    public function ivmDaftarInvoiceMutasiExcel(Request $r)
+    {
+        return $this->ivXls($r, 'Daftar Invoice Mutasi', ['sumber' => 'IVM', 'gudangPelanggan' => 'tujuan', 'nopo' => true]);
+    }
+
+    public function ivmMutasiDetail(Request $r)         // menu 819
+    {
+        return $this->ivPdf($r, 'Daftar IV Mutasi Detail', ['sumber' => 'IVM', 'gudangPelanggan' => 'cabang']);
+    }
+
+    public function ivmMutasiDetailExcel(Request $r)
+    {
+        return $this->ivXls($r, 'Daftar IV Mutasi Detail', ['sumber' => 'IVM', 'gudangPelanggan' => 'cabang']);
+    }
+
+    public function ivDaftarInvoice(Request $r)         // menu 821
+    {
+        return $this->ivPdf($r, 'IP IV Daftar Invoice', ['sumber' => 'IV', 'gudangPelanggan' => 'tujuan', 'pt' => true, 'pelanggan' => true]);
+    }
+
+    public function ivDaftarInvoiceExcel(Request $r)
+    {
+        return $this->ivXls($r, 'IP IV Daftar Invoice', ['sumber' => 'IV', 'gudangPelanggan' => 'tujuan', 'pt' => true, 'pelanggan' => true]);
+    }
+
+    public function ivmDaftarInvoice(Request $r)        // menu 822
+    {
+        return $this->ivPdf($r, 'IVM Daftar Invoice Mutasi', ['sumber' => 'IVM', 'gudangPelanggan' => 'cabang', 'pt' => true]);
+    }
+
+    public function ivmDaftarInvoiceExcel(Request $r)
+    {
+        return $this->ivXls($r, 'IVM Daftar Invoice Mutasi', ['sumber' => 'IVM', 'gudangPelanggan' => 'cabang', 'pt' => true]);
+    }
+
+    private function ivPdf(Request $r, string $judul, array $opsi)
+    {
+        return $this->pdfBerbatas('reports.iv-daftar', $this->dataIvDaftar($r, $judul, $opsi));
+    }
+
+    private function ivXls(Request $r, string $judul, array $opsi)
+    {
+        return $this->kirimExcel('reports.iv-daftar-xls', $this->dataIvDaftar($r, $judul, $opsi));
+    }
+
+    /**
+     * Bentuk dasar lima laporan IV/IVM. Perbedaan antar-menu HANYA lewat `$opsi`:
+     *
+     * | menu | sumber | nopo                        | gudang pelanggan      | tambahan        |
+     * |------|--------|-----------------------------|-----------------------|-----------------|
+     * | 780  | IV     | `'-'`                       | `SUGUDANGTUJUAN`      | -               |
+     * | 788  | IVM    | `F_CARINOPODARIPKB(PKBUID)` | `SUGUDANGTUJUAN`      | -               |
+     * | 819  | IVM    | `'-'`                       | **`SUCABANG`**        | -               |
+     * | 821  | IV     | `'-'`                       | `SUGUDANGTUJUAN`      | PT + pelanggan  |
+     * | 822  | IVM    | `'-'`                       | **`SUCABANG`**        | PT              |
+     *
+     * **Sisi join gudang-pelanggan itu beda SUNGGUHAN**, bukan salah ketik VB6: 788 memakai
+     * gudang TUJUAN surat jalan, sedangkan 819 & 822 memakai cabang transaksi stoknya -
+     * padahal ketiganya sama-sama `IVM`. Disalin apa adanya.
+     *
+     * **TAMBAHAN dari saya**: kolom `subtotal` = `IPDKELUAR * (IPDHARGA - IPDDISKON)`. VB6
+     * tidak menghitungnya (Crystal yang menjumlah), tapi tanpa itu laporannya cuma deret angka
+     * mentah tanpa nilai. Ditandai di sini supaya tidak dikira ada di sumber aslinya.
+     */
+    private function dataIvDaftar(Request $r, string $judul, array $opsi): array
+    {
+        $r->validate([
+            'from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from'],
+            'cabang' => ['nullable', 'integer'], 'kelompok' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+        $pakaiPt = ! empty($opsi['pt']);
+        $pakaiPelanggan = ! empty($opsi['pelanggan']);
+        $kolomGudangPelanggan = ($opsi['gudangPelanggan'] ?? 'tujuan') === 'cabang' ? 'u2.SUCABANG' : 'u2.SUGUDANGTUJUAN';
+
+        $kolom = [
+            DB::raw('iu.IPUNOTRANSAKSI as nomor'), DB::raw('iu.IPUTANGGAL as tanggal'),
+            DB::raw('i.IKODE as kode'), DB::raw('i.INAMA as nama'), DB::raw('s.SKODE as satuan'),
+            DB::raw('IFNULL(d.IPDKELUAR,0) as qty'), DB::raw('IFNULL(d.IPDHARGA,0) as harga'),
+            DB::raw('IFNULL(d.IPDDISKON,0) as diskon'),
+            DB::raw('IFNULL(d.IPDKELUAR,0) * (IFNULL(d.IPDHARGA,0) - IFNULL(d.IPDDISKON,0)) as subtotal'),
+            DB::raw('IFNULL(i.ICOGS,0) as cogs'), DB::raw('IFNULL(i.ICOGSPABRIK,0) as cogsPabrik'),
+            DB::raw('ct.CTNAMA as jenisCoa'),
+            DB::raw('ga.GKODE as cabangTransaksi'), DB::raw('gb.GKODE as cabangPelanggan'),
+            DB::raw('u2.SUNOTRANSAKSI as noSj'), DB::raw('pkb.PKBUNOTRANSAKSI as noPkb'),
+            DB::raw(! empty($opsi['nopo']) ? 'F_CARINOPODARIPKB(pkb.PKBUID) as noPo' : "'-' as noPo"),
+        ];
+        if ($pakaiPt) {
+            $kolom[] = DB::raw('pt.NPNAMA as pt');
+        }
+        if ($pakaiPelanggan) {
+            $kolom[] = DB::raw('pel.KNAMA as pelanggan');
+            $kolom[] = DB::raw('IFNULL(iu.IPUTOTALTRANSAKSI,0) as totalInvoice');
+        }
+
+        $rows = DB::table('einvoicepenjualand as d')
+            ->leftJoin('einvoicepenjualanu as iu', 'iu.IPUID', '=', 'd.IPDIDIPU')
+            ->leftJoin('bitem as i', 'i.IID', '=', 'd.IPDITEM')
+            ->leftJoin('bsatuan as s', 's.SID', '=', 'i.ISATUAN')
+            ->leftJoin('bkontak as pel', 'pel.KID', '=', 'iu.IPUKONTAK')
+            ->leftJoin('bgudang as ga', 'ga.GID', '=', 'iu.IPUGUDANG')
+            ->leftJoin('bcoatipe_perpt as ct', 'ct.CTID', '=', 'i.ICOA2021')
+            ->leftJoin('fstoku as u2', 'u2.SUID', '=', 'd.IPDSUID')
+            ->leftJoin('fperintahkirimbarangu as pkb', 'pkb.PKBUID', '=', 'u2.SUNOSO')
+            ->leftJoin('bgudang as gb', 'gb.GID', '=', DB::raw($kolomGudangPelanggan))
+            ->when($pakaiPt, fn ($b) => $b->leftJoin('bnamapt as pt', 'pt.NPID', '=', 'gb.GPT'))
+            ->where('iu.IPUSUMBER', $opsi['sumber'])
+            ->whereBetween('iu.IPUTANGGAL', [$r->query('from'), $r->query('to')])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('iu.IPUGUDANG', $gudang))
+            ->when($r->filled('kelompok'), fn ($b) => $b->where('i.IKELOMPOK2020', $r->integer('kelompok')))
+            ->orderBy('iu.IPUTANGGAL')->orderBy('iu.IPUNOTRANSAKSI')
+            ->get($kolom);
+
+        return [
+            'title'    => $judul,
+            'subtitle' => \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y') . ' s/d '
+                . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
+                . ' — sumber ' . $opsi['sumber']
+                . ($this->namaCabang($gudang) ? ' — ' . $this->namaCabang($gudang) : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'pakaiPt'  => $pakaiPt,
+            'pakaiPelanggan' => $pakaiPelanggan,
+            'rows'     => $rows,
+            'total'    => [
+                'baris'    => $rows->count(),
+                'qty'      => (float) $rows->sum('qty'),
+                'subtotal' => (float) $rows->sum('subtotal'),
+            ],
+        ];
+    }
+
+    /**
+     * **IP IV Per Tanggal** (menu 796) - `pSQLString` `Case 796` baris **2666**. Bentuknya
+     * BEDA dari lima saudaranya: jauh lebih banyak kolom HEADER invoice (alamat, termin,
+     * ongkir, diskon invoice, pajak, karyawan) - jadi method-nya terpisah.
+     *
+     * Query VB6-nya punya literal `""` nyasar di tengah (`left join bitem on iid=ipditem ""`) -
+     * itu string kosong hasil sambung VB6, tidak berpengaruh; tidak ikut diport.
+     */
+    public function ivPerTanggal(Request $r)
+    {
+        return $this->pdfBerbatas('reports.iv-per-tanggal', $this->dataIvPerTanggal($r));
+    }
+
+    /**
+     * Batas baris untuk CETAKAN PDF. Laporan keluarga IV bisa sangat besar - rentang 4 bulan
+     * di data nyata = **11.450 baris**.
+     *
+     * Batas ini soal **WAKTU**, bukan memori: memorinya sudah ditangani penulisan bertahap
+     * (`PdfReport::tulisBertahap()`, lihat `BARIS_PER_BAGIAN`) yg menahan pemakaian di ~150 MB
+     * berapa pun panjang laporannya. Yg tidak bisa ditahan: mpdf butuh **~7 ms per baris**
+     * (terukur 2026-10-04, datar di semua ukuran potongan), jadi 6.000 baris ≈ 40 detik dan
+     * 11.450 baris ≈ 80 detik - sudah di luar kewajaran sebuah request web, dan hasilnya PDF
+     * ratusan halaman yg tidak mungkin dibaca.
+     *
+     * Di atas batas ini PDF-nya DIGANTI satu halaman berisi penjelasan + saran (persempit
+     * rentang / pakai Excel), BUKAN dibiarkan gagal. **Excel tidak dibatasi** - formatnya
+     * memang untuk data besar, dan justru itu jalan keluarnya.
+     */
+    private const BATAS_BARIS_PDF = 6000;
+
+    /**
+     * Besar potongan penulisan PDF. Terukur 2026-10-04 pd laporan 780 sebulan (2.851 baris):
+     *
+     *   | per  | puncak memori | halaman | waktu |
+     *   | 300  | 136 MB        | 129     | 21 s  |
+     *   | 400  | 156 MB        | 129     | 22 s  |
+     *   | 800  | 236 MB        | 125     | 22 s  |
+     *   | 1200 | 314 MB        | 124     | 22 s  |
+     *
+     * Kecepatannya SAMA di semua ukuran, dan ongkos `<pagebreak />` di tiap batas potongan
+     * ternyata cuma ~4% halaman (129 vs 124). Jadi dipilih yg paling hemat memori selama
+     * masih wajar: 400 baris, puncak ~156 MB - jarak amannya lega di bawah `memory_limit` 512M
+     * (request web nyata punya beban dasar lbh besar drpd skrip uji).
+     */
+    private const BARIS_PER_BAGIAN = 400;
+
+    private function pdfBerbatas(string $view, array $data)
+    {
+        $opt = ['size' => 'A4', 'orientasi' => 'L', 'marginTop' => 14, 'marginBottom' => 14,
+            'perBagian' => self::BARIS_PER_BAGIAN];
+
+        if ($data['rows']->count() > self::BATAS_BARIS_PDF) {
+            return app(PdfReport::class)->preview('reports.terlalu-banyak', [
+                'title'    => $data['title'],
+                'subtitle' => $data['subtitle'] ?? null,
+                'company'  => $data['company'],
+                'jumlah'   => $data['rows']->count(),
+                'batas'    => self::BATAS_BARIS_PDF,
+            ], $opt);
+        }
+
+        return app(PdfReport::class)->preview($view, $data, $opt);
+    }
+
+    public function ivPerTanggalExcel(Request $r)
+    {
+        return $this->kirimExcel('reports.iv-per-tanggal-xls', $this->dataIvPerTanggal($r));
+    }
+
+    private function dataIvPerTanggal(Request $r): array
+    {
+        $r->validate([
+            'from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from'],
+            'cabang' => ['nullable', 'integer'], 'kelompok' => ['nullable', 'integer'],
+        ]);
+
+        $gudang = $this->cabangLaporan($r);
+
+        $rows = DB::table('einvoicepenjualand as d')
+            ->leftJoin('einvoicepenjualanu as iu', 'iu.IPUID', '=', 'd.IPDIDIPU')
+            ->leftJoin('bkontak as pel', 'pel.KID', '=', 'iu.IPUKONTAK')
+            ->leftJoin('bkontak as kar', 'kar.KID', '=', 'iu.IPUKARYAWAN')
+            ->leftJoin('bitem as i', 'i.IID', '=', 'd.IPDITEM')
+            ->leftJoin('bsatuan as s', 's.SID', '=', 'i.ISATUAN')
+            ->leftJoin('btermin as t', 't.TID', '=', 'iu.IPUTERMIN')
+            ->leftJoin('bcoatipe_perpt as ct', 'ct.CTID', '=', 'i.ICOA2021')
+            ->leftJoin('bgudang as gs', 'gs.GID', '=', 'iu.IPUGUDANG')
+            ->leftJoin('fstoku as u2', 'u2.SUID', '=', 'd.IPDSUID')
+            ->leftJoin('bgudang as gt', 'gt.GID', '=', 'u2.SUGUDANGTUJUAN')
+            ->where('iu.IPUSUMBER', 'IV')
+            ->whereBetween('iu.IPUTANGGAL', [$r->query('from'), $r->query('to')])
+            ->when($gudang !== [], fn ($b) => $b->whereIn('iu.IPUGUDANG', $gudang))
+            ->when($r->filled('kelompok'), fn ($b) => $b->where('i.IKELOMPOK2020', $r->integer('kelompok')))
+            ->orderBy('iu.IPUTANGGAL')->orderBy('iu.IPUNOTRANSAKSI')
+            ->get([
+                DB::raw('iu.IPUNOTRANSAKSI as nomor'), DB::raw('iu.IPUTANGGAL as tanggal'),
+                DB::raw('iu.IPUTGLJATUHTEMPO as jatuhTempo'),
+                DB::raw('pel.KNAMA as pelanggan'), DB::raw('pel.K1TELP1 as telp'),
+                DB::raw('iu.IPUALAMAT as alamat'), DB::raw('kar.KNAMA as karyawan'),
+                DB::raw('t.TKODE as termin'),
+                DB::raw('i.IKODE as kode'), DB::raw('i.INAMA as nama'), DB::raw('s.SNAMA as satuan'),
+                DB::raw('ct.CTNAMA as jenisCoa'),
+                DB::raw('IFNULL(d.IPDKELUAR,0) as qty'), DB::raw('IFNULL(d.IPDHARGA,0) as harga'),
+                DB::raw('IFNULL(d.IPDDISKON,0) as diskon'), DB::raw('IFNULL(d.IPDDISKONPERSEN,0) as diskonPersen'),
+                DB::raw('IFNULL(d.IPDKELUAR,0) * (IFNULL(d.IPDHARGA,0) - IFNULL(d.IPDDISKON,0)) as subtotal'),
+                DB::raw('IFNULL(iu.IPUTOTALTRANSAKSI,0) as totalInvoice'),
+                DB::raw('IFNULL(iu.IPUBIAYAONGKIR,0) as ongkir'),
+                DB::raw('IFNULL(iu.IPUDISKON,0) as diskonInvoice'),
+                DB::raw('IFNULL(iu.IPUTOTALPAJAK,0) as pajak'),
+                DB::raw('gs.GKODE as gudangSumber'), DB::raw('gt.GKODE as gudangTujuan'),
+            ]);
+
+        return [
+            'title'    => 'IP IV Per Tanggal',
+            'subtitle' => \Carbon\Carbon::parse($r->query('from'))->format('d/m/Y') . ' s/d '
+                . \Carbon\Carbon::parse($r->query('to'))->format('d/m/Y')
+                . ($this->namaCabang($gudang) ? ' — ' . $this->namaCabang($gudang) : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => [
+                'baris'    => $rows->count(),
+                'qty'      => (float) $rows->sum('qty'),
+                'subtotal' => (float) $rows->sum('subtotal'),
+            ],
+        ];
+    }
+
     /** Nama cabang utk subjudul - `null` kalau lebih dari satu / tidak dibatasi. */
     private function namaCabang(array $gudang): ?string
     {

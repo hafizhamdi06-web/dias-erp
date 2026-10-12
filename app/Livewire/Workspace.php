@@ -88,6 +88,13 @@ class Workspace extends Component
             'laporan.ip-kedatangan' => ['reports.ip-kedatangan-pasien', 'IP Kedatangan Pasien', 'fas fa-user-check'],
             'laporan.ip-per-dokter' => ['reports.ip-penjualan-per-dokter', 'IP Penjualan Per Dokter', 'fas fa-user-doctor'],
             'laporan.dp-per-tanggal' => ['reports.dp-per-tanggal', 'Jumlah DP Pertanggal', 'fas fa-piggy-bank'],
+            // Grup "IV Penjualan" (permintaan user 2026-10-04) - enam laporan invoice IV/IVM.
+            'laporan.iv.surat-jalan' => ['reports.iv-surat-jalan', 'IP IV Surat Jalan', 'fas fa-truck-fast'],
+            'laporan.iv.mutasi' => ['reports.ivm-daftar-invoice-mutasi', 'Daftar Invoice Mutasi', 'fas fa-right-left'],
+            'laporan.iv.per-tanggal' => ['reports.iv-per-tanggal', 'IP IV Per Tanggal', 'fas fa-calendar-day'],
+            'laporan.iv.mutasi-detail' => ['reports.ivm-mutasi-detail', 'Daftar IV Mutasi Detail', 'fas fa-list-ul'],
+            'laporan.iv.daftar-invoice' => ['reports.iv-daftar-invoice', 'IP IV Daftar Invoice', 'fas fa-file-invoice'],
+            'laporan.iv.daftar-mutasi' => ['reports.ivm-daftar-invoice', 'IVM Daftar Invoice Mutasi', 'fas fa-file-invoice-dollar'],
         ];
     }
 

@@ -95,6 +95,20 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/dp-per-tanggal', [ReportController::class, 'dpPerTanggal'])->name('reports.dp-per-tanggal');
     Route::get('reports/dp-per-tanggal/excel', [ReportController::class, 'dpPerTanggalExcel'])->name('reports.dp-per-tanggal.excel');
 
+    // Keluarga "IV Penjualan" - VB6 menu 780/788/796/819/821/822.
+    Route::get('reports/iv-surat-jalan', [ReportController::class, 'ivSuratJalan'])->name('reports.iv-surat-jalan');
+    Route::get('reports/iv-surat-jalan/excel', [ReportController::class, 'ivSuratJalanExcel'])->name('reports.iv-surat-jalan.excel');
+    Route::get('reports/ivm-daftar-invoice-mutasi', [ReportController::class, 'ivmDaftarInvoiceMutasi'])->name('reports.ivm-daftar-invoice-mutasi');
+    Route::get('reports/ivm-daftar-invoice-mutasi/excel', [ReportController::class, 'ivmDaftarInvoiceMutasiExcel'])->name('reports.ivm-daftar-invoice-mutasi.excel');
+    Route::get('reports/iv-per-tanggal', [ReportController::class, 'ivPerTanggal'])->name('reports.iv-per-tanggal');
+    Route::get('reports/iv-per-tanggal/excel', [ReportController::class, 'ivPerTanggalExcel'])->name('reports.iv-per-tanggal.excel');
+    Route::get('reports/ivm-mutasi-detail', [ReportController::class, 'ivmMutasiDetail'])->name('reports.ivm-mutasi-detail');
+    Route::get('reports/ivm-mutasi-detail/excel', [ReportController::class, 'ivmMutasiDetailExcel'])->name('reports.ivm-mutasi-detail.excel');
+    Route::get('reports/iv-daftar-invoice', [ReportController::class, 'ivDaftarInvoice'])->name('reports.iv-daftar-invoice');
+    Route::get('reports/iv-daftar-invoice/excel', [ReportController::class, 'ivDaftarInvoiceExcel'])->name('reports.iv-daftar-invoice.excel');
+    Route::get('reports/ivm-daftar-invoice', [ReportController::class, 'ivmDaftarInvoice'])->name('reports.ivm-daftar-invoice');
+    Route::get('reports/ivm-daftar-invoice/excel', [ReportController::class, 'ivmDaftarInvoiceExcel'])->name('reports.ivm-daftar-invoice.excel');
+
     // Lookup JSON untuk <x-search-select> (auth saja, tanpa filter hak menu).
     Route::prefix('lookup')->name('lookup.')->group(function () {
         Route::get('wilayah/kota', [LookupController::class, 'wilayahKota'])->name('wilayah.kota');

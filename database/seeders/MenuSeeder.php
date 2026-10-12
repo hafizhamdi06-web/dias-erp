@@ -45,7 +45,7 @@ class MenuSeeder extends Seeder
             // melihat & cetak ulang transaksi tanpa diberi akses layar kasir.
             'sales.pos-data'   => ['Data Transaksi POS', 'sales/pos-data',   'fas fa-table-list',         'link',  32, 'sales'],
             'sales.order'      => ['Sales Order',       'sales/order',       'fas fa-file-invoice',       'link',  33, 'sales'],
-            'sales.sj'         => ['Surat Jalan',       'sales/sj',          'fas fa-truck-fast',         'link',  34, 'sales'],
+            // `sales.sj` PINDAH ke grup Inventory - lihat di bawah.
             'sales.invoice'    => ['Invoice Penjualan', 'sales/invoice',     'fas fa-file-invoice-dollar','link',  35, 'sales'],
             'sales.invoice-mutasi' => ['Invoice Penjualan Mutasi', 'sales/invoice-mutasi', 'fas fa-truck-arrow-right', 'link', 36, 'sales'],
             'sales.return'     => ['Retur Penjualan',   'sales/return',      'fas fa-rotate-left',        'link',  37, 'sales'],
@@ -60,8 +60,7 @@ class MenuSeeder extends Seeder
 
             // ---- Pembelian ----------------------------------------------
             'purchase'         => ['Pembelian',         null,               'fas fa-basket-shopping',    'group', 40, null],
-            'purchase.pkb'     => ['Perintah Kirim Barang (PKB)', 'purchase/pkb', 'fas fa-dolly-flatbed',  'link',  41, 'purchase'],
-            'purchase.pbc'     => ['Penerimaan Barang Cabang', 'purchase/pbc', 'fas fa-box-open',         'link',  42, 'purchase'],
+            // `purchase.pkb` & `purchase.pbc` PINDAH ke grup Inventory - lihat di bawah.
             'purchase.po'      => ['Purchase Order',    'purchase/po',       'fas fa-file-signature',     'link',  43, 'purchase'],
             'purchase.receipt' => ['Penerimaan Barang', 'purchase/receipt',  'fas fa-dolly',              'link',  44, 'purchase'],
             'purchase.invoice' => ['Invoice Pembelian', 'purchase/invoice',  'fas fa-receipt',            'link',  45, 'purchase'],
@@ -73,12 +72,29 @@ class MenuSeeder extends Seeder
             'inventory.stock'  => ['Kartu Stok',        'inventory/stock',   'fas fa-boxes-stacked',      'link',  52, 'inventory'],
             'inventory.kmb'    => ['Kirim Mutasi Barang', 'inventory/kmb',   'fas fa-truck-ramp-box',     'link',  53, 'inventory'],
             'inventory.tmb'    => ['Terima Mutasi Barang', 'inventory/tmb',  'fas fa-dolly',               'link',  54, 'inventory'],
-            'inventory.adjust' => ['Penyesuaian Stok',  'inventory/adjust',  'fas fa-scale-balanced',     'link',  55, 'inventory'],
+            // PKB, Surat Jalan & PBC DIPINDAH ke sini (permintaan user 2026-10-10): PKB & PBC
+            // dari grup Pembelian, SJ dari grup Penjualan. Memang tempat aslinya - di VB6
+            // "Perintah Kirim Barang" (MID 598), "Surat Jalan Depo" (MID 728) dan
+            // "Penerimaan Cabang" (MID 476) sama-sama di grup **Transaksi**, satu grup dgn
+            // Permintaan Barang/KMB/TMB/Pengeluaran Lain, yg di sini jadi Inventory. Ketiganya
+            // mutasi stok antar gudang sendiri, bukan jual-beli ke pihak luar. Urutannya
+            // dijaga mengikuti alur dokumennya: PR -> PKB -> SJ -> PBC.
+            //
+            // `segment_key` + `route` SENGAJA tetap `purchase.*`/`sales.sj` (bukan
+            // `inventory.*`), persis alasan Promo & Paket di grup Penjualan di atas: hak akses
+            // `lv_user_menu` nyambung lewat `menu_id` (aman), tapi path lamanya dipakai
+            // belasan `can_do()`/`activity_log()`, rute cetak `sales.sj.print`, dan kunci
+            // registry Workspace - menggantinya cuma demi kosmetik menu tidak sepadan dgn
+            // risiko hak akses hilang.
+            'purchase.pkb'     => ['Perintah Kirim Barang (PKB)', 'purchase/pkb', 'fas fa-dolly-flatbed', 'link', 55, 'inventory'],
+            'sales.sj'         => ['Surat Jalan',       'sales/sj',          'fas fa-truck-fast',         'link',  56, 'inventory'],
+            'purchase.pbc'     => ['Penerimaan Barang Cabang', 'purchase/pbc', 'fas fa-box-open',         'link',  57, 'inventory'],
+            'inventory.adjust' => ['Penyesuaian Stok',  'inventory/adjust',  'fas fa-scale-balanced',     'link',  58, 'inventory'],
             // Kembar Penyesuaian tapi keluar-saja (`fstoku` SUSUMBER='PL'), sengaja
             // bersebelahan di menu krn alur kerjanya mirip.
-            'inventory.pengeluaran-lain' => ['Pengeluaran Lain', 'inventory/pengeluaran-lain', 'fas fa-arrow-right-from-bracket', 'link', 56, 'inventory'],
-            'inventory.opname'  => ['Stok Opname',      'inventory/opname',  'fas fa-clipboard-check',    'link',  57, 'inventory'],
-            'inventory.serial' => ['Data Histori Serial', 'inventory/serial', 'fas fa-barcode',          'link',  58, 'inventory'],
+            'inventory.pengeluaran-lain' => ['Pengeluaran Lain', 'inventory/pengeluaran-lain', 'fas fa-arrow-right-from-bracket', 'link', 59, 'inventory'],
+            'inventory.opname'  => ['Stok Opname',      'inventory/opname',  'fas fa-clipboard-check',    'link',  60, 'inventory'],
+            'inventory.serial' => ['Data Histori Serial', 'inventory/serial', 'fas fa-barcode',          'link',  61, 'inventory'],
 
             // ---- Finance / Accounting -------------------------------
             'finance'            => ['Finance & Accounting', null,             'fas fa-coins',              'group', 60, null],
@@ -112,6 +128,15 @@ class MenuSeeder extends Seeder
             'laporan.ip-kedatangan' => ['IP Kedatangan Pasien', 'laporan/ip-kedatangan', 'fas fa-user-check', 'link', 90, 'laporan.penjualan'],
             'laporan.ip-per-dokter' => ['IP Penjualan Per Dokter', 'laporan/ip-per-dokter', 'fas fa-user-doctor', 'link', 91, 'laporan.penjualan'],
             'laporan.dp-per-tanggal' => ['Jumlah DP Pertanggal', 'laporan/dp-per-tanggal', 'fas fa-piggy-bank', 'link', 92, 'laporan.penjualan'],
+
+            // ---- Grup BARU "IV Penjualan" (permintaan user 2026-10-04) ----
+            'laporan.iv'        => ['IV Penjualan',   null,  'fas fa-file-invoice', 'group', 93, 'laporan'],
+            'laporan.iv.surat-jalan' => ['IP IV Surat Jalan', 'laporan/iv-surat-jalan', 'fas fa-truck-fast', 'link', 94, 'laporan.iv'],
+            'laporan.iv.mutasi' => ['Daftar Invoice Mutasi', 'laporan/iv-mutasi', 'fas fa-right-left', 'link', 95, 'laporan.iv'],
+            'laporan.iv.per-tanggal' => ['IP IV Per Tanggal', 'laporan/iv-per-tanggal', 'fas fa-calendar-day', 'link', 96, 'laporan.iv'],
+            'laporan.iv.mutasi-detail' => ['Daftar IV Mutasi Detail', 'laporan/iv-mutasi-detail', 'fas fa-list-ul', 'link', 97, 'laporan.iv'],
+            'laporan.iv.daftar-invoice' => ['IP IV Daftar Invoice', 'laporan/iv-daftar-invoice', 'fas fa-file-invoice', 'link', 98, 'laporan.iv'],
+            'laporan.iv.daftar-mutasi' => ['IVM Daftar Invoice Mutasi', 'laporan/iv-daftar-mutasi', 'fas fa-file-invoice-dollar', 'link', 99, 'laporan.iv'],
         ];
 
         $idBySegment = [];

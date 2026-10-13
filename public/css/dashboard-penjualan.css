@@ -106,3 +106,34 @@
 /* ---- Keadaan kosong ---- */
 .dsb-kosong { background: var(--dsb-kartu); border: 1px dashed var(--dsb-garis);
               border-radius: .5rem; padding: 2rem; text-align: center; color: var(--dsb-redup); }
+/* Keadaan AWAL (belum ditekan Tampilkan) - dibedakan dari "tidak ada data": yg ini
+   mengajak bertindak, bukan memberitahu hasil kosong. */
+.dsb-mulai { border-style: solid; border-color: color-mix(in srgb, var(--dsb-jual) 35%, transparent); }
+.dsb-mulai .fa-chart-line { color: var(--dsb-jual); opacity: .55; }
+
+/* ---- Bilah kemajuan ----
+   TAK TENTU (indeterminate): lamanya tidak bisa diketahui di muka - satu kueri agregat
+   tunggal, tidak ada langkah yg bisa dihitung - jadi menampilkan persentase palsu justru
+   menyesatkan. Yg disampaikan cuma "masih jalan". */
+.dsb-progres { display: none; flex-direction: column; gap: .3rem; margin-bottom: .75rem; }
+.dsb-progres .bar {
+    height: 6px; border-radius: 3px; overflow: hidden;
+    background: color-mix(in srgb, var(--dsb-jual) 18%, transparent);
+}
+.dsb-progres .bar > span {
+    display: block; height: 100%; width: 35%; border-radius: 3px;
+    background: var(--dsb-jual);
+    animation: dsb-geser 1.1s ease-in-out infinite;
+}
+.dsb-progres .ket { font-size: .75rem; color: var(--dsb-redup); }
+
+@keyframes dsb-geser {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(340%); }
+}
+
+/* Hormati setelan "kurangi gerakan" di sistem user - animasi berulang tanpa henti
+   memicu pusing bagi sebagian orang. Bilahnya tetap terlihat, hanya diam & penuh. */
+@media (prefers-reduced-motion: reduce) {
+    .dsb-progres .bar > span { animation: none; width: 100%; opacity: .6; }
+}

@@ -44,8 +44,46 @@
                 <i class="fas fa-chevron-right"></i>
             </button>
         </div>
+
+        {{-- Satu-satunya pemicu penarikan data. Ditandai saat saringan berubah supaya
+             user tahu angka di layar belum mengikuti pilihan barunya. --}}
+        <button type="button"
+                class="btn btn-sm {{ $tampil ? 'btn-outline-primary' : 'btn-primary' }}"
+                wire:click="tampilkan" wire:loading.attr="disabled" wire:target="tampilkan">
+            <i class="fas fa-rotate me-1" wire:loading.class="fa-spin" wire:target="tampilkan"></i>
+            Tampilkan
+        </button>
     </div>
 
+    {{-- ===================== BILAH KEMAJUAN =====================
+         Kuerinya menyapu seluruh baris IP sebulan (Juni 2026 saja 15.804 dokumen), jadi
+         jedanya terasa. `wire:target` menyebut SEMUA aksi yg menarik data - kalau tidak,
+         bilahnya cuma muncul saat "Tampilkan" dan "Detailkan" terasa menggantung. --}}
+    <div wire:loading.flex wire:target="tampilkan,detailkan,kembali,keTingkat,toggleAlkes,geserBulan,pt,bulan"
+         class="dsb-progres">
+        <div class="bar"><span></span></div>
+        <div class="ket">Sedang menarik data…</div>
+    </div>
+
+    {{-- Sebelum "Tampilkan" ditekan: layar sengaja KOSONG, tidak ada kueri berat yg jalan. --}}
+    @unless ($tampil)
+        <div class="dsb-kosong dsb-mulai">
+            <i class="fas fa-chart-line fa-2x mb-2 d-block"></i>
+            @if ($saringanBerubah)
+                <div class="fw-semibold mb-1">Saringan sudah diubah.</div>
+                Klik <strong>Tampilkan</strong> untuk menarik data {{ $namaPt }} &middot; {{ $namaBulan }}.
+            @else
+                <div class="fw-semibold mb-1">Siap menarik data.</div>
+                Pilih PT &amp; bulan di atas, lalu klik <strong>Tampilkan</strong>.
+            @endif
+            <div class="mt-2" style="font-size:.75rem">
+                Data tidak ditarik otomatis karena sekali tarik menyapu seluruh transaksi
+                satu bulan penuh.
+            </div>
+        </div>
+    @endunless
+
+    @if ($tampil)
     {{-- ===================== REMAH JEJAK ===================== --}}
     @if ($jalur !== [])
         <div class="dsb-remah">
@@ -220,4 +258,5 @@
             </table>
         </div>
     @endif
+    @endif{{-- /$tampil --}}
 </div>

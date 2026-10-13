@@ -33,6 +33,19 @@ class Penjualan extends Component
     /** No IP yg rincian alkesnya sedang dibuka di tingkat transaksi. */
     public ?string $alkesDibuka = null;
 
+    /**
+     * Data baru ditarik SETELAH user menekan "Tampilkan" (permintaan user 2026-10-13).
+     *
+     * Bukan sekadar selera: sekali tarik menyapu seluruh `fstokd` IP sebulan - Juni 2026
+     * saja 15.804 dokumen - jadi menariknya otomatis tiap kali menu dibuka atau saringan
+     * disentuh membuat layar terasa menggantung tanpa diminta. Pola yg sama dgn dialog
+     * "Cari Transaksi"/"Cari Kontak" yg juga punya tombol Tampilkan.
+     */
+    public bool $tampil = false;
+
+    /** Saringan diubah setelah data tampil - dipakai utk menandai tombol Tampilkan. */
+    public bool $saringanBerubah = false;
+
     public function mount(): void
     {
         $this->bulan = now()->format('Y-m');
@@ -99,23 +112,42 @@ class Penjualan extends Component
         $this->alkesDibuka = $this->alkesDibuka === $noIp ? null : $noIp;
     }
 
-    /** Ganti saringan = mulai lagi dari tingkat teratas. */
-    public function updatedPt(): void
+    /** Tombol "Tampilkan" - satu-satunya yg memulai penarikan data. */
+    public function tampilkan(): void
+    {
+        $this->tampil = true;
+        $this->saringanBerubah = false;
+    }
+
+    /**
+     * Ganti saringan = mulai lagi dari tingkat teratas, dan data lama DIKOSONGKAN.
+     *
+     * Sengaja tidak langsung menarik ulang: angka lama yg masih terpampang padahal
+     * saringannya sudah berbeda lebih menyesatkan daripada layar kosong - user bisa
+     * salah membaca angka bulan lain sbg bulan yg baru dipilih.
+     */
+    private function saringanDiubah(): void
     {
         $this->jalur = [];
         $this->alkesDibuka = null;
+        $this->saringanBerubah = $this->tampil;
+        $this->tampil = false;
+    }
+
+    public function updatedPt(): void
+    {
+        $this->saringanDiubah();
     }
 
     public function updatedBulan(): void
     {
-        $this->jalur = [];
-        $this->alkesDibuka = null;
+        $this->saringanDiubah();
     }
 
     public function geserBulan(int $arah): void
     {
         $this->bulan = Carbon::createFromFormat('Y-m', $this->bulan)->addMonths($arah)->format('Y-m');
-        $this->updatedBulan();
+        $this->saringanDiubah();
     }
 
     public function render()
@@ -123,11 +155,13 @@ class Penjualan extends Component
         $svc = app(DashboardPenjualan::class);
         $saring = $this->saring();
 
+        // Selama belum ditekan "Tampilkan", TIDAK ADA kueri berat yg dijalankan sama
+        // sekali - bukan sekadar hasilnya disembunyikan.
         return view('livewire.dashboard.penjualan', [
-            'baris'   => $svc->baris($this->tingkat(), $saring),
-            'total'   => $svc->total($saring),
+            'baris'   => $this->tampil ? $svc->baris($this->tingkat(), $saring) : collect(),
+            'total'   => $this->tampil ? $svc->total($saring) : null,
             'ptList'  => $svc->daftarPt(),
-            'alkes'   => $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect(),
+            'alkes'   => $this->tampil && $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect(),
             'namaBulan' => Carbon::createFromFormat('Y-m', $this->bulan)->locale('id')->isoFormat('MMMM Y'),
             'namaPt'  => $this->pt
                 ? (string) DB::table('bnamapt')->where('NPID', $this->pt)->value('NPNAMA')

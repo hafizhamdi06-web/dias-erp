@@ -24,6 +24,8 @@
     <link rel="stylesheet" href="{{ asset('vendor/adminlte/dist/css/adminlte.min.css') }}">
     {{-- Tata letak form ala VB6 (lihat berkasnya utk alasan kenapa statis, bukan @push). --}}
     <link rel="stylesheet" href="{{ asset('css/vb-form.css') }}?v={{ @filemtime(public_path('css/vb-form.css')) }}">
+    {{-- Dashboard Penjualan - statis juga, alasan sama spt vb-form.css. --}}
+    <link rel="stylesheet" href="{{ asset('css/dashboard-penjualan.css') }}?v={{ @filemtime(public_path('css/dashboard-penjualan.css')) }}">
     <style>
         :root { --dias-font: 'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
         /* Tema terang default Bootstrap (--bs-tertiary-bg: #f8f9fa) terlalu pucat/silau -

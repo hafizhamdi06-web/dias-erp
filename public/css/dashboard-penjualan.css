@@ -1,0 +1,108 @@
+/* ============================================================================
+   Dashboard Penjualan & COGS.
+
+   SENGAJA TIDAK memakai `vb-form.css`: layar ini bukan tiruan VB6 - tidak ada
+   padanannya di sistem lama - jadi tidak terikat kerapatan & abu-abu COLOR_BTNFACE.
+   Di sini justru warna yg jadi alat baca: tiap ukuran punya warna TETAP di seluruh
+   lima tingkat, supaya mata langsung tahu "hijau = penjualan" tanpa membaca label lagi.
+
+   Berkas statis di `public/`, alasan sama dgn `vb-form.css`: tab Workspace bisa dibuka
+   belakangan lewat Livewire saat stack layout sudah selesai dirender, jadi `@push`
+   tidak terpasang.
+   ============================================================================ */
+
+:root {
+    --dsb-jual:  #0d9488;   /* teal   - Penjualan */
+    --dsb-cogs:  #c2410c;   /* jingga - COGS (biaya) */
+    --dsb-laba:  #4f46e5;   /* indigo - Laba Kotor */
+    --dsb-ppn:   #a16207;   /* kuning tua - PPN */
+    --dsb-klinik:#0369a1;   /* biru   - Pendapatan Klinik */
+    --dsb-kartu: #ffffff;
+    --dsb-garis: #e5e7eb;
+    --dsb-redup: #6b7280;
+    --dsb-latar: #f1f5f9;
+}
+
+/* Mode gelap: warna aksen dinaikkan terangnya supaya tetap terbaca di latar gelap -
+   warna pekat di atas dibuat utk latar putih. */
+[data-bs-theme="dark"] {
+    --dsb-jual:  #2dd4bf;
+    --dsb-cogs:  #fb923c;
+    --dsb-laba:  #a5b4fc;
+    --dsb-ppn:   #fcd34d;
+    --dsb-klinik:#7dd3fc;
+    --dsb-kartu: var(--bs-body-bg);
+    --dsb-garis: var(--bs-border-color);
+    --dsb-redup: var(--bs-secondary-color);
+    --dsb-latar: var(--bs-tertiary-bg);
+}
+
+.dsb { background: var(--dsb-latar); padding: .85rem; border-radius: .5rem; }
+
+/* ---- Kepala: judul + saringan ---- */
+.dsb-kepala { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-bottom: .85rem; }
+.dsb-judul { font-size: 1.05rem; font-weight: 700; letter-spacing: .02em; margin: 0; }
+.dsb-sub { color: var(--dsb-redup); font-size: .8rem; }
+
+/* ---- Remah jejak (PT > Cabang > COA > Item) ---- */
+.dsb-remah { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; font-size: .8rem; margin-bottom: .75rem; }
+.dsb-remah button { border: 0; background: none; padding: 0 .15rem; color: var(--dsb-klinik); text-decoration: underline; }
+.dsb-remah .kini { font-weight: 700; }
+.dsb-remah .pisah { color: var(--dsb-redup); }
+
+/* ---- Kartu ukuran besar di kepala ---- */
+.dsb-ringkas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .6rem; margin-bottom: 1rem; }
+.dsb-kartu {
+    background: var(--dsb-kartu); border: 1px solid var(--dsb-garis);
+    border-radius: .5rem; padding: .6rem .75rem;
+    /* garis warna di tepi kiri = penanda ukuran, bukan sekadar hiasan */
+    border-left: 4px solid var(--warna, var(--dsb-garis));
+}
+.dsb-kartu .label { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dsb-redup); }
+.dsb-kartu .nilai { font-size: 1.15rem; font-weight: 700; color: var(--warna, inherit); line-height: 1.3; }
+.dsb-kartu .kecil { font-size: .72rem; color: var(--dsb-redup); }
+
+.w-jual   { --warna: var(--dsb-jual); }
+.w-cogs   { --warna: var(--dsb-cogs); }
+.w-laba   { --warna: var(--dsb-laba); }
+.w-ppn    { --warna: var(--dsb-ppn); }
+.w-klinik { --warna: var(--dsb-klinik); }
+
+/* ---- Tabel tingkat ---- */
+.dsb-tabel { width: 100%; background: var(--dsb-kartu); border-radius: .5rem; overflow: hidden;
+             border: 1px solid var(--dsb-garis); font-size: .8125rem; margin-bottom: 0; }
+.dsb-tabel thead th {
+    background: var(--dsb-kartu); border-bottom: 2px solid var(--dsb-garis);
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--dsb-redup);
+    padding: .5rem .6rem; white-space: nowrap; position: sticky; top: 0; z-index: 2;
+}
+.dsb-tabel tbody td { padding: .4rem .6rem; border-top: 1px solid var(--dsb-garis); vertical-align: middle; }
+.dsb-tabel tbody tr:hover > td { background: var(--dsb-latar); }
+.dsb-tabel .nama { font-weight: 600; }
+.dsb-tabel .angka { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dsb-jual-t   { color: var(--dsb-jual); font-weight: 600; }
+.dsb-cogs-t   { color: var(--dsb-cogs); }
+.dsb-laba-t   { color: var(--dsb-laba); font-weight: 600; }
+
+/* Bilah proporsi di belakang nama - sekali lihat tahu baris mana yg mendominasi,
+   tanpa perlu membandingkan angka satu per satu. */
+.dsb-bilah { position: relative; }
+.dsb-bilah > .isi {
+    position: absolute; left: 0; top: 0; bottom: 0; background: var(--dsb-jual);
+    opacity: .1; border-radius: 0 .25rem .25rem 0;
+}
+.dsb-bilah > .teks { position: relative; }
+
+/* Margin laba sbg lencana kecil. */
+.dsb-margin { font-size: .7rem; padding: .05rem .35rem; border-radius: .25rem;
+              background: color-mix(in srgb, var(--dsb-laba) 14%, transparent); color: var(--dsb-laba); }
+
+/* ---- Baris rincian alkes (tingkat transaksi) ---- */
+.dsb-alkes { background: var(--dsb-latar); }
+.dsb-alkes table { width: 100%; font-size: .75rem; margin: 0; }
+.dsb-alkes th { color: var(--dsb-redup); font-weight: 600; padding: .25rem .5rem; }
+.dsb-alkes td { padding: .25rem .5rem; }
+
+/* ---- Keadaan kosong ---- */
+.dsb-kosong { background: var(--dsb-kartu); border: 1px dashed var(--dsb-garis);
+              border-radius: .5rem; padding: 2rem; text-align: center; color: var(--dsb-redup); }

@@ -54,6 +54,7 @@ class Workspace extends Component
             'master.pasien'     => ['master.pasien-manager', 'Data Pasien', 'fas fa-bed-pulse'],
             'master.promo'      => ['master.promo-manager', 'Master Promo', 'fas fa-tag'],
             'master.paket'      => ['master.paket-manager', 'Master Paket', 'fas fa-boxes-packing'],
+            'sales.dashboard'   => ['dashboard.penjualan', 'Dashboard Penjualan', 'fas fa-chart-line'],
             'sales.pos'         => ['sales.pos-terminal', 'Kasir / POS', 'fas fa-cash-register'],
             'sales.pos-data'    => ['sales.pos-data-list', 'Data Transaksi POS', 'fas fa-table-list'],
             'purchase.pkb'      => ['purchase.pkb-list', 'Perintah Kirim Barang', 'fas fa-dolly-flatbed'],

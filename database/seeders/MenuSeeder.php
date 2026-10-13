@@ -38,13 +38,17 @@ class MenuSeeder extends Seeder
 
             // ---- Penjualan -----------------------------------------------
             'sales'            => ['Penjualan',         null,               'fas fa-cash-register',      'group', 30, null],
-            'sales.pos'        => ['Kasir / POS',       'sales/pos',         'fas fa-cash-register',      'link',  31, 'sales'],
+            // Dashboard Penjualan & COGS (permintaan user 2026-10-13) - lima tingkat
+            // rincian PT > Cabang > COA > Item > Transaksi. Ditaruh paling atas di grup
+            // Penjualan krn ini layar PANTAU, bukan entri: dibuka lebih dulu.
+            'sales.dashboard'  => ['Dashboard Penjualan', 'sales/dashboard', 'fas fa-chart-line',        'link',  31, 'sales'],
+            'sales.pos'        => ['Kasir / POS',       'sales/pos',         'fas fa-cash-register',      'link',  32, 'sales'],
             // Dulu hanya bisa dibuka dari tombol di dalam layar kasir; jadi menu sendiri atas
             // permintaan user 2026-09-28. Path `sales/pos-data` SENGAJA terpisah dari
             // `sales/pos` supaya hak aksesnya bisa diatur sendiri - mis. supervisor boleh
             // melihat & cetak ulang transaksi tanpa diberi akses layar kasir.
-            'sales.pos-data'   => ['Data Transaksi POS', 'sales/pos-data',   'fas fa-table-list',         'link',  32, 'sales'],
-            'sales.order'      => ['Sales Order',       'sales/order',       'fas fa-file-invoice',       'link',  33, 'sales'],
+            'sales.pos-data'   => ['Data Transaksi POS', 'sales/pos-data',   'fas fa-table-list',         'link',  33, 'sales'],
+            'sales.order'      => ['Sales Order',       'sales/order',       'fas fa-file-invoice',       'link',  34, 'sales'],
             // `sales.sj` PINDAH ke grup Inventory - lihat di bawah.
             'sales.invoice'    => ['Invoice Penjualan', 'sales/invoice',     'fas fa-file-invoice-dollar','link',  35, 'sales'],
             'sales.invoice-mutasi' => ['Invoice Penjualan Mutasi', 'sales/invoice-mutasi', 'fas fa-truck-arrow-right', 'link', 36, 'sales'],

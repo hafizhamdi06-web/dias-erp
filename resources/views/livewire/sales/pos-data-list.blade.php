@@ -1,4 +1,15 @@
 <div>
+    {{-- Tempat pesan hasil aksi. Sebelumnya layar ini murni baca-saja jadi tidak perlu;
+         sejak ada tombol Batalkan, tanpa ini user tidak tahu berhasil atau ditolak. --}}
+    @if (session('status'))
+        <div class="alert alert-success alert-dismissible fade show">{{ session('status') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    @endif
+    @if (session('error'))
+        <div class="alert alert-danger alert-dismissible fade show">{{ session('error') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    @endif
+
     <div class="card">
         <div class="card-header d-flex flex-wrap gap-2 align-items-center">
             <div class="input-group input-group-sm" style="max-width: 200px">
@@ -73,6 +84,18 @@
                                        class="btn btn-outline-secondary btn-sm" title="Cetak">
                                         <i class="fas fa-print"></i>
                                     </a>
+                                @endif
+                                {{-- Batalkan transaksi POS - hanya pemegang hak `delete` pada
+                                     `sales/pos-data` (diatur per user di Admin > Hak Akses Menu),
+                                     dan hanya utk transaksi yg belum batal. Server memeriksa
+                                     ulang keduanya - lihat `PosDataList::cancel()`. --}}
+                                @if ((int) $r->SUSTATUS !== 9 && can_do('sales/pos-data', 'delete'))
+                                    <button type="button" class="btn btn-outline-danger btn-sm"
+                                            wire:click="cancel({{ $r->SUID }})"
+                                            data-confirm="Batalkan transaksi {{ $r->SUNOTRANSAKSI }}? Status berubah jadi Batal. Stok TIDAK dikembalikan."
+                                            title="Batalkan transaksi">
+                                        <i class="fas fa-ban"></i>
+                                    </button>
                                 @endif
                             </td>
                         </tr>

@@ -14,9 +14,13 @@ use Livewire\WithPagination;
 /**
  * Data POS - daftar SEMUA transaksi POS (`fstoku` SUSUMBER='IP'), lintas kasir & cabang, utk
  * Manager memantau keseluruhan transaksi. BEDA dari "Riwayat Hari Ini" di `PosTerminal` yg
- * dibatasi ketat ke kasir yg login & hari ini saja (`todayHistory()`) - ini murni READ-ONLY,
- * tidak ada edit/hapus disini (edit transaksi tetap lewat POS, dibatasi pemilik/hari yg sama
- * per desain yg sudah ada, sengaja tidak dibuka disini).
+ * dibatasi ketat ke kasir yg login & hari ini saja (`todayHistory()`).
+ *
+ * Nyaris baca-saja: EDIT transaksi tetap hanya lewat POS (dibatasi pemilik/hari yg sama per
+ * desain yg sudah ada, sengaja tidak dibuka disini). SATU-SATUNYA aksi yg mengubah data di
+ * layar ini adalah **Batalkan** (`cancel()`, permintaan user 2026-10-13) - itu pun cuma
+ * menyetel `SUSTATUS = 9` dan dibatasi hak `delete`. Baca docblock `cancel()` soal akibatnya
+ * ke stok sebelum mengubah apa pun di sana.
  */
 #[Layout('layouts.app')]
 #[Title('Data POS')]
@@ -151,6 +155,58 @@ class PosDataList extends Component
         $this->detailSuid = null;
         $this->detailNomor = null;
         $this->detailPasien = null;
+    }
+
+    /**
+     * Batalkan transaksi POS - permintaan user 2026-10-13.
+     *
+     * **HANYA mengubah `SUSTATUS` jadi 9**, persis yg diminta. Tidak menyentuh `fstokd`
+     * sama sekali.
+     *
+     * ## Akibat yg HARUS disadari: STOK TIDAK KEMBALI
+     * Di skema ini stok digerakkan TRIGGER di `fstokd` (`fstokd_add`/`_edit`/`_DELL`),
+     * bukan oleh status header. Pembatalan di modul lain (mis. `SjWriter::cancel()`)
+     * karena itu menyetel `SDCANCEL=1` + menolkan qty supaya trigger yg sama memulihkan
+     * stok. Di sini sengaja TIDAK dilakukan - yg diminta cuma status. Jadi transaksi
+     * batal di sini hilang dari laporan penjualan, tapi barangnya TETAP tercatat keluar
+     * dari stok. Kalau stok juga harus balik, itu perubahan terpisah yg perlu diputuskan
+     * dulu (dan jauh lebih berisiko - menyentuh stok nyata).
+     *
+     * Hak `delete` pada `sales/pos-data` yg membatasi "hanya user tertentu": diberikan
+     * per user lewat Admin > Hak Akses Menu, terpisah dari hak `view`/`print` layar ini.
+     */
+    public function cancel(int $suid): void
+    {
+        if (! can_do(self::ACL, 'delete')) {
+            session()->flash('error', 'Anda tidak berhak membatalkan transaksi POS.');
+
+            return;
+        }
+
+        $h = DB::table('fstoku')
+            ->where('SUID', $suid)
+            ->where('SUSUMBER', 'IP')
+            ->first(['SUID', 'SUNOTRANSAKSI', 'SUSTATUS']);
+
+        if (! $h) {
+            session()->flash('error', 'Transaksi tidak ditemukan.');
+
+            return;
+        }
+        // Dicek ulang di server: tombolnya memang disembunyikan utk transaksi yg sudah
+        // batal, tapi `wire:click` bisa dipanggil paksa dari sisi klien.
+        if ((int) $h->SUSTATUS === 9) {
+            session()->flash('error', 'Transaksi ' . $h->SUNOTRANSAKSI . ' sudah dibatalkan.');
+
+            return;
+        }
+
+        DB::table('fstoku')->where('SUID', $suid)->update(['SUSTATUS' => 9]);
+
+        activity_log('cancel', self::ACL, $h->SUNOTRANSAKSI,
+            'Batalkan transaksi POS ' . $h->SUNOTRANSAKSI . ' (SUSTATUS 9, stok tidak diubah)');
+
+        session()->flash('status', 'Transaksi ' . $h->SUNOTRANSAKSI . ' dibatalkan.');
     }
 
     /**

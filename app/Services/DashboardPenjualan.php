@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\DB;
  * **`SUNOREF` = nomor IP**.
  *
  * ## Rumus (ditetapkan user 2026-10-13, diturunkan dari RANCANGAN DASHBOARD PENJUALAN.xlsx)
- *   COGS Produk     = SUM(qty x `bitem.ICOGS`) baris IP
- *   COGS Alkes      = SUM(qty x `bitem.ICOGS`) baris dokumen AL terkait
+ *   COGS Produk     = SUM(COGS baris IP)            <- lihat `ekspresiCogs()`
+ *   COGS Alkes      = SUM(COGS baris dokumen AL terkait)
  *   Penjualan Produk = COGS Produk x MARKUP      (1,05)
  *   Penjualan Alkes  = COGS Alkes  x MARKUP
  *   PPN              = (Penj. Produk + Penj. Alkes) x PPN   (11%)
@@ -47,6 +47,41 @@ class DashboardPenjualan
     public const PPN = 0.11;
 
     public const TINGKAT = ['pt', 'cabang', 'coa', 'item', 'transaksi'];
+
+    /**
+     * Tanggal mulai COGS diambil dari `fstokd.SDBELI` - lihat `config/dashboard.php`
+     * utk alasannya.
+     *
+     * Nilainya DISISIPKAN ke SQL (ada di dalam subkueri yg dibangun sbg string), jadi
+     * WAJIB lewat pemeriksaan bentuk dulu - pola sama `F_KOLOMGUDANG` yg di-whitelist
+     * sebelum diinterpolasi. Bentuk salah -> dianggap tidak ada batas (semua pakai ICOGS),
+     * bukan diteruskan apa adanya.
+     */
+    private function tanggalSdbeli(): ?string
+    {
+        $t = (string) config('dashboard.cogs_dari_sdbeli_sejak', '');
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $t) ? $t : null;
+    }
+
+    /**
+     * Ekspresi COGS satu baris: `SDBELI` utk transaksi sejak batas, `qty x ICOGS` utk
+     * sebelumnya.
+     *
+     * @param string $alias alias tabel detail & header di kueri pemanggil
+     */
+    private function ekspresiCogs(string $d, string $i, string $u): string
+    {
+        $sejak = $this->tanggalSdbeli();
+        $lama = "{$d}.SDKELUAR * COALESCE({$i}.ICOGS, 0)";
+
+        if ($sejak === null) {
+            return $lama;
+        }
+
+        // `SDBELI` sudah berupa TOTAL baris (ICOGS x qty), jadi TIDAK dikali qty lagi.
+        return "CASE WHEN {$u}.SUTANGGAL >= '{$sejak}' THEN COALESCE({$d}.SDBELI, 0) ELSE {$lama} END";
+    }
 
     /**
      * Potongan SQL per baris IP, lengkap dgn alkes yg sudah dibagi.
@@ -84,12 +119,15 @@ class DashboardPenjualan
 
     private function sqlAlkesPerNota(): string
     {
-        return 'SELECT al.SUNOREF AS nota, SUM(ad.SDKELUAR * COALESCE(ai.ICOGS, 0)) AS cogsAlkes
+        // Aturan SDBELI berlaku utk alkes juga, memakai tanggal DOKUMEN ALKES-nya sendiri.
+        $cogs = $this->ekspresiCogs('ad', 'ai', 'al');
+
+        return "SELECT al.SUNOREF AS nota, SUM({$cogs}) AS cogsAlkes
                 FROM fstoku al
                 JOIN fstokd ad ON ad.SDIDSU = al.SUID
                 JOIN bitem ai ON ai.IID = ad.SDITEM
-                WHERE al.SUSUMBER = \'AL\' AND al.SUSTATUS <> 9
-                GROUP BY al.SUNOREF';
+                WHERE al.SUSUMBER = 'AL' AND al.SUSTATUS <> 9
+                GROUP BY al.SUNOREF";
     }
 
     private function sqlTotalPerDokumen(): string
@@ -120,7 +158,7 @@ class DashboardPenjualan
 
         return [
             DB::raw('SUM(d.SDKELUAR * (d.SDHARGA - d.SDDISKON)) as penjualan'),
-            DB::raw('SUM(d.SDKELUAR * COALESCE(i.ICOGS, 0)) as cogsProduk'),
+            DB::raw('SUM(' . $this->ekspresiCogs('d', 'i', 'u') . ') as cogsProduk'),
             DB::raw("SUM({$alkes}) as cogsAlkes"),
             // Qty mengecualikan baris kedatangan - aturan yg sama dgn laporan IP Tindakan
             // & Produk (disalin dari CI3); baris itu tetap ikut nilai, tapi bukan qty.
@@ -213,7 +251,9 @@ class DashboardPenjualan
                 DB::raw('ai.IKODE as kode'),
                 DB::raw('ai.INAMA as nama'),
                 DB::raw('SUM(ad.SDKELUAR) as qty'),
-                DB::raw('SUM(ad.SDKELUAR * COALESCE(ai.ICOGS,0)) as cogs'),
+                // Aturan SDBELI yg SAMA - kalau beda, rincian ini tidak akan menjumlah
+                // ke angka COGS Alkes di baris transaksinya.
+                DB::raw('SUM(' . $this->ekspresiCogs('ad', 'ai', 'al') . ') as cogs'),
             ]);
     }
 

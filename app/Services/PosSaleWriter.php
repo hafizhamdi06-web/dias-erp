@@ -148,6 +148,57 @@ class PosSaleWriter
         return ['ok' => true, 'id' => $result['id'], 'nomor' => $result['nomor'], 'error' => null];
     }
 
+    /**
+     * Batalkan transaksi POS TANPA pengganti - dipakai aksi "Batalkan" di Data Transaksi POS
+     * (permintaan user 2026-10-13).
+     *
+     * **Memakai aturan pembatalan yg SAMA dgn `replace()`** (pola CI3
+     * `M_PJ_POS_HP::tambahTransaksi()`), bukan sekadar menyetel status:
+     *   - `bpoint` dihapus - poin loyalti transaksi batal tidak berlaku;
+     *   - `fstokd.SDCANCEL = 1` (baris TIDAK dihapus) -> trigger `fstokd_edit` memulihkan
+     *     stok krn bagian penambahannya digate `WHERE NEW.SDCANCEL=0`. Barisnya tetap ada
+     *     utk audit;
+     *   - `fstoku`: `SUSTATUS = 9`, `SUDP1 = 0`, `SUTOTALDP = 0`.
+     *
+     * BEDA dari `replace()`: `SUIPBARU` TIDAK diisi - kolom itu menunjuk transaksi
+     * PENGGANTI, dan di sini memang tidak ada penggantinya.
+     *
+     * Semuanya dalam satu transaksi DB: stok & status harus berubah bersama, kalau
+     * sebagian saja yg jadi, stok dan dokumen akan bertentangan.
+     *
+     * @return array{ok:bool,nomor:?string,error:?string}
+     */
+    public function cancel(int $id): array
+    {
+        $h = DB::table('fstoku')->where('SUID', $id)->where('SUSUMBER', 'IP')
+            ->first(['SUID', 'SUNOTRANSAKSI', 'SUSTATUS']);
+
+        if (! $h) {
+            return ['ok' => false, 'nomor' => null, 'error' => 'Transaksi tidak ditemukan.'];
+        }
+        if ((int) $h->SUSTATUS === 9) {
+            return ['ok' => false, 'nomor' => $h->SUNOTRANSAKSI,
+                'error' => 'Transaksi ' . $h->SUNOTRANSAKSI . ' sudah dibatalkan.'];
+        }
+
+        try {
+            DB::transaction(function () use ($id) {
+                DB::table('bpoint')->where('PIDTRANSAKSIMASUK', $id)->delete();
+                DB::table('fstokd')->where('SDIDSU', $id)->update(['SDCANCEL' => 1]);
+                DB::table('fstoku')->where('SUID', $id)->update([
+                    'SUSTATUS'  => 9,
+                    'SUDP1'     => 0,
+                    'SUTOTALDP' => 0,
+                ]);
+            });
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'nomor' => $h->SUNOTRANSAKSI,
+                'error' => 'Gagal membatalkan: ' . $e->getMessage()];
+        }
+
+        return ['ok' => true, 'nomor' => $h->SUNOTRANSAKSI, 'error' => null];
+    }
+
     public function header(int $id): ?object
     {
         return DB::table('fstoku')->where('SUID', $id)->first();

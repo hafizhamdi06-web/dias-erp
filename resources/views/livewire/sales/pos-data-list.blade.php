@@ -92,7 +92,7 @@
                                 @if ((int) $r->SUSTATUS !== 9 && can_do('sales/pos-data', 'delete'))
                                     <button type="button" class="btn btn-outline-danger btn-sm"
                                             wire:click="cancel({{ $r->SUID }})"
-                                            data-confirm="Batalkan transaksi {{ $r->SUNOTRANSAKSI }}? Status berubah jadi Batal. Stok TIDAK dikembalikan."
+                                            data-confirm="Batalkan transaksi {{ $r->SUNOTRANSAKSI }}? Stok akan dikembalikan dan poin loyalti dihapus. Tindakan ini tidak bisa dibatalkan."
                                             title="Batalkan transaksi">
                                         <i class="fas fa-ban"></i>
                                     </button>

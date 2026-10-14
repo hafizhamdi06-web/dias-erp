@@ -30,8 +30,14 @@ class Penjualan extends Component
     /** @var list<array{tingkat:string,id:int,nama:string}> */
     public array $jalur = [];
 
-    /** No IP yg rincian alkesnya sedang dibuka di tingkat transaksi. */
-    public ?string $alkesDibuka = null;
+    /**
+     * `fstokd.SDID` baris yg rincian alkesnya sedang dibuka di tingkat transaksi.
+     *
+     * SDID, bukan No IP: sejak tingkat terdalam dipecah PER BARIS, satu nota bisa muncul
+     * beberapa kali - memakai nomor nota akan membuka rincian di semua baris nota itu
+     * sekaligus, dan alkesnya pun milik baris, bukan milik nota.
+     */
+    public ?int $alkesDibuka = null;
 
     /**
      * Data baru ditarik SETELAH user menekan "Tampilkan" (permintaan user 2026-10-13).
@@ -107,9 +113,9 @@ class Penjualan extends Component
         $this->alkesDibuka = null;
     }
 
-    public function toggleAlkes(string $noIp): void
+    public function toggleAlkes(int $sdid): void
     {
-        $this->alkesDibuka = $this->alkesDibuka === $noIp ? null : $noIp;
+        $this->alkesDibuka = $this->alkesDibuka === $sdid ? null : $sdid;
     }
 
     /** Tombol "Tampilkan" - satu-satunya yg memulai penarikan data. */

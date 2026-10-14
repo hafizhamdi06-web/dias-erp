@@ -238,7 +238,10 @@ class DashboardPenjualan
             // rinciannya tidak akan sama dgn angka cabang di atasnya.
             'coa'    => [DB::raw('COALESCE(ct.CTID, 0)'), DB::raw("COALESCE(ct.CTNAMA, '(Tanpa COA)')"), 'ct.CTNAMA'],
             'item'   => ['d.SDITEM', 'i.INAMA', 'i.INAMA'],
-            default  => ['u.SUID', 'u.SUNOTRANSAKSI', 'u.SUNOTRANSAKSI'],
+            // Tingkat terdalam = PER BARIS `fstokd.SDID`, BUKAN per nota (permintaan user
+            // 2026-10-14). Satu No IP dgn 3 baris tindakan muncul 3 kali. Ini juga yg
+            // dilakukan laporan CI3 acuan - `GROUP BY ... , rowsdid` (`a.sdid`).
+            default  => ['d.SDID', 'u.SUNOTRANSAKSI', 'u.SUNOTRANSAKSI'],
         };
 
         $pilih = array_merge([
@@ -250,7 +253,10 @@ class DashboardPenjualan
             $q->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK');
             $pilih[] = DB::raw('MIN(u.SUTANGGAL) as tanggal');
             $pilih[] = DB::raw('MIN(k.KNAMA) as pasien');
-            $q->groupBy('u.SUID', 'u.SUNOTRANSAKSI');
+            // Nama ITEM ikut ditampilkan: begitu satu nota bisa muncul beberapa kali,
+            // tanpa ini barisnya kembar di layar & user tidak tahu bedanya apa.
+            $pilih[] = DB::raw('MIN(i.INAMA) as item');
+            $q->groupBy('d.SDID', 'u.SUNOTRANSAKSI');
         } else {
             $q->groupBy($kunci, $nama);
         }
@@ -287,13 +293,15 @@ class DashboardPenjualan
      * Rincian alkes satu transaksi IP - tingkat paling dalam ("Tampilkan Detail alkes").
      * Lewat `SUNOREF`, jalur yg 100% nyambung.
      */
-    public function alkesTransaksi(string $noIp): Collection
+    public function alkesTransaksi(int $sdid): Collection
     {
-        return DB::table('fstoku as al')
-            ->join('fstokd as ad', 'ad.SDIDSU', '=', 'al.SUID')
+        return DB::table('fstokd as ad')
             ->join('bitem as ai', 'ai.IID', '=', 'ad.SDITEM')
-            ->where('al.SUSUMBER', 'AL')->where('al.SUSTATUS', '<>', 9)
-            ->where('al.SUNOREF', $noIp)
+            // Lewat `SDIDUALKES` - alkes milik BARIS itu, bukan seluruh nota. Jalur yg
+            // sama dgn `queryAlkes` CI3 (`aa.SDIDUALKES = a2.sdid`) dan dgn
+            // `ekspresiCogsAlkes()`, jadi rincian ini pasti menjumlah ke kolom COGS
+            // Alkes di barisnya.
+            ->where('ad.SDIDUALKES', $sdid)
             ->groupBy('ai.IID', 'ai.IKODE', 'ai.INAMA')
             ->orderBy('ai.INAMA')
             ->get([

@@ -177,7 +177,10 @@
                     <tr>
                         <th>{{ $kolom1 }}</th>
                         @if ($this->tingkat() === 'transaksi')
-                            <th>Tanggal</th><th>Nama Pasien</th>
+                            {{-- Kolom Item wajib ada di sini: tingkat ini dipecah per baris
+                                 `fstokd`, jadi satu No IP bisa muncul beberapa kali dan
+                                 tanpa nama item barisnya terlihat kembar. --}}
+                            <th>Tanggal</th><th>Nama Pasien</th><th>Item</th>
                         @endif
                         <th class="angka">Qty</th>
                         <th class="angka">Penjualan</th>
@@ -218,6 +221,7 @@
                                     {{ $tgl }}
                                 </td>
                                 <td>{{ $r->pasien ?: '—' }}</td>
+                                <td>{{ $r->item ?? '—' }}</td>
                             @endif
                             <td class="angka">{{ $rp2($r->qty) }}</td>
                             <td class="angka dsb-jual-t">{{ $rp($r->penjualan) }}</td>
@@ -236,8 +240,8 @@
                                     {{-- Tingkat terdalam: yg bisa dibuka tinggal rincian alkesnya. --}}
                                     @if ($r->cogsAlkes > 0)
                                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                wire:click="toggleAlkes(@js($r->nama))">
-                                            {{ $alkesDibuka === $r->nama ? 'Tutup' : 'Detail Alkes' }}
+                                                wire:click="toggleAlkes({{ $r->id }})">
+                                            {{ $alkesDibuka === (int) $r->id ? 'Tutup' : 'Detail Alkes' }}
                                         </button>
                                     @endif
                                 @else
@@ -249,9 +253,9 @@
                             </td>
                         </tr>
 
-                        @if ($this->tingkat() === 'transaksi' && $alkesDibuka === $r->nama)
+                        @if ($this->tingkat() === 'transaksi' && $alkesDibuka === (int) $r->id)
                             <tr class="dsb-alkes" wire:key="alkes-{{ $r->id }}">
-                                <td colspan="13">
+                                <td colspan="14">
                                     <table>
                                         <thead>
                                             <tr>

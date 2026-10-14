@@ -21,11 +21,11 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.0/styles/overlayscrollbars.min.css">
-    <link rel="stylesheet" href="{{ asset('vendor/adminlte/dist/css/adminlte.min.css') }}">
+    <link rel="stylesheet" href="{{ aset('vendor/adminlte/dist/css/adminlte.min.css') }}">
     {{-- Tata letak form ala VB6 (lihat berkasnya utk alasan kenapa statis, bukan @push). --}}
-    <link rel="stylesheet" href="{{ asset('css/vb-form.css') }}?v={{ @filemtime(public_path('css/vb-form.css')) }}">
+    <link rel="stylesheet" href="{{ aset('css/vb-form.css') }}">
     {{-- Dashboard Penjualan - statis juga, alasan sama spt vb-form.css. --}}
-    <link rel="stylesheet" href="{{ asset('css/dashboard-penjualan.css') }}?v={{ @filemtime(public_path('css/dashboard-penjualan.css')) }}">
+    <link rel="stylesheet" href="{{ aset('css/dashboard-penjualan.css') }}">
     <style>
         :root { --dias-font: 'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
         /* Tema terang default Bootstrap (--bs-tertiary-bg: #f8f9fa) terlalu pucat/silau -
@@ -82,12 +82,12 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.0/browser/overlayscrollbars.browser.es6.min.js"></script>
-    <script src="{{ asset('vendor/adminlte/dist/js/adminlte.min.js') }}"></script>
+    <script src="{{ aset('vendor/adminlte/dist/js/adminlte.min.js') }}"></script>
     {{-- `?v=<mtime>` WAJIB: tanpa itu peramban menyajikan versi CACHE dan perbaikan JS apa pun
          tidak pernah sampai ke user - sudah kejadian 2026-09-30, dua perbaikan berturut-turut
          (panel `<x-search-select>` & komponen `uangInput`) dikira gagal padahal berkasnya yg
          lama yang dimuat. Berubah otomatis tiap berkasnya disimpan, jadi tidak perlu diingat. --}}
-    <script src="{{ asset('js/dias-helpers.js') }}?v={{ @filemtime(public_path('js/dias-helpers.js')) ?: 1 }}"></script>
+    <script src="{{ aset('js/dias-helpers.js') }}"></script>
     @livewireScripts
     @stack('scripts')
 </body>

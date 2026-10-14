@@ -25,6 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // `web` (bukan per-rute) supaya TIDAK ADA halaman yang kelewat; rute yang perlu
         // dikecualikan ditangani di dalam middleware-nya sendiri.
         $middleware->appendToGroup('web', \App\Http\Middleware\EnsurePasswordChanged::class);
+
+        // HTML jangan disimpan browser - kalau tidak, penanda versi `?v=` di CSS/JS tidak
+        // ada gunanya (lihat middleware-nya utk alasan lengkap).
+        $middleware->appendToGroup('web', \App\Http\Middleware\HalamanJanganDisimpan::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Token CSRF basi (tab lama terbuka, atau sesi kena regenerate) -> jangan tampilkan

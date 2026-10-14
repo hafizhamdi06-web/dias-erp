@@ -103,3 +103,25 @@ if (! function_exists('terbilang_rupiah')) {
         return $sen > 0 ? $teks . ' ' . terbilang((float) $sen) . ' Sen' : $teks;
     }
 }
+
+if (! function_exists('aset')) {
+    /**
+     * URL aset LOKAL + penanda versi dari waktu-ubah berkasnya.
+     *
+     * Tanpa ini, browser user menyimpan `vb-form.css`/`dias-helpers.js` lama dan
+     * perbaikan tidak pernah sampai - user harus membuka jendela samaran dulu
+     * (dilaporkan user 2026-10-14). Dipakai utk SEMUA aset lokal, termasuk vendor:
+     * berkas vendor memang jarang berubah, tapi kalau berubah akibatnya sama saja.
+     *
+     * `@filemtime` bisa `false` (berkasnya tidak ada / tidak terbaca) - jatuh ke
+     * versi aplikasi, bukan ke `0`, supaya URL-nya tidak jadi sama persis utk semua
+     * rilis.
+     */
+    function aset(string $path): string
+    {
+        $penuh = public_path($path);
+        $v = @filemtime($penuh) ?: substr(sha1((string) config('app.key')), 0, 8);
+
+        return asset($path) . '?v=' . $v;
+    }
+}

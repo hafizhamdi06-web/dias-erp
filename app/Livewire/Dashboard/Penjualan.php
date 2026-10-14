@@ -187,19 +187,55 @@ class Penjualan extends Component
         $svc = app(DashboardPenjualan::class);
         $saring = $this->saring();
 
-        // Selama belum ditekan "Tampilkan", TIDAK ADA kueri berat yg dijalankan sama
-        // sekali - bukan sekadar hasilnya disembunyikan.
-        $baris = $this->tampil ? $svc->baris($this->tingkat(), $saring) : collect();
+        /*
+         * PENAHAN GALAT.
+         *
+         * Galat apa pun di sini membuat request Livewire gagal, dan di layar itu terlihat
+         * sbg BILAH KEMAJUAN YG BERJALAN TERUS tanpa pesan apa-apa - user tidak tahu apakah
+         * datanya banyak, jaringannya lambat, atau memang rusak (dilaporkan user 2026-10-14
+         * saat men-detailkan item COCKTAIL FLEKSI di server).
+         *
+         * Galatnya TIDAK ditelan diam-diam: ditulis ke log lengkap dgn saringan & tingkatnya
+         * supaya bisa ditelusuri, lalu ditampilkan ke user. Lebih baik satu pesan merah
+         * daripada layar yg menggantung selamanya.
+         */
+        $galat = null;
+        $baris = collect();
+        $total = null;
+        $alkes = collect();
+        $info = null;
+
+        if ($this->tampil) {
+            try {
+                $baris = $svc->baris($this->tingkat(), $saring);
+                $total = $svc->total($saring);
+                $alkes = $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect();
+                $info = $this->infoDibuka ? $svc->infoTransaksi($this->infoDibuka) : null;
+            } catch (\Throwable $e) {
+                report($e);
+                \Illuminate\Support\Facades\Log::error('Dashboard Penjualan gagal', [
+                    'tingkat' => $this->tingkat(),
+                    'saring'  => $saring,
+                    'jalur'   => $this->jalur,
+                    'galat'   => $e->getMessage(),
+                    'di'      => $e->getFile() . ':' . $e->getLine(),
+                ]);
+                $galat = $e->getMessage();
+                $baris = collect();
+                $total = null;
+            }
+        }
 
         return view('livewire.dashboard.penjualan', [
             'baris'   => $baris,
+            'galat'   => $galat,
             // Benar HANYA setelah `baris()` dipanggil - jangan dipindah ke atas.
-            'adaSisa' => $this->tampil && $svc->adaSisa(),
+            'adaSisa' => $this->tampil && ! $galat && $svc->adaSisa(),
             'batas'   => DashboardPenjualan::BATAS_BARIS,
-            'total'   => $this->tampil ? $svc->total($saring) : null,
+            'total'   => $total,
             'ptList'  => $svc->daftarPt(),
-            'alkes'   => $this->tampil && $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect(),
-            'info'    => $this->tampil && $this->infoDibuka ? $svc->infoTransaksi($this->infoDibuka) : null,
+            'alkes'   => $alkes,
+            'info'    => $info,
             'namaBulan' => Carbon::createFromFormat('Y-m', $this->bulan)->locale('id')->isoFormat('MMMM Y'),
             'namaPt'  => $this->pt
                 ? (string) DB::table('bnamapt')->where('NPID', $this->pt)->value('NPNAMA')

@@ -100,6 +100,22 @@
         </div>
     @endif
 
+    {{-- Penarikan data gagal. Tanpa pesan ini, galat hanya terlihat sbg bilah kemajuan yg
+         berjalan terus - user menunggu sesuatu yg tidak akan pernah datang. Diletakkan
+         SESUDAH remah jejak supaya tombol "Kembali" tetap bisa dipakai utk keluar dari
+         tingkat yg bermasalah. --}}
+    @if ($galat)
+        <div class="alert alert-danger">
+            <div class="fw-semibold mb-1"><i class="fas fa-triangle-exclamation me-1"></i>
+                Data gagal ditarik.</div>
+            <div style="font-size:.8rem">{{ $galat }}</div>
+            <div class="mt-1" style="font-size:.75rem">
+                Galatnya sudah dicatat di <code>storage/logs/laravel.log</code>. Tekan
+                <strong>&larr; Kembali</strong> di atas untuk keluar dari tingkat ini.
+            </div>
+        </div>
+    @else
+
     {{-- ===================== KARTU RINGKASAN ===================== --}}
     {{-- Susunannya mengikuti rancangan: Penjualan / COGS / Laba Kotor di depan, lalu
          pecahan "DETAIL PENJUALAN" (Produk, Alkes, PPN, Tindakan) & "NILAI COGS". --}}
@@ -328,5 +344,6 @@
             </table>
         </div>
     @endif
+    @endif{{-- /$galat --}}
     @endif{{-- /$tampil --}}
 </div>

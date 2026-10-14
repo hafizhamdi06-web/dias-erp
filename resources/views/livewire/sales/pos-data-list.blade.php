@@ -11,31 +11,33 @@
     @endif
 
     <div class="card">
-        <div class="card-header d-flex flex-wrap gap-2 align-items-center">
-            <div class="input-group input-group-sm" style="max-width: 200px">
+        <div class="card-header d-flex flex-wrap gap-2 align-items-center vb-filter">
+            <div class="input-group input-group-sm f-cari">
                 <span class="input-group-text"><i class="fas fa-hashtag"></i></span>
                 <input type="text" class="form-control" placeholder="No. Transaksi…" wire:model.live.debounce.400ms="fNomor">
             </div>
-            <div class="input-group input-group-sm" style="max-width: 220px">
+            <div class="input-group input-group-sm f-cari">
                 <span class="input-group-text"><i class="fas fa-user"></i></span>
                 <input type="text" class="form-control" placeholder="Nama Pasien…" wire:model.live.debounce.400ms="fPasien">
             </div>
-            <select class="form-select form-select-sm" style="width:auto" wire:model.live="fStatus">
+            <select class="form-select form-select-sm f-pilih" wire:model.live="fStatus">
                 <option value="1">Aktif</option>
                 <option value="0">Batal</option>
                 <option value="">Semua status</option>
             </select>
-            <select class="form-select form-select-sm" style="width:auto" wire:model.live="fCabang">
+            <select class="form-select form-select-sm f-pilih-lebar" wire:model.live="fCabang">
                 <option value="">Semua cabang</option>
                 @foreach ($branches as $b)
                     <option value="{{ $b->GID }}">{{ $b->GNAMA }}</option>
                 @endforeach
             </select>
-            <div class="d-flex align-items-center gap-1">
-                <span class="text-muted small">Tanggal</span>
-                <input type="date" class="form-control form-control-sm" style="width:auto" wire:model.live="fTanggalDari" title="Dari tanggal">
-                <span class="text-muted small">&ndash;</span>
-                <input type="date" class="form-control form-control-sm" style="width:auto" wire:model.live="fTanggalSampai" title="Sampai tanggal">
+            {{-- `.vb-tanggal` menjaga pasangan tanggal tidak terbelah ke baris berikutnya -
+                 sama spt daftar PR/KMB/TMB/SJ. --}}
+            <div class="d-flex align-items-center gap-1 vb-tanggal">
+                <span class="text-muted">Tanggal</span>
+                <input type="date" class="form-control form-control-sm" wire:model.live="fTanggalDari" title="Dari tanggal">
+                <span class="text-muted">&ndash;</span>
+                <input type="date" class="form-control form-control-sm" wire:model.live="fTanggalSampai" title="Sampai tanggal">
                 @if ($fTanggalDari || $fTanggalSampai)
                     <button type="button" class="btn btn-outline-secondary btn-sm" wire:click="clearTanggalFilter" title="Hapus filter tanggal">
                         <i class="fas fa-xmark"></i>
@@ -44,7 +46,9 @@
             </div>
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover align-middle mb-0">
+            {{-- Daftar ala grid VB6: rapat & SATU font utk semua kolom (gaya `.vb-list` di
+                 `public/css/vb-form.css`). --}}
+            <table class="table table-bordered align-middle vb-list">
                 <thead>
                     <tr>
                         <th>No. Transaksi</th>
@@ -53,7 +57,7 @@
                         <th class="text-end">Total Transaksi</th>
                         <th>Nama Kasir</th>
                         <th>Cabang</th>
-                        <th class="text-center">Status</th>
+                        <th>Status</th>
                         <th class="text-end">Aksi</th>
                     </tr>
                 </thead>
@@ -61,18 +65,20 @@
                     @forelse ($rows as $r)
                         <tr wire:key="posdata-{{ $r->SUID }}">
                             <td class="fw-semibold">{{ $r->SUNOTRANSAKSI }}</td>
-                            <td class="text-muted small">
+                            <td>
                                 {{ $r->SUTANGGAL ? \Illuminate\Support\Carbon::parse($r->SUTANGGAL)->format('d/m/Y') : '—' }}
                             </td>
                             <td>{{ $r->pasien ?: '—' }}</td>
                             <td class="text-end">{{ number_format((float) $r->SUTOTALTRANSAKSI, 0, ',', '.') }}</td>
-                            <td class="text-muted small">{{ $r->kasir ?: '—' }}</td>
-                            <td class="text-muted small">{{ $r->cabang ?: '—' }}</td>
-                            <td class="text-center">
+                            <td>{{ $r->kasir ?: '—' }}</td>
+                            <td>{{ $r->cabang ?: '—' }}</td>
+                            {{-- Status sbg TEKS berwarna, bukan badge - badge punya ukuran font
+                                 sendiri (0.75em) jadi merusak keseragaman kolom. --}}
+                            <td>
                                 @if ((int) $r->SUSTATUS === 9)
-                                    <span class="badge text-bg-danger">Batal</span>
+                                    <x-status-teks bg="text-bg-danger" teks="Batal" />
                                 @else
-                                    <span class="badge text-bg-success">Aktif</span>
+                                    <x-status-teks bg="text-bg-success" teks="Aktif" />
                                 @endif
                             </td>
                             <td class="text-end text-nowrap">
@@ -116,7 +122,9 @@
                     &middot; Pasien: <span class="fw-semibold">{{ $detailPasien ?: '—' }}</span>
                 </div>
                 <div class="table-responsive" style="max-height: 420px; overflow-y:auto">
-                    <table class="table table-sm table-hover mb-0">
+                    {{-- Gaya rapat yg sama dgn tabel daftarnya - `.vb-list` juga menetralkan
+                         kelas `small` di sel, jadi semua kolom satu ukuran. --}}
+                    <table class="table table-sm table-bordered vb-list">
                         <thead>
                             <tr>
                                 <th>Kode</th>

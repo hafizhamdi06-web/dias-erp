@@ -150,7 +150,19 @@
     </div>
 
     {{-- ===================== TABEL TINGKAT ===================== --}}
-    <div class="dsb-sub mb-1">{{ $judulTingkat }}</div>
+    <div class="dsb-sub mb-1 d-flex flex-wrap gap-2 align-items-center">
+        <span>{{ $judulTingkat }}</span>
+        @if ($adaSisa)
+            {{-- Baris dibatasi supaya respons Livewire tidak membengkak - lihat
+                 `DashboardPenjualan::BATAS_BARIS`. Angka di kartu atas TETAP dari
+                 seluruh data, jadi ringkasannya tidak ikut terpotong. --}}
+            <span class="dsb-margin">
+                <i class="fas fa-circle-info me-1"></i>
+                {{ number_format($batas, 0, ',', '.') }} teratas ditampilkan &middot;
+                total di atas tetap dari seluruh data
+            </span>
+        @endif
+    </div>
 
     @if ($baris->isEmpty())
         <div class="dsb-kosong">
@@ -188,7 +200,23 @@
                                 <span class="teks">{{ $r->nama ?: '(tanpa nama)' }}</span>
                             </td>
                             @if ($this->tingkat() === 'transaksi')
-                                <td>{{ \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') }}</td>
+                                {{-- `Carbon::parse` MELEMPAR galat utk tanggal tak sah
+                                     ('0000-00-00' masih mungkin ada di data legacy) - dan
+                                     galat di sini membuat seluruh request Livewire gagal,
+                                     yg di layar terlihat sbg bilah kemajuan berjalan terus
+                                     tanpa tabel. Satu baris cacat tidak boleh menjatuhkan
+                                     halaman. --}}
+                                <td>
+                                    @php
+                                        try {
+                                            $tgl = $r->tanggal
+                                                ? \Carbon\Carbon::parse($r->tanggal)->format('d/m/Y') : '—';
+                                        } catch (\Throwable $e) {
+                                            $tgl = '—';
+                                        }
+                                    @endphp
+                                    {{ $tgl }}
+                                </td>
                                 <td>{{ $r->pasien ?: '—' }}</td>
                             @endif
                             <td class="angka">{{ $rp2($r->qty) }}</td>

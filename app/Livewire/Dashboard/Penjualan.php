@@ -157,8 +157,13 @@ class Penjualan extends Component
 
         // Selama belum ditekan "Tampilkan", TIDAK ADA kueri berat yg dijalankan sama
         // sekali - bukan sekadar hasilnya disembunyikan.
+        $baris = $this->tampil ? $svc->baris($this->tingkat(), $saring) : collect();
+
         return view('livewire.dashboard.penjualan', [
-            'baris'   => $this->tampil ? $svc->baris($this->tingkat(), $saring) : collect(),
+            'baris'   => $baris,
+            // Benar HANYA setelah `baris()` dipanggil - jangan dipindah ke atas.
+            'adaSisa' => $this->tampil && $svc->adaSisa(),
+            'batas'   => DashboardPenjualan::BATAS_BARIS,
             'total'   => $this->tampil ? $svc->total($saring) : null,
             'ptList'  => $svc->daftarPt(),
             'alkes'   => $this->tampil && $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect(),

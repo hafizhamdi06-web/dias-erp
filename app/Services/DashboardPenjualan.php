@@ -54,6 +54,23 @@ class DashboardPenjualan
     public const TINGKAT = ['pt', 'cabang', 'coa', 'item', 'transaksi'];
 
     /**
+     * Batas baris yg dikirim ke layar per tingkat.
+     *
+     * BUKAN kosmetik: seluruh tabel ikut di payload Livewire tiap kali tombol ditekan.
+     * Di proyek ini hal itu sudah pernah menjatuhkan layar - 342 baris pemilih PKB
+     * menghasilkan respons 196 KB dan laporan `ERR_QUIC_PROTOCOL_ERROR` yg nyata.
+     * Tingkat Item & Transaksi di cabang ramai bisa jauh melebihi itu.
+     *
+     * Baris diurutkan dari penjualan TERBESAR, jadi yg terpotong selalu ekor yg paling
+     * kecil. Angka TOTAL di kartu atas tetap dihitung dari SELURUH data (lihat `total()`),
+     * bukan dari baris yg tampil - jadi batas ini tidak pernah memalsukan ringkasan.
+     */
+    public const BATAS_BARIS = 200;
+
+    /** Diisi `baris()`; dibaca `adaSisa()`. */
+    private bool $adaSisa = false;
+
+    /**
      * Potongan SQL per baris IP, lengkap dgn alkes yg sudah dibagi.
      *
      * @param array{dari:string,sampai:string,pt?:?int,cabang?:?int,coa?:?int,item?:?int} $saring
@@ -218,9 +235,22 @@ class DashboardPenjualan
             $q->groupBy($kunci, $nama);
         }
 
-        return $q->orderByDesc(DB::raw('SUM(d.SDKELUAR * (d.SDHARGA - d.SDDISKON))'))
-            ->get($pilih)
-            ->map(fn ($r) => $this->lengkapi($r));
+        // Diurutkan dari penjualan TERBESAR, lalu dipotong `BATAS_BARIS`. Diambil
+        // satu LEBIH dari batas supaya pemanggil bisa tahu "masih ada sisanya" tanpa
+        // kueri COUNT terpisah di atas kueri yg sudah ber-GROUP BY.
+        $rows = $q->orderByDesc(DB::raw('SUM(' . $this->ekspresiPenjualan() . ')'))
+            ->limit(self::BATAS_BARIS + 1)
+            ->get($pilih);
+
+        $this->adaSisa = $rows->count() > self::BATAS_BARIS;
+
+        return $rows->take(self::BATAS_BARIS)->map(fn ($r) => $this->lengkapi($r));
+    }
+
+    /** True kalau panggilan `baris()` terakhir masih menyisakan baris di luar batas. */
+    public function adaSisa(): bool
+    {
+        return $this->adaSisa;
     }
 
     /** Satu baris ringkasan seluruh saringan - dipakai utk kartu total di kepala layar. */

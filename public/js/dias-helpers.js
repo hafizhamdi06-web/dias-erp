@@ -384,3 +384,117 @@ window.formDraft = function (key) {
         },
     };
 };
+
+/* ============ Request Livewire yg GAGAL / TIME OUT (2026-10-14) ================
+   Dilaporkan user: kalau penarikan data gagal, bilah kemajuan berjalan TERUS tanpa
+   pesan apa pun - user menunggu sesuatu yg tidak akan datang.
+
+   Penahan di PHP (`try/catch` di render) tidak menolong utk kasus TIME OUT: prosesnya
+   dibunuh server, jadi tidak ada kode PHP kita yg sempat jalan. Harus ditangani di
+   browser.
+
+   Dua hal yg ditangani:
+     1. Request selesai dgn status gagal (504/502/503/408 time out, 419 sesi habis, dll).
+     2. Request yg TIDAK pernah menjawab sama sekali - dijaga pengawas waktu.
+
+   Keduanya: hentikan bilah kemajuan, lalu tampilkan pesan yg bisa dibaca. */
+document.addEventListener('livewire:init', function () {
+    // 2 menit - di atas batas eksekusi PHP yg lazim (30-120 dtk). Bisa ditimpa lewat
+    // `window.DIAS_BATAS_REQUEST_MS`, dipakai pengujian supaya pengawasnya benar-benar
+    // bisa dibuktikan tanpa harus menunggu dua menit.
+    var BATAS_MS = window.DIAS_BATAS_REQUEST_MS || 120000;
+    var berjalan = 0;       // request yg sedang menggantung
+    var pengawas = null;
+
+    /* Bilah/spinner `wire:loading` dimatikan paksa.
+
+       HANYA yg mengatur TAMPIL/SEMBUNYI. `wire:loading.class`, `.attr` dan `.remove`
+       sengaja dilewati - elemen ber-`.remove` justru ISI halaman yg tampil saat TIDAK
+       memuat, kalau ikut disembunyikan malah halamannya yg hilang. */
+    function hentikanBilah() {
+        var semua = document.querySelectorAll('*');
+        for (var i = 0; i < semua.length; i++) {
+            var atr = semua[i].attributes;
+            for (var j = 0; j < atr.length; j++) {
+                var n = atr[j].name;
+                if (n.indexOf('wire:loading') !== 0) { continue; }
+                if (n.indexOf('.class') < 0 && n.indexOf('.attr') < 0 && n.indexOf('.remove') < 0) {
+                    semua[i].style.display = 'none';
+                }
+                break;
+            }
+        }
+    }
+
+    function hapusSpanduk() {
+        var l = document.getElementById('dias-gagal');
+        if (l) { l.remove(); }
+    }
+
+    /* Spanduk menetap (bukan toast yg hilang sendiri) - ini kabar penting: angka di
+       layar TIDAK jadi diperbarui, jadi user harus sempat membacanya. */
+    function spanduk(judul, rinci) {
+        hapusSpanduk();
+        var el = document.createElement('div');
+        el.id = 'dias-gagal';
+        el.className = 'alert alert-danger alert-dismissible shadow';
+        el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:1rem;'
+            + 'z-index:2000;max-width:min(42rem,92vw)';
+        el.innerHTML =
+            '<div class="fw-semibold mb-1"><i class="fas fa-triangle-exclamation me-1"></i></div>'
+            + '<div style="font-size:.85rem"></div>'
+            + '<button type="button" class="btn btn-sm btn-outline-danger mt-2">'
+            + '<i class="fas fa-rotate me-1"></i>Muat ulang halaman</button>'
+            + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+        // Judul & rincian di-set sbg TEKS, bukan HTML - isinya bisa berasal dari
+        // badan respons server.
+        el.children[0].appendChild(document.createTextNode(judul));
+        el.children[1].textContent = rinci;
+        el.children[2].addEventListener('click', function () { window.location.reload(); });
+        document.body.appendChild(el);
+    }
+
+    function selesai() {
+        berjalan = Math.max(0, berjalan - 1);
+        if (berjalan === 0 && pengawas) { clearTimeout(pengawas); pengawas = null; }
+    }
+
+    Livewire.hook('request', function (h) {
+        berjalan++;
+        if (!pengawas) {
+            pengawas = setTimeout(function () {
+                pengawas = null;
+                hentikanBilah();
+                spanduk('Server belum menjawab.',
+                    'Permintaan sudah berjalan lebih dari 2 menit tanpa jawaban. '
+                    + 'Datanya mungkin terlalu banyak - coba persempit saringan '
+                    + '(satu PT, satu cabang) atau ulangi lagi.');
+            }, BATAS_MS);
+        }
+
+        h.succeed(function () { selesai(); hapusSpanduk(); });
+
+        h.fail(function (g) {
+            selesai();
+            hentikanBilah();
+
+            var s = g.status;
+            if (s === 419) {
+                spanduk('Sesi sudah berakhir.',
+                    'Silakan muat ulang halaman, lalu masuk kembali.');
+                g.preventDefault();
+            } else if (s === 408 || s === 502 || s === 503 || s === 504 || !s) {
+                spanduk('Data gagal ditarik - server tidak menjawab (time out).',
+                    'Status ' + (s || 'tidak ada jawaban') + '. Biasanya karena datanya '
+                    + 'terlalu banyak untuk sekali tarik. Coba persempit saringan, '
+                    + 'misalnya satu PT atau satu cabang saja.');
+                g.preventDefault();
+            } else {
+                // Galat sungguhan (500 dsb) TIDAK di-`preventDefault` - layar galat
+                // bawaan Livewire menampilkan pesan aslinya, dan itu yg dibutuhkan utk
+                // memperbaikinya. Spanduk ini cuma penjelasan di atasnya.
+                spanduk('Data gagal ditarik.', 'Server menjawab dgn status ' + s + '.');
+            }
+        });
+    });
+});

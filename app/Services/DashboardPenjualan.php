@@ -141,7 +141,13 @@ class DashboardPenjualan
      */
     private function ekspresiCogsProduk(): string
     {
-        return 'IF(COALESCE(d.SDDARIPAKET,0) <> 0 AND COALESCE(d.SDKEDATANGAN,0) > 0, 0, COALESCE(d.SDBELI,0))';
+        // TAMBAHAN di luar CI3 (permintaan user 2026-10-14): baris ber-QTY 0 juga bernilai
+        // 0. Contohnya `PG-IP26091494` - qty 0 krn barisnya datang dari PAKET, tapi COGS
+        // Produk-nya masih terhitung (295.313) padahal biaya itu sudah dihitung di baris
+        // paket induknya. Tidak ada barang keluar = tidak ada harga pokok PENJUALAN.
+        // COGS ALKES sengaja TIDAK ikut dinolkan - alkesnya memang benar-benar terpakai.
+        return 'IF((COALESCE(d.SDDARIPAKET,0) <> 0 AND COALESCE(d.SDKEDATANGAN,0) > 0)
+                   OR COALESCE(d.SDKELUAR,0) = 0, 0, COALESCE(d.SDBELI,0))';
     }
 
     /**
@@ -173,9 +179,23 @@ class DashboardPenjualan
             //   ICOA2021 = 1  -> nilai jual dikeluarkan PPN-nya (`subtotal / 1,11`)
             //   selain itu    -> COGS x markup
             // Dua cabang ini TIDAK boleh disederhanakan jadi satu rumus.
-            DB::raw('SUM(CASE WHEN i.ICOA2021 = 1 THEN (' . $jual . ') / ' . (1 + self::PPN)
-                    . ' ELSE (' . $cogs . ') * ' . self::MARKUP . ' END) as penjProdukSql'),
-            DB::raw('SUM(COALESCE(' . $alkes . ', 0)) * ' . self::MARKUP . ' as penjAlkesSql'),
+            //
+            // GERBANG `penjualan <> 0` adalah TAMBAHAN di luar CI3 (permintaan user
+            // 2026-10-14): "penjualan produk, penjualan alkes, ppn dan pendapatan klinik
+            // dihitung jika ada nilai Penjualannya saja". Tanpa ini, baris tanpa penjualan
+            // tetap memunculkan angka produk/alkes/PPN, dan Pendapatan Klinik jadi MINUS
+            // (contoh `PG-IP26091494`: 0 - 310.078 - 1.208 - 34.241 = -345.527).
+            //
+            // Digerbang PER BARIS, bukan per grup: kalau per grup, jumlah tingkat anak
+            // tidak akan sama lagi dgn angka induknya.
+            DB::raw('SUM(CASE WHEN (' . $jual . ') <> 0 THEN
+                        CASE WHEN i.ICOA2021 = 1 THEN (' . $jual . ') / ' . (1 + self::PPN)
+                    . ' ELSE (' . $cogs . ') * ' . self::MARKUP . ' END
+                      ELSE 0 END) as penjProdukSql'),
+            // COGS Alkes di bawah TIDAK digerbang - alkesnya memang terpakai; yg digerbang
+            // hanya nilai JUALnya.
+            DB::raw('SUM(CASE WHEN (' . $jual . ') <> 0 THEN COALESCE(' . $alkes . ', 0) ELSE 0 END) * '
+                    . self::MARKUP . ' as penjAlkesSql'),
             DB::raw('SUM(d.SDKELUAR) as qty'),
             DB::raw('COUNT(DISTINCT u.SUID) as jmlTransaksi'),
         ];

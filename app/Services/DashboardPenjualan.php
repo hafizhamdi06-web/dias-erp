@@ -67,7 +67,24 @@ class DashboardPenjualan
      */
     public const BATAS_BARIS = 200;
 
-    /** Diisi `baris()`; dibaca `adaSisa()`. */
+    /**
+     * Tingkat TRANSAKSI pakai HALAMAN, bukan dipotong di 200 (permintaan user 2026-10-15).
+     *
+     * Bedanya mendasar: tingkat lain meringkas, jadi memotong ekor yg kecil tidak membuat
+     * data hilang dari pandangan - sedangkan tingkat transaksi adalah DAFTAR, dan baris ke
+     * 201 dst memang perlu bisa dilihat. Lagipula dgn `OFFSET/LIMIT` server hanya menyusun
+     * 100 baris per permintaan, bukan menyapu lalu membuang - itu yg membuatnya terasa
+     * lebih cepat.
+     */
+    public const PER_HALAMAN = 100;
+
+    /** Ukuran halaman yg BERLAKU - `config/dashboard.php` kalau diisi. */
+    public static function perHalaman(): int
+    {
+        return max(1, (int) config('dashboard.per_halaman', self::PER_HALAMAN));
+    }
+
+    /** Diisi `baris()`; dibaca `adaSisa()`. TIDAK dipakai di tingkat transaksi (berhalaman). */
     private bool $adaSisa = false;
 
     /**
@@ -250,7 +267,7 @@ class DashboardPenjualan
      *
      * @param array{dari:string,sampai:string,pt?:?int,cabang?:?int,coa?:?int,item?:?int} $saring
      */
-    public function baris(string $tingkat, array $saring): Collection
+    public function baris(string $tingkat, array $saring, int $halaman = 1, ?int $perHalaman = null): Collection
     {
         $q = $this->dasar($saring);
 
@@ -284,9 +301,32 @@ class DashboardPenjualan
             $q->groupBy($kunci, $nama);
         }
 
-        // Diurutkan dari penjualan TERBESAR, lalu dipotong `BATAS_BARIS`. Diambil
-        // satu LEBIH dari batas supaya pemanggil bisa tahu "masih ada sisanya" tanpa
-        // kueri COUNT terpisah di atas kueri yg sudah ber-GROUP BY.
+        if ($tingkat === 'transaksi') {
+            /*
+             * Urut NO TRANSAKSI saja (permintaan user 2026-10-15), BUKAN penjualan
+             * terbesar. Dua alasannya:
+             *   - ini daftar, dan orang mencari nota tertentu - urutan nomor yg dicari.
+             *   - mengurutkan `SUM(...)` memaksa server menghitung seluruh grup dulu baru
+             *     menyusunnya; mengurutkan kolom yg memang sudah jadi kunci grup jauh
+             *     lebih murah.
+             *
+             * `d.SDID` jadi pengurut kedua supaya baris-baris DALAM satu nota tidak
+             * bertukar tempat antar halaman - tanpa itu, urutan baris ber-nota sama tidak
+             * dijamin dan satu baris bisa muncul dua kali di dua halaman berbeda.
+             */
+            $rows = $q->orderBy('u.SUNOTRANSAKSI')
+                ->orderBy('d.SDID')
+                ->forPage($halaman, $perHalaman ?: self::perHalaman())
+                ->get($pilih);
+
+            $this->adaSisa = false;   // tingkat ini berhalaman, tidak ada yg "terpotong"
+
+            return $rows->map(fn ($r) => $this->lengkapi($r));
+        }
+
+        // Tingkat ringkasan: diurutkan dari penjualan TERBESAR, lalu dipotong
+        // `BATAS_BARIS`. Diambil satu LEBIH dari batas supaya pemanggil bisa tahu "masih
+        // ada sisanya" tanpa kueri COUNT terpisah di atas kueri yg sudah ber-GROUP BY.
         $rows = $q->orderByDesc(DB::raw('SUM(' . $this->ekspresiPenjualan() . ')'))
             ->limit(self::BATAS_BARIS + 1)
             ->get($pilih);
@@ -294,6 +334,33 @@ class DashboardPenjualan
         $this->adaSisa = $rows->count() > self::BATAS_BARIS;
 
         return $rows->take(self::BATAS_BARIS)->map(fn ($r) => $this->lengkapi($r));
+    }
+
+    /**
+     * SELURUH baris transaksi sesuai saringan - utk ekspor Excel, bukan utk layar.
+     *
+     * Ada batas keras `$batas`: ekspor sebulan penuh satu PT bisa puluhan ribu baris dan
+     * semuanya ditahan di memori sekaligus. Dipotong diam-diam akan berbahaya (user mengira
+     * berkasnya lengkap), jadi pemanggil WAJIB memberi tahu kalau kena batas - lihat
+     * `ReportController`.
+     */
+    public function semuaBarisTransaksi(array $saring, int $batas = 20000): Collection
+    {
+        return $this->baris('transaksi', $saring, 1, $batas);
+    }
+
+    /**
+     * Banyaknya BARIS di tingkat transaksi - utk penomoran halaman.
+     *
+     * `COUNT(DISTINCT d.SDID)`, bukan `COUNT(*)`: `bitem2` ternyata punya 4 item ber-baris
+     * GANDA (terukur: 5.598 baris utk 5.594 item - semuanya baris yatim yg itemnya sudah
+     * tidak ada di `bitem`, dan tak satu pun terpakai di transaksi IP). Hari ini `COUNT(*)`
+     * memberi angka yg sama, tapi kalau suatu saat item ganda benar-benar dipakai, jumlah
+     * halamannya akan melar sendiri tanpa ada yg sadar.
+     */
+    public function jumlahBaris(array $saring): int
+    {
+        return (int) $this->dasar($saring)->distinct()->count('d.SDID');
     }
 
     /** True kalau panggilan `baris()` terakhir masih menyisakan baris di luar batas. */

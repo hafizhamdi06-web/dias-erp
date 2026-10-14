@@ -59,7 +59,7 @@
          Kuerinya menyapu seluruh baris IP sebulan (Juni 2026 saja 15.804 dokumen), jadi
          jedanya terasa. `wire:target` menyebut SEMUA aksi yg menarik data - kalau tidak,
          bilahnya cuma muncul saat "Tampilkan" dan "Detailkan" terasa menggantung. --}}
-    <div wire:loading.flex wire:target="tampilkan,detailkan,kembali,keTingkat,toggleAlkes,toggleInfo,geserBulan,pt,bulan"
+    <div wire:loading.flex wire:target="tampilkan,detailkan,kembali,keTingkat,keHalaman,toggleAlkes,toggleInfo,geserBulan,pt,bulan"
          class="dsb-progres">
         <div class="bar"><span></span></div>
         <div class="ket">Sedang menarik data…</div>
@@ -177,6 +177,20 @@
                 {{ number_format($batas, 0, ',', '.') }} teratas ditampilkan &middot;
                 total di atas tetap dari seluruh data
             </span>
+        @endif
+
+        @if ($this->tingkat() === 'transaksi')
+            <span class="dsb-margin">
+                {{ number_format($jmlBaris, 0, ',', '.') }} baris &middot;
+                halaman {{ $halaman }} dari {{ number_format($jmlHalaman, 0, ',', '.') }}
+            </span>
+            {{-- Ekspor lewat route BIASA (listener `report-excel-download` di
+                 `dias-helpers.js`), jadi tab Workspace lain tidak terganggu. Yg diunduh
+                 SELURUH saringan, bukan halaman yg sedang tampil. --}}
+            <button type="button" class="btn btn-sm btn-outline-success ms-auto text-nowrap"
+                    wire:click="unduhExcel" wire:loading.attr="disabled" wire:target="unduhExcel">
+                <i class="fas fa-file-excel me-1"></i>Export Excel
+            </button>
         @endif
     </div>
 
@@ -343,6 +357,40 @@
                 </tbody>
             </table>
         </div>
+
+        @if ($this->tingkat() === 'transaksi' && $jmlHalaman > 1)
+            {{-- Pager sederhana: lompat ke ujung, geser satu-satu, dan sejumlah nomor di
+                 sekitar halaman yg sedang dibuka. Tidak menampilkan SEMUA nomor - sebulan
+                 penuh bisa ratusan halaman dan barisnya sendiri jadi lebih panjang
+                 daripada tabelnya. --}}
+            <div class="d-flex flex-wrap gap-1 align-items-center mt-2 dsb-sub">
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        wire:click="keHalaman(1)" @disabled($halaman <= 1)>&laquo;</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        wire:click="keHalaman({{ $halaman - 1 }})" @disabled($halaman <= 1)>&lsaquo;</button>
+
+                @php
+                    $dari = max(1, $halaman - 2);
+                    $sampai = min($jmlHalaman, $dari + 4);
+                    $dari = max(1, $sampai - 4);
+                @endphp
+                @for ($h = $dari; $h <= $sampai; $h++)
+                    <button type="button"
+                            class="btn btn-sm {{ $h === $halaman ? 'btn-primary' : 'btn-outline-secondary' }}"
+                            wire:click="keHalaman({{ $h }})">{{ $h }}</button>
+                @endfor
+
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        wire:click="keHalaman({{ $halaman + 1 }})" @disabled($halaman >= $jmlHalaman)>&rsaquo;</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        wire:click="keHalaman({{ $jmlHalaman }})" @disabled($halaman >= $jmlHalaman)>&raquo;</button>
+
+                <span class="ms-2">
+                    Baris {{ number_format(($halaman - 1) * $perHalaman + 1, 0, ',', '.') }}&ndash;{{ number_format(min($halaman * $perHalaman, $jmlBaris), 0, ',', '.') }}
+                    dari {{ number_format($jmlBaris, 0, ',', '.') }}
+                </span>
+            </div>
+        @endif
     @endif
     @endif{{-- /$galat --}}
     @endif{{-- /$tampil --}}

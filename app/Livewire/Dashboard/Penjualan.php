@@ -48,6 +48,14 @@ class Penjualan extends Component
     public ?int $infoDibuka = null;
 
     /**
+     * Halaman yg sedang dibuka di tingkat transaksi (1 = pertama).
+     *
+     * Hanya tingkat transaksi yg berhalaman - tingkat lain meringkas, jadi cukup
+     * dipotong di `BATAS_BARIS` (lihat `DashboardPenjualan`).
+     */
+    public int $halaman = 1;
+
+    /**
      * Data baru ditarik SETELAH user menekan "Tampilkan" (permintaan user 2026-10-13).
      *
      * Bukan sekadar selera: sekali tarik menyapu seluruh `fstokd` IP sebulan - Juni 2026
@@ -142,6 +150,37 @@ class Penjualan extends Component
     {
         $this->alkesDibuka = null;
         $this->infoDibuka = null;
+        $this->halaman = 1;
+    }
+
+    /**
+     * Pindah halaman di tingkat transaksi.
+     *
+     * Rincian yg sedang terbuka ikut ditutup: `$alkesDibuka`/`$infoDibuka` menyimpan SDID,
+     * dan barisnya sudah tidak ada lagi di halaman yg baru.
+     */
+    public function keHalaman(int $n): void
+    {
+        $this->halaman = max(1, $n);
+        $this->alkesDibuka = null;
+        $this->infoDibuka = null;
+    }
+
+    /**
+     * Unduh tingkat transaksi sbg Excel.
+     *
+     * Lewat route BIASA (`ReportController`), bukan respons Livewire - pola yg sama dgn
+     * laporan lain di proyek ini: komponen cuma mengirim URL-nya, unduhannya dikerjakan
+     * browser lewat listener `report-excel-download` di `dias-helpers.js`. Kalau berkasnya
+     * dikembalikan dari dalam Livewire, tab Workspace lain ikut terganggu.
+     *
+     * Yg diunduh SELURUH baris sesuai saringan, bukan cuma halaman yg sedang tampil -
+     * halaman itu urusan layar, bukan urusan datanya.
+     */
+    public function unduhExcel(): void
+    {
+        $this->dispatch('report-excel-download',
+            url: route('dashboard.penjualan.excel', $this->saring()));
     }
 
     /** Tombol "Tampilkan" - satu-satunya yg memulai penarikan data. */
@@ -201,13 +240,30 @@ class Penjualan extends Component
          */
         $galat = null;
         $baris = collect();
+        $jmlBaris = 0;
+        $jmlHalaman = 1;
         $total = null;
         $alkes = collect();
         $info = null;
 
         if ($this->tampil) {
             try {
-                $baris = $svc->baris($this->tingkat(), $saring);
+                $baris = $svc->baris($this->tingkat(), $saring, $this->halaman);
+
+                // Penghitung halaman HANYA di tingkat transaksi - tingkat lain tidak
+                // berhalaman, jadi kueri COUNT-nya pun tidak perlu dijalankan.
+                if ($this->tingkat() === 'transaksi') {
+                    $jmlBaris = $svc->jumlahBaris($saring);
+                    $jmlHalaman = max(1, (int) ceil($jmlBaris / DashboardPenjualan::perHalaman()));
+
+                    // Halaman di luar jangkauan (mis. saringan menyempit setelah user
+                    // sudah di halaman 7) - mundurkan & tarik ulang, jangan tampilkan
+                    // layar kosong yg terlihat spt data hilang.
+                    if ($this->halaman > $jmlHalaman) {
+                        $this->halaman = $jmlHalaman;
+                        $baris = $svc->baris($this->tingkat(), $saring, $this->halaman);
+                    }
+                }
                 $total = $svc->total($saring);
                 $alkes = $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect();
                 $info = $this->infoDibuka ? $svc->infoTransaksi($this->infoDibuka) : null;
@@ -232,6 +288,9 @@ class Penjualan extends Component
             // Benar HANYA setelah `baris()` dipanggil - jangan dipindah ke atas.
             'adaSisa' => $this->tampil && ! $galat && $svc->adaSisa(),
             'batas'   => DashboardPenjualan::BATAS_BARIS,
+            'jmlBaris'   => $jmlBaris,
+            'jmlHalaman' => $jmlHalaman,
+            'perHalaman' => DashboardPenjualan::perHalaman(),
             'total'   => $total,
             'ptList'  => $svc->daftarPt(),
             'alkes'   => $alkes,

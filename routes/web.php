@@ -73,6 +73,9 @@ Route::middleware('auth')->group(function () {
     Route::get('finance/kas-masuk/{id}/print', [KasBankPrintController::class, 'kasMasuk'])->name('finance.kas-masuk.print');
     Route::get('finance/kas-keluar/{id}/print', [KasBankPrintController::class, 'kasKeluar'])->name('finance.kas-keluar.print');
 
+    // Ekspor tingkat Per Transaksi Dashboard Penjualan - route BIASA, bukan Livewire
+    // (unduhan dari dalam Livewire mengganggu tab Workspace lain).
+    Route::get('dashboard/penjualan/excel', [ReportController::class, 'dashboardPenjualanExcel'])->name('dashboard.penjualan.excel');
     Route::get('reports/penjualan-per-barang', [ReportController::class, 'penjualanPerBarang'])->name('reports.penjualan-per-barang');
     Route::get('reports/penjualan-per-barang/excel', [ReportController::class, 'penjualanPerBarangExcel'])->name('reports.penjualan-per-barang.excel');
     Route::get('reports/ip-tindakan-produk', [ReportController::class, 'ipTindakanProduk'])->name('reports.ip-tindakan-produk');

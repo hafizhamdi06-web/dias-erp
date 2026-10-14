@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\DashboardPenjualan;
 use App\Services\PdfReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -1441,5 +1442,71 @@ class ReportController extends Controller
             'rows'     => $rows,
             'total'    => (float) $rows->sum('stok'),
         ];
+    }
+    /**
+     * Ekspor Excel tingkat PER TRANSAKSI Dashboard Penjualan (permintaan user 2026-10-15).
+     *
+     * Angkanya TIDAK dihitung ulang di sini - dipakai `DashboardPenjualan` yg sama persis
+     * dgn yg dipakai layar. Kalau ekspor punya kueri sendiri, suatu saat rumusnya akan
+     * menyimpang dari layar tanpa ada yg sadar.
+     *
+     * Saringannya diambil dari query string, kiriman `Penjualan::unduhExcel()`.
+     */
+    public function dashboardPenjualanExcel(Request $r, DashboardPenjualan $svc)
+    {
+        $saring = [
+            'dari'   => (string) $r->query('dari', now()->startOfMonth()->toDateString()),
+            'sampai' => (string) $r->query('sampai', now()->endOfMonth()->toDateString()),
+        ];
+        foreach (['pt', 'cabang', 'coa', 'item'] as $k) {
+            if ($r->query($k) !== null && $r->query($k) !== '') {
+                $saring[$k] = (int) $r->query($k);
+            }
+        }
+
+        $batas = max(1, (int) config('dashboard.batas_ekspor', 20000));
+        $rows = $svc->semuaBarisTransaksi($saring, $batas);
+        $jml = $svc->jumlahBaris($saring);
+
+        $data = [
+            'title'    => 'Dashboard Penjualan - Per Transaksi',
+            'periode'  => \Carbon\Carbon::parse($saring['dari'])->format('d/m/Y') . ' s/d '
+                        . \Carbon\Carbon::parse($saring['sampai'])->format('d/m/Y'),
+            'subtitle' => $this->judulSaringanDashboard($saring),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+            'total'    => $svc->total($saring),
+            // Dikatakan APA ADANYA di berkasnya kalau kena batas - berkas yg terpotong
+            // diam-diam jauh lebih berbahaya daripada berkas yg mengaku terpotong.
+            'terpotong' => $jml > $batas ? $jml : null,
+            'batas'     => $batas,
+        ];
+
+        return response()
+            ->view('reports.dashboard-penjualan-transaksi-xls', $data)
+            ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="dashboard-penjualan-transaksi.xls"');
+    }
+
+    /** Nama PT/cabang/COA/item yg sedang disaring - utk kepala berkas Excel. */
+    private function judulSaringanDashboard(array $saring): ?string
+    {
+        $bagian = [];
+        if (! empty($saring['pt'])) {
+            $bagian[] = (string) DB::table('bnamapt')->where('NPID', $saring['pt'])->value('NPNAMA');
+        }
+        if (! empty($saring['cabang'])) {
+            $bagian[] = (string) DB::table('bgudang')->where('GID', $saring['cabang'])->value('GNAMA');
+        }
+        if (isset($saring['coa'])) {
+            $bagian[] = (int) $saring['coa'] === 0
+                ? '(Tanpa COA)'
+                : (string) DB::table('bcoatipe_pendapatan')->where('CTID', $saring['coa'])->value('CTNAMA');
+        }
+        if (! empty($saring['item'])) {
+            $bagian[] = (string) DB::table('bitem')->where('IID', $saring['item'])->value('INAMA');
+        }
+
+        return $bagian === [] ? null : implode(' - ', array_filter($bagian));
     }
 }

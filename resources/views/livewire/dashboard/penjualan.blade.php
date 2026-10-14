@@ -59,7 +59,7 @@
          Kuerinya menyapu seluruh baris IP sebulan (Juni 2026 saja 15.804 dokumen), jadi
          jedanya terasa. `wire:target` menyebut SEMUA aksi yg menarik data - kalau tidak,
          bilahnya cuma muncul saat "Tampilkan" dan "Detailkan" terasa menggantung. --}}
-    <div wire:loading.flex wire:target="tampilkan,detailkan,kembali,keTingkat,toggleAlkes,geserBulan,pt,bulan"
+    <div wire:loading.flex wire:target="tampilkan,detailkan,kembali,keTingkat,toggleAlkes,toggleInfo,geserBulan,pt,bulan"
          class="dsb-progres">
         <div class="bar"><span></span></div>
         <div class="ket">Sedang menarik data…</div>
@@ -237,13 +237,23 @@
                             </td>
                             <td class="text-end">
                                 @if ($this->tingkat() === 'transaksi')
-                                    {{-- Tingkat terdalam: yg bisa dibuka tinggal rincian alkesnya. --}}
-                                    @if ($r->cogsAlkes > 0)
-                                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                wire:click="toggleAlkes({{ $r->id }})">
-                                            {{ $alkesDibuka === (int) $r->id ? 'Tutup' : 'Detail Alkes' }}
+                                    {{-- Tingkat terdalam: tidak ada "Detailkan" lagi, yg ada
+                                         tombol2 rincian baris ini. Paket/Promo/Dokter jadi
+                                         TOMBOL, bukan kolom (permintaan user) - tabelnya
+                                         sudah 14 kolom, tiga kolom teks lagi membuatnya
+                                         harus digeser ke samping utk membaca angkanya. --}}
+                                    <div class="d-inline-flex gap-1">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                                                wire:click="toggleInfo({{ $r->id }})">
+                                            {{ $infoDibuka === (int) $r->id ? 'Tutup' : 'Detail Paket' }}
                                         </button>
-                                    @endif
+                                        @if ($r->cogsAlkes > 0)
+                                            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                                                    wire:click="toggleAlkes({{ $r->id }})">
+                                                {{ $alkesDibuka === (int) $r->id ? 'Tutup' : 'Detail Alkes' }}
+                                            </button>
+                                        @endif
+                                    </div>
                                 @else
                                     <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
                                             wire:click="detailkan({{ $r->id }}, @js($r->nama ?: '(tanpa nama)'))">
@@ -252,6 +262,33 @@
                                 @endif
                             </td>
                         </tr>
+
+                        @if ($this->tingkat() === 'transaksi' && $infoDibuka === (int) $r->id)
+                            <tr class="dsb-alkes" wire:key="info-{{ $r->id }}">
+                                <td colspan="14">
+                                    <table>
+                                        <thead>
+                                            <tr><th>Nama Paket</th><th>Nama Promo</th><th>Nama Dokter</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>
+                                                    {{ $info?->paket ?: '—' }}
+                                                    {{-- Nomor koli & kedatangan menyertai paket: satu paket
+                                                         dipakai berkali-kali, tanpa ini barisnya kembar. --}}
+                                                    @if ($info?->paket && $info?->koli)
+                                                        <span class="dsb-sub">&middot; No {{ $info->koli }}
+                                                            &middot; kedatangan ke-{{ $info->kedatangan }}</span>
+                                                    @endif
+                                                </td>
+                                                <td>{{ $info?->promo ?: '—' }}</td>
+                                                <td>{{ $info?->dokter ?: '—' }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        @endif
 
                         @if ($this->tingkat() === 'transaksi' && $alkesDibuka === (int) $r->id)
                             <tr class="dsb-alkes" wire:key="alkes-{{ $r->id }}">
@@ -276,11 +313,12 @@
                                             @endforelse
                                         </tbody>
                                     </table>
-                                    {{-- COGS alkes di baris transaksi adalah BAGIAN proporsional dari
-                                         dokumen alkes (lihat DashboardPenjualan), jadi jumlah rincian
-                                         di atas bisa lebih besar kalau satu IP punya banyak baris. --}}
+                                    {{-- Rincian ini milik BARIS-nya (`SDIDUALKES`), bukan seluruh nota,
+                                         jadi jumlahnya pas dgn kolom COGS Alkes di baris itu. Catatan
+                                         lama di sini menyebut pembagian proporsional per dokumen -
+                                         cara itu sudah dibuang. --}}
                                     <div class="dsb-sub mt-1" style="font-size:.7rem">
-                                        Rincian ini milik seluruh dokumen alkes No IP {{ $r->nama }}.
+                                        Alkes terpakai pada baris {{ $r->item ?? '—' }} ({{ $r->nama }}).
                                     </div>
                                 </td>
                             </tr>

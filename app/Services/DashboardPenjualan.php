@@ -340,6 +340,40 @@ class DashboardPenjualan
             ]);
     }
 
+    /**
+     * **Paket / Promo / Dokter satu baris IP** - isi tombol "Detail Paket" di tingkat
+     * transaksi (permintaan user 2026-10-14: ketiganya jadi TOMBOL, bukan tiga kolom -
+     * tabelnya sudah 14 kolom).
+     *
+     * Jalurnya disalin dari laporan acuan CI3
+     * (`laporan-ip-per-coa-2026-detail-v-agt-no-ip`):
+     *   paket  -> `epaketu.PUID = fstokd.SDIDPOTONGSTOK`
+     *   promo  -> `emasterpromod.MPDID = fstokd.SDIDPROMO`, lalu naik ke
+     *             `emasterpromou.MPUID = MPDIDU` (nama promo ada di INDUKnya)
+     *   dokter -> `bkontak.KID = fstokd.SDDOKTER`
+     *
+     * Semua LEFT JOIN: satu baris bisa punya dokter tanpa paket, paket tanpa promo, dst.
+     * Nomor koli & kedatangan ikut diambil - di daftar POS keduanya ditampilkan bersama
+     * paket, dan tanpa itu baris paket yg berulang terlihat kembar.
+     */
+    public function infoTransaksi(int $sdid): ?object
+    {
+        return DB::table('fstokd as d')
+            ->leftJoin('epaketu as pkt', 'pkt.PUID', '=', 'd.SDIDPOTONGSTOK')
+            ->leftJoin('emasterpromod as pmd', 'pmd.MPDID', '=', 'd.SDIDPROMO')
+            ->leftJoin('emasterpromou as pmu', 'pmu.MPUID', '=', 'pmd.MPDIDU')
+            ->leftJoin('bkontak as dr', 'dr.KID', '=', 'd.SDDOKTER')
+            ->where('d.SDID', $sdid)
+            ->first([
+                DB::raw('pkt.PUKODE as paketKode'),
+                DB::raw('pkt.PUNAMA as paket'),
+                DB::raw('pmu.MPUNAMA as promo'),
+                DB::raw('dr.KNAMA as dokter'),
+                DB::raw('d.SDCATATANKOLI as koli'),
+                DB::raw('d.SDKEDATANGAN as kedatangan'),
+            ]);
+    }
+
     /** PT yg boleh dipilih di saringan. */
     public function daftarPt(): Collection
     {

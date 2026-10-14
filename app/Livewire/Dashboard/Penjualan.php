@@ -40,6 +40,14 @@ class Penjualan extends Component
     public ?int $alkesDibuka = null;
 
     /**
+     * `fstokd.SDID` baris yg info Paket/Promo/Dokter-nya sedang dibuka.
+     *
+     * Terpisah dari `$alkesDibuka` supaya keduanya bisa terbuka bersamaan - user yg sedang
+     * memeriksa COGS alkes sebuah tindakan biasanya juga perlu tahu paket asalnya.
+     */
+    public ?int $infoDibuka = null;
+
+    /**
      * Data baru ditarik SETELAH user menekan "Tampilkan" (permintaan user 2026-10-13).
      *
      * Bukan sekadar selera: sekali tarik menyapu seluruh `fstokd` IP sebulan - Juni 2026
@@ -97,25 +105,43 @@ class Penjualan extends Component
             return;
         }
         $this->jalur[] = ['tingkat' => $this->tingkat(), 'id' => $id, 'nama' => $nama];
-        $this->alkesDibuka = null;
+        $this->tutupRincian();
     }
 
     public function kembali(): void
     {
         array_pop($this->jalur);
-        $this->alkesDibuka = null;
+        $this->tutupRincian();
     }
 
     /** Lompat langsung lewat remah-jejak. */
     public function keTingkat(int $kedalaman): void
     {
         $this->jalur = array_slice($this->jalur, 0, max(0, $kedalaman));
-        $this->alkesDibuka = null;
+        $this->tutupRincian();
     }
 
     public function toggleAlkes(int $sdid): void
     {
         $this->alkesDibuka = $this->alkesDibuka === $sdid ? null : $sdid;
+    }
+
+    /** Tombol "Detail Paket" - Paket/Promo/Dokter baris itu. */
+    public function toggleInfo(int $sdid): void
+    {
+        $this->infoDibuka = $this->infoDibuka === $sdid ? null : $sdid;
+    }
+
+    /**
+     * Semua rincian yg terbuka ditutup - dipanggil tiap kali TINGKAT atau saringan
+     * berpindah. Kalau tidak, `$alkesDibuka`/`$infoDibuka` masih menyimpan SDID dari
+     * tingkat sebelumnya dan rinciannya ikut terbuka di baris yg bukan miliknya
+     * (id-nya bisa kebetulan sama - `id` di tingkat lain itu GID/CTID/IID, bukan SDID).
+     */
+    private function tutupRincian(): void
+    {
+        $this->alkesDibuka = null;
+        $this->infoDibuka = null;
     }
 
     /** Tombol "Tampilkan" - satu-satunya yg memulai penarikan data. */
@@ -135,7 +161,7 @@ class Penjualan extends Component
     private function saringanDiubah(): void
     {
         $this->jalur = [];
-        $this->alkesDibuka = null;
+        $this->tutupRincian();
         $this->saringanBerubah = $this->tampil;
         $this->tampil = false;
     }
@@ -173,6 +199,7 @@ class Penjualan extends Component
             'total'   => $this->tampil ? $svc->total($saring) : null,
             'ptList'  => $svc->daftarPt(),
             'alkes'   => $this->tampil && $this->alkesDibuka ? $svc->alkesTransaksi($this->alkesDibuka) : collect(),
+            'info'    => $this->tampil && $this->infoDibuka ? $svc->infoTransaksi($this->infoDibuka) : null,
             'namaBulan' => Carbon::createFromFormat('Y-m', $this->bulan)->locale('id')->isoFormat('MMMM Y'),
             'namaPt'  => $this->pt
                 ? (string) DB::table('bnamapt')->where('NPID', $this->pt)->value('NPNAMA')

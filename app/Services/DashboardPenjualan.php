@@ -139,6 +139,23 @@ class DashboardPenjualan
      * PAKET sekaligus baris KEDATANGAN di-nol-kan - COGS-nya sudah dihitung di tempat lain,
      * kalau ikut dihitung di sini jadi dobel.
      */
+    /**
+     * **COA yg nilainya DITARIK** - CI3 `if ($row->CTTIDAKDITARIK==0) { ... }`.
+     *
+     * `bcoatipe_pendapatan.CTTIDAKDITARIK = 1` berarti COA itu bukan penjualan barang/jasa
+     * klinik, jadi COGS Produk, COGS Alkes, Pendapatan Produk, Pendapatan Alkes dan PPN-nya
+     * TIDAK diambil - hanya Penjualan & Pendapatan Klinik yg tetap jalan. Di DB ini ada 6:
+     * Biaya Layanan/Diskon, DP, Lab Revenue, Membership, Service Fee Revenue, Shipping
+     * Revenue.
+     *
+     * `COALESCE(...,0)` penting: `ct` di-LEFT JOIN, jadi baris tanpa COA bernilai NULL dan
+     * harus dihitung spt 0 (ditarik) - sama spt perbandingan longgar `== 0` di CI3.
+     */
+    private function ditarik(): string
+    {
+        return 'COALESCE(ct.CTTIDAKDITARIK, 0) = 0';
+    }
+
     private function ekspresiCogsProduk(): string
     {
         // TAMBAHAN di luar CI3 (permintaan user 2026-10-14): baris ber-QTY 0 juga bernilai
@@ -147,7 +164,8 @@ class DashboardPenjualan
         // paket induknya. Tidak ada barang keluar = tidak ada harga pokok PENJUALAN.
         // COGS ALKES sengaja TIDAK ikut dinolkan - alkesnya memang benar-benar terpakai.
         return 'IF((COALESCE(d.SDDARIPAKET,0) <> 0 AND COALESCE(d.SDKEDATANGAN,0) > 0)
-                   OR COALESCE(d.SDKELUAR,0) = 0, 0, COALESCE(d.SDBELI,0))';
+                   OR COALESCE(d.SDKELUAR,0) = 0
+                   OR NOT (' . $this->ditarik() . '), 0, COALESCE(d.SDBELI,0))';
     }
 
     /**
@@ -161,7 +179,10 @@ class DashboardPenjualan
      */
     private function ekspresiCogsAlkes(): string
     {
-        return '(SELECT SUM(COALESCE(aa.SDBELI,0)) FROM fstokd aa WHERE aa.SDIDUALKES = d.SDID)';
+        return '(CASE WHEN ' . $this->ditarik() . '
+                      THEN (SELECT SUM(COALESCE(aa.SDBELI,0)) FROM fstokd aa
+                             WHERE aa.SDIDUALKES = d.SDID)
+                 END)';
     }
 
     /** Kolom ukuran yg sama di SEMUA tingkat - inilah yg menjamin angkanya konsisten. */
@@ -188,7 +209,9 @@ class DashboardPenjualan
             //
             // Digerbang PER BARIS, bukan per grup: kalau per grup, jumlah tingkat anak
             // tidak akan sama lagi dgn angka induknya.
-            DB::raw('SUM(CASE WHEN (' . $jual . ') <> 0 THEN
+            // Cabang `ICOA2021 = 1` (jual / 1,11) perlu gerbang `ditarik()` TERSENDIRI -
+            // cabang satunya sudah ikut ternol lewat `$cogs`, yg ini tidak.
+            DB::raw('SUM(CASE WHEN (' . $jual . ') <> 0 AND ' . $this->ditarik() . ' THEN
                         CASE WHEN i.ICOA2021 = 1 THEN (' . $jual . ') / ' . (1 + self::PPN)
                     . ' ELSE (' . $cogs . ') * ' . self::MARKUP . ' END
                       ELSE 0 END) as penjProdukSql'),
@@ -290,8 +313,12 @@ class DashboardPenjualan
     }
 
     /**
-     * Rincian alkes satu transaksi IP - tingkat paling dalam ("Tampilkan Detail alkes").
-     * Lewat `SUNOREF`, jalur yg 100% nyambung.
+     * Rincian alkes satu BARIS IP - tingkat paling dalam ("Tampilkan Detail alkes").
+     *
+     * TIDAK digerbang `ditarik()`, persis spt `queryAlkes` CI3 yg juga tanpa saringan
+     * `CTTIDAKDITARIK`: yg ditampilkan di sini alkes yg memang FISIK terpakai. Akibatnya,
+     * utk COA yg tidak ditarik, rincian bisa berisi sementara kolom COGS Alkes-nya 0 - itu
+     * sengaja, bukan selisih.
      */
     public function alkesTransaksi(int $sdid): Collection
     {

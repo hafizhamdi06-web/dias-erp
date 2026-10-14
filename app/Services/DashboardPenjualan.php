@@ -10,33 +10,38 @@ use Illuminate\Support\Facades\DB;
  * Transaksi. SATU kelas supaya rumusnya cuma ada di satu tempat; kalau tiap tingkat
  * menghitung sendiri, angka induk tidak akan sama dgn jumlah anaknya.
  *
- * ## Sumber data
- * Penjualan dari `fstoku`/`fstokd` **`SUSUMBER='IP'`** (invoice pasien), `SUSTATUS <> 9`.
- * Alkes yg terpakai ada di DOKUMEN TERPISAH `SUSUMBER='AL'`, terhubung ke IP lewat
- * **`SUNOREF` = nomor IP**.
+ * ## SUMBER KEBENARAN RUMUS: laporan CI3, bukan turunan sendiri
+ * Rumusnya DISALIN dari laporan CI3 yg sudah dipakai & dinyatakan benar oleh user
+ * (2026-10-14):
+ *   `dias-online-app/application/views/modul/laporan/
+ *    laporan-ip-per-coa-2026-detail-v-agt-no-ip.php`
+ * Kalau nanti laporan itu berubah, UBAH DI SINI JUGA - jangan "merapikan" rumus di bawah
+ * tanpa mencocokkan ulang ke sana.
  *
- * ## Rumus (ditetapkan user 2026-10-13, diturunkan dari RANCANGAN DASHBOARD PENJUALAN.xlsx)
- *   COGS Produk     = SUM(COGS baris IP)            <- lihat `ekspresiCogs()`
- *   COGS Alkes      = SUM(COGS baris dokumen AL terkait)
- *   Penjualan Produk = COGS Produk x MARKUP      (1,05)
- *   Penjualan Alkes  = COGS Alkes  x MARKUP
- *   PPN              = (Penj. Produk + Penj. Alkes) x PPN   (11%)
+ * Basis: `fstokd` + `fstoku` `SUSUMBER='IP'`, `SUSTATUS<>9`,
+ * `COALESCE(SDKEPALAALKES,0)=0` (baris kepala alkes dibuang - alkesnya dihitung lewat
+ * `SDIDUALKES`, kalau ikut terhitung nilainya dobel).
+ *
+ *   Penjualan      -> `ekspresiPenjualan()`   (porsi baris x UANG YG DITERIMA, bukan
+ *                                              qty x harga)
+ *   COGS Produk    -> `ekspresiCogsProduk()`  (`SDBELI`, 0 utk baris paket+kedatangan)
+ *   COGS Alkes     -> `ekspresiCogsAlkes()`   (`SUM(SDBELI)` alkes lewat `SDIDUALKES`)
+ *   Penj. Produk   -> dua cabang `ICOA2021` (lihat `ukuran()`)
+ *   Penj. Alkes    = COGS Alkes x MARKUP (1,05)
+ *
+ * Dua ukuran berikut TIDAK ada di laporan CI3 - dipakai krn diminta rancangan dashboard,
+ * dan dipilih supaya empat bagiannya tetap menjumlah ke Penjualan:
+ *   PPN               = (Penj. Produk + Penj. Alkes) x 11%
  *   Pendapatan Klinik = Penjualan - Penj.Produk - Penj.Alkes - PPN
- *   Laba Kotor       = Penjualan - (COGS Produk + COGS Alkes)
- * Dicocokkan ke dua baris contoh di rancangan dan ketiganya pas sampai 2 desimal -
- * lihat `tests`/catatan CLAUDE.md.
+ *   Laba Kotor        = Penjualan - (COGS Produk + COGS Alkes)
  *
- * Angka "NILAI COGS (50% of Sales)" di sheet PER PT rancangan itu CUMA CONTOH; COGS tiap
- * tingkat dijumlah dari transaksi, supaya rincian selalu menjumlah ke induknya.
- *
- * ## Kenapa alkes dibagi PROPORSIONAL
- * Kaitan alkes **per baris** (`fstokd.SDIDALKESNYA`) TIDAK BISA DIPAKAI: cuma 396 dari 769
- * baris yg menunjuk dokumen AL yg benar-benar ada (49% yatim). Yg 100% andal adalah
- * `SUNOREF` - 7.409 dari 7.409 dokumen AL ketemu IP-nya. Jadi alkes diambil per DOKUMEN,
- * lalu dibagi ke baris-barisnya SEBANDING NILAI PENJUALAN. Pembagian itu dipilih bukan
- * karena paling tepat per item, tapi karena menjamin **jumlah rincian = angka induk** di
- * setiap tingkat - sifat yg wajib ada di layar yg bisa di-"detailkan".
- * Dokumen ber-nilai 0 (tindakan gratis) dibagi RATA per baris, kalau tidak alkes-nya hilang.
+ * ## Riwayat yg jangan diulang
+ * Versi pertama dashboard ini menghitung Penjualan sbg `qty x (harga - diskon)`, COGS dari
+ * `bitem.ICOGS`, dan membagi alkes PROPORSIONAL per dokumen lewat `SUNOREF` - ketiganya
+ * SALAH. Pembagian proporsional itu lahir dari kesimpulan keliru bahwa kaitan alkes per
+ * baris tidak andal; yg saya periksa waktu itu `SDIDALKESNYA` di sisi baris IP, padahal
+ * kaitan yg benar `SDIDUALKES` ada di sisi baris ALKES - dan itu terisi 1.196 dari 1.196,
+ * 100% nyambung.
  */
 class DashboardPenjualan
 {
@@ -49,41 +54,6 @@ class DashboardPenjualan
     public const TINGKAT = ['pt', 'cabang', 'coa', 'item', 'transaksi'];
 
     /**
-     * Tanggal mulai COGS diambil dari `fstokd.SDBELI` - lihat `config/dashboard.php`
-     * utk alasannya.
-     *
-     * Nilainya DISISIPKAN ke SQL (ada di dalam subkueri yg dibangun sbg string), jadi
-     * WAJIB lewat pemeriksaan bentuk dulu - pola sama `F_KOLOMGUDANG` yg di-whitelist
-     * sebelum diinterpolasi. Bentuk salah -> dianggap tidak ada batas (semua pakai ICOGS),
-     * bukan diteruskan apa adanya.
-     */
-    private function tanggalSdbeli(): ?string
-    {
-        $t = (string) config('dashboard.cogs_dari_sdbeli_sejak', '');
-
-        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $t) ? $t : null;
-    }
-
-    /**
-     * Ekspresi COGS satu baris: `SDBELI` utk transaksi sejak batas, `qty x ICOGS` utk
-     * sebelumnya.
-     *
-     * @param string $alias alias tabel detail & header di kueri pemanggil
-     */
-    private function ekspresiCogs(string $d, string $i, string $u): string
-    {
-        $sejak = $this->tanggalSdbeli();
-        $lama = "{$d}.SDKELUAR * COALESCE({$i}.ICOGS, 0)";
-
-        if ($sejak === null) {
-            return $lama;
-        }
-
-        // `SDBELI` sudah berupa TOTAL baris (ICOGS x qty), jadi TIDAK dikali qty lagi.
-        return "CASE WHEN {$u}.SUTANGGAL >= '{$sejak}' THEN COALESCE({$d}.SDBELI, 0) ELSE {$lama} END";
-    }
-
-    /**
      * Potongan SQL per baris IP, lengkap dgn alkes yg sudah dibagi.
      *
      * @param array{dari:string,sampai:string,pt?:?int,cabang?:?int,coa?:?int,item?:?int} $saring
@@ -91,18 +61,18 @@ class DashboardPenjualan
     private function dasar(array $saring)
     {
         $q = DB::table('fstokd as d')
-            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
-            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->leftJoin('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
+            ->leftJoin('bitem as i', 'i.IID', '=', 'd.SDITEM')
             ->leftJoin('bgudang as g', 'g.GID', '=', 'u.SUCABANG')
             ->leftJoin('bnamapt as pt', 'pt.NPID', '=', 'g.GPT')
-            // COA pendapatan: lewat `bitem2`, BUKAN kolom `ICOA*` di bitem - sudah diuji
-            // dan 0 dari 22 baris menunjuk akun yg benar (lihat CLAUDE.md).
+            // COA pendapatan: lewat `bitem2`, BUKAN kolom `ICOA*` di bitem.
             ->leftJoin('bitem2 as i2', 'i2.I2IDITEM', '=', 'i.IID')
             ->leftJoin('bcoatipe_pendapatan as ct', 'ct.CTID', '=', 'i2.I2COAPENDAPATAN')
-            // alkes per DOKUMEN IP (lihat docblock kelas)
-            ->leftJoin(DB::raw('(' . $this->sqlAlkesPerNota() . ') as alk'), 'alk.nota', '=', 'u.SUNOTRANSAKSI')
-            // total & jumlah baris per dokumen - pembagi alokasi alkes
-            ->leftJoin(DB::raw('(' . $this->sqlTotalPerDokumen() . ') as tot'), 'tot.suid', '=', 'u.SUID')
+            // Biaya merchant (EDC) - dipotong dari uang yg benar-benar diterima.
+            ->leftJoin('bmerchant as mc', 'mc.MCKODE', '=', 'u.SUMERCHANTJENIS')
+            // Baris KEPALA alkes dikeluarkan - alkes dihitung lewat `SDIDUALKES`, kalau
+            // ikut terhitung di sini nilainya dobel.
+            ->whereRaw('COALESCE(d.SDKEPALAALKES, 0) = 0')
             ->where('u.SUSUMBER', 'IP')
             ->where('u.SUSTATUS', '<>', 9)
             ->whereBetween('u.SUTANGGAL', [$saring['dari'], $saring['sampai']]);
@@ -117,52 +87,79 @@ class DashboardPenjualan
             ->when(! empty($saring['item']), fn ($b) => $b->where('d.SDITEM', (int) $saring['item']));
     }
 
-    private function sqlAlkesPerNota(): string
+    /**
+     * **Penjualan satu baris** - DISALIN dari CI3 `laporan-ip-per-coa-2026-detail-v-agt-no-ip`.
+     *
+     * Ini BUKAN `qty x (harga - diskon)`. Yg dipakai = porsi baris ini terhadap nilai nota,
+     * dikalikan UANG YG BENAR-BENAR DITERIMA: kartu debit + kredit + transfer + (kas - sisa)
+     * + DP + merchant setelah dipotong biaya EDC (`bmerchant.MCBIAYA` persen). Jadi diskon
+     * nota, kembalian, dan potongan merchant semuanya sudah tercermin.
+     *
+     * `ICOA2021 = 12` punya pembilang berbeda: nilai barisnya dikurangi `SDBAYARDP` lebih
+     * dulu. Dibiarkan apa adanya spt CI3.
+     *
+     * `NULLIF(...,0)` di pembagi: nota bernilai 0 akan jadi NULL (diabaikan `SUM`), sama
+     * hasilnya dgn CI3 tapi tanpa galat bagi-nol.
+     */
+    private function ekspresiPenjualan(): string
     {
-        // Aturan SDBELI berlaku utk alkes juga, memakai tanggal DOKUMEN ALKES-nya sendiri.
-        $cogs = $this->ekspresiCogs('ad', 'ai', 'al');
+        $uangDiterima = '(u.SUTOTALKARTUDEBIT + u.SUTOTALKARTUKREDIT + u.SUTOTALTRANSFER
+                          + (u.SUTOTALKAS - u.SUTOTALSISA) + u.SUTOTALDP
+                          + (u.SUMERCHANTJUMLAH - (u.SUMERCHANTJUMLAH * COALESCE(mc.MCBIAYA,0) / 100)))';
 
-        return "SELECT al.SUNOREF AS nota, SUM({$cogs}) AS cogsAlkes
-                FROM fstoku al
-                JOIN fstokd ad ON ad.SDIDSU = al.SUID
-                JOIN bitem ai ON ai.IID = ad.SDITEM
-                WHERE al.SUSUMBER = 'AL' AND al.SUSTATUS <> 9
-                GROUP BY al.SUNOREF";
-    }
-
-    private function sqlTotalPerDokumen(): string
-    {
-        return 'SELECT d2.SDIDSU AS suid,
-                       SUM(d2.SDKELUAR * (d2.SDHARGA - d2.SDDISKON)) AS nilai,
-                       COUNT(*) AS baris
-                FROM fstokd d2 GROUP BY d2.SDIDSU';
+        return "CASE WHEN i.ICOA2021 = 12
+                     THEN (d.SDKELUAR * (d.SDHARGA - d.SDDISKON) - d.SDBAYARDP)
+                          / NULLIF(u.SUTOTALTRANSAKSI, 0) * {$uangDiterima}
+                     ELSE d.SDKELUAR * (d.SDHARGA - d.SDDISKON)
+                          / NULLIF(u.SUTOTALTRANSAKSI, 0) * {$uangDiterima}
+                END";
     }
 
     /**
-     * Bagian alkes utk SATU baris IP. Sebanding nilai; kalau dokumennya bernilai 0
-     * (tindakan gratis) dibagi rata per baris supaya alkesnya tidak hilang.
+     * **COGS produk satu baris** - CI3: `IF(SDDARIPAKET<>0 AND SDKEDATANGAN>0, 0, sdbeli)`.
+     *
+     * Jadi sumbernya `SDBELI` (COGS yg dibekukan saat transaksi), dan baris yg berasal dari
+     * PAKET sekaligus baris KEDATANGAN di-nol-kan - COGS-nya sudah dihitung di tempat lain,
+     * kalau ikut dihitung di sini jadi dobel.
+     */
+    private function ekspresiCogsProduk(): string
+    {
+        return 'IF(COALESCE(d.SDDARIPAKET,0) <> 0 AND COALESCE(d.SDKEDATANGAN,0) > 0, 0, COALESCE(d.SDBELI,0))';
+    }
+
+    /**
+     * **COGS alkes satu baris** - CI3 memakai subkueri berkorelasi
+     * `SUM(sdbeli) FROM fstokd aa WHERE aa.SDIDUALKES = a.sdid`.
+     *
+     * Alkes terhubung ke baris IP-nya LANGSUNG lewat `SDIDUALKES` (ada di baris alkes,
+     * menunjuk `fstokd.SDID` baris IP) - terukur 1.196 dari 1.196 baris alkes nyambung,
+     * 100%. (Versi dashboard sebelumnya membagi alkes proporsional per dokumen krn saya
+     * salah memeriksa `SDIDALKESNYA` di sisi baris IP; itu keliru dan sudah dibuang.)
      */
     private function ekspresiCogsAlkes(): string
     {
-        return 'COALESCE(alk.cogsAlkes, 0) * CASE
-                    WHEN COALESCE(tot.nilai, 0) <> 0
-                        THEN (d.SDKELUAR * (d.SDHARGA - d.SDDISKON)) / tot.nilai
-                    ELSE 1 / GREATEST(COALESCE(tot.baris, 1), 1)
-                END';
+        return '(SELECT SUM(COALESCE(aa.SDBELI,0)) FROM fstokd aa WHERE aa.SDIDUALKES = d.SDID)';
     }
 
     /** Kolom ukuran yg sama di SEMUA tingkat - inilah yg menjamin angkanya konsisten. */
     private function ukuran(): array
     {
+        $jual = $this->ekspresiPenjualan();
+        $cogs = $this->ekspresiCogsProduk();
         $alkes = $this->ekspresiCogsAlkes();
 
         return [
-            DB::raw('SUM(d.SDKELUAR * (d.SDHARGA - d.SDDISKON)) as penjualan'),
-            DB::raw('SUM(' . $this->ekspresiCogs('d', 'i', 'u') . ') as cogsProduk'),
-            DB::raw("SUM({$alkes}) as cogsAlkes"),
-            // Qty mengecualikan baris kedatangan - aturan yg sama dgn laporan IP Tindakan
-            // & Produk (disalin dari CI3); baris itu tetap ikut nilai, tapi bukan qty.
-            DB::raw('SUM(CASE WHEN COALESCE(d.SDKEDATANGAN,0)=0 THEN d.SDKELUAR ELSE 0 END) as qty'),
+            DB::raw("SUM({$jual}) as penjualan"),
+            DB::raw("SUM({$cogs}) as cogsProduk"),
+            DB::raw("SUM(COALESCE({$alkes}, 0)) as cogsAlkes"),
+            // **Penjualan Produk** - CI3 `nilaiproduk`:
+            //   ICOA2021 = 1  -> nilai jual dikeluarkan PPN-nya (`subtotal / 1,11`)
+            //   selain itu    -> COGS x markup
+            // Dua cabang ini TIDAK boleh disederhanakan jadi satu rumus.
+            DB::raw('SUM(CASE WHEN i.ICOA2021 = 1 THEN (' . $jual . ') / ' . (1 + self::PPN)
+                    . ' ELSE (' . $cogs . ') * ' . self::MARKUP . ' END) as penjProdukSql'),
+            DB::raw('SUM(COALESCE(' . $alkes . ', 0)) * ' . self::MARKUP . ' as penjAlkesSql'),
+            DB::raw('SUM(d.SDKELUAR) as qty'),
             DB::raw('COUNT(DISTINCT u.SUID) as jmlTransaksi'),
         ];
     }
@@ -174,8 +171,10 @@ class DashboardPenjualan
         $r->cogsProduk = (float) $r->cogsProduk;
         $r->cogsAlkes = (float) $r->cogsAlkes;
 
-        $r->penjProduk = $r->cogsProduk * self::MARKUP;
-        $r->penjAlkes = $r->cogsAlkes * self::MARKUP;
+        // Penjualan Produk & Alkes dihitung DI SQL (lihat `ukuran()`) - Produk punya dua
+        // cabang per `ICOA2021` yg tidak bisa diturunkan dari angka yg sudah dijumlah.
+        $r->penjProduk = (float) $r->penjProdukSql;
+        $r->penjAlkes = (float) $r->penjAlkesSql;
         $r->ppn = ($r->penjProduk + $r->penjAlkes) * self::PPN;
         $r->pendapatanKlinik = $r->penjualan - $r->penjProduk - $r->penjAlkes - $r->ppn;
 
@@ -251,9 +250,8 @@ class DashboardPenjualan
                 DB::raw('ai.IKODE as kode'),
                 DB::raw('ai.INAMA as nama'),
                 DB::raw('SUM(ad.SDKELUAR) as qty'),
-                // Aturan SDBELI yg SAMA - kalau beda, rincian ini tidak akan menjumlah
-                // ke angka COGS Alkes di baris transaksinya.
-                DB::raw('SUM(' . $this->ekspresiCogs('ad', 'ai', 'al') . ') as cogs'),
+                // `SDBELI` - sumber COGS alkes yg sama dgn CI3.
+                DB::raw('SUM(COALESCE(ad.SDBELI,0)) as cogs'),
             ]);
     }
 

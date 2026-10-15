@@ -4,7 +4,6 @@ namespace App\Livewire\Markom;
 
 use App\Livewire\Concerns\MarkomFilter;
 use App\Services\DashboardMarkom;
-use Illuminate\Support\Carbon;
 use Livewire\Component;
 
 /**
@@ -29,7 +28,7 @@ class PenjualanKomparasi extends Component
     {
         $this->dariA = now()->startOfMonth()->toDateString();
         $this->sampaiA = now()->toDateString();
-        $this->samakanBulanLalu();
+        [$this->dariB, $this->sampaiB] = $this->periodeLalu($this->dariA, $this->sampaiA, 'bulan');
     }
 
     protected function propSaringan(): array
@@ -37,19 +36,10 @@ class PenjualanKomparasi extends Component
         return ['dariA', 'sampaiA', 'dariB', 'sampaiB'];
     }
 
-    /** Tombol "Bulan lalu" - Periode B = rentang Periode A digeser mundur satu bulan. */
-    public function samakanBulanLalu(): void
+    /** Tombol "Bulan lalu"/"Tahun lalu" - Periode B = rentang Periode A digeser mundur. */
+    public function samakan(string $satuan): void
     {
-        $this->dariB = Carbon::parse($this->dariA)->subMonthNoOverflow()->toDateString();
-        $this->sampaiB = Carbon::parse($this->sampaiA)->subMonthNoOverflow()->toDateString();
-        $this->updated('dariB');
-    }
-
-    /** Tombol "Tahun lalu" - Periode B = rentang Periode A di tahun sebelumnya. */
-    public function samakanTahunLalu(): void
-    {
-        $this->dariB = Carbon::parse($this->dariA)->subYearNoOverflow()->toDateString();
-        $this->sampaiB = Carbon::parse($this->sampaiA)->subYearNoOverflow()->toDateString();
+        [$this->dariB, $this->sampaiB] = $this->periodeLalu($this->dariA, $this->sampaiA, $satuan);
         $this->updated('dariB');
     }
 
@@ -64,27 +54,15 @@ class PenjualanKomparasi extends Component
 
         if ($this->tampil) {
             $cabang = $this->cabangDipakai();
-            [$hasil, $galat] = $this->tarik('Markom Komparasi', function () use ($svc, $cabang) {
-                $a = $svc->perCabang($this->dariA, $this->sampaiA, $cabang);
-                $b = $svc->perCabang($this->dariB, $this->sampaiB, $cabang);
-
-                // Gabungkan kedua periode per cabang - cabang yg hanya ada di salah satu
-                // periode tetap tampil dgn 0 di periode lainnya.
-                $baris = $a->keys()->merge($b->keys())->unique()->map(fn ($id) => (object) [
-                    'id'    => $id,
-                    'nama'  => $a[$id]->nama ?? $b[$id]->nama ?? null,
-                    'jualA' => $a[$id]->penjualan ?? 0.0,
-                    'jualB' => $b[$id]->penjualan ?? 0.0,
-                    'pasA'  => $a[$id]->pasien ?? 0,
-                    'pasB'  => $b[$id]->pasien ?? 0,
-                ])->sortByDesc('jualA')->values();
-
-                return [
-                    'baris'  => $baris,
-                    'totalA' => $svc->total($this->dariA, $this->sampaiA, $cabang),
-                    'totalB' => $svc->total($this->dariB, $this->sampaiB, $cabang),
-                ];
-            });
+            [$hasil, $galat] = $this->tarik('Markom Komparasi', fn () => [
+                'baris'  => $svc->bandingkan(
+                    $svc->perCabang($this->dariA, $this->sampaiA, $cabang),
+                    $svc->perCabang($this->dariB, $this->sampaiB, $cabang),
+                    ['penjualan', 'pasien']
+                ),
+                'totalA' => $svc->total($this->dariA, $this->sampaiA, $cabang),
+                'totalB' => $svc->total($this->dariB, $this->sampaiB, $cabang),
+            ]);
         }
 
         return view('livewire.markom.penjualan-komparasi', [
@@ -97,12 +75,5 @@ class PenjualanKomparasi extends Component
             'periodeA'    => $this->teksPeriode($this->dariA, $this->sampaiA),
             'periodeB'    => $this->teksPeriode($this->dariB, $this->sampaiB),
         ]);
-    }
-
-    private function teksPeriode(string $dari, string $sampai): string
-    {
-        $f = fn ($t) => $t ? Carbon::parse($t)->locale('id')->isoFormat('D MMM Y') : '—';
-
-        return $f($dari) . ' s/d ' . $f($sampai);
     }
 }

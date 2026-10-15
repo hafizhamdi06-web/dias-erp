@@ -121,6 +121,50 @@ class DashboardMarkom
             ->map(fn ($r) => $this->angkaPromo($r));
     }
 
+    /**
+     * Gabungkan hasil dua periode per `id` - baris yg hanya ada di salah satu periode tetap
+     * tampil dgn 0 di periode lainnya. Tiap `$kolom` jadi `{kolom}A` & `{kolom}B`.
+     * Diurutkan dari `{kolomPertama}A` terbesar.
+     */
+    public function bandingkan(Collection $a, Collection $b, array $kolom): Collection
+    {
+        $a = $a->keyBy('id');
+        $b = $b->keyBy('id');
+
+        return $a->keys()->merge($b->keys())->unique()->map(function ($id) use ($a, $b, $kolom) {
+            $r = (object) [
+                'id'   => $id,
+                'kode' => $a[$id]->kode ?? $b[$id]->kode ?? null,
+                'nama' => $a[$id]->nama ?? $b[$id]->nama ?? null,
+            ];
+            foreach ($kolom as $k) {
+                $r->{$k . 'A'} = $a[$id]->{$k} ?? 0;
+                $r->{$k . 'B'} = $b[$id]->{$k} ?? 0;
+            }
+
+            return $r;
+        })->sortByDesc($kolom[0] . 'A')->values();
+    }
+
+    /**
+     * Selisih A - B & persen pertumbuhan terhadap B, siap tampil. B = 0 -> persen '—'
+     * (tidak bermakna), bukan galat bagi-nol.
+     *
+     * @return array{selisih:string,persen:string,kelas:string}
+     */
+    public static function tumbuh(float $a, float $b): array
+    {
+        $s = $a - $b;
+        $rp = fn ($n) => number_format((float) $n, 0, ',', '.');
+        $panah = $s > 0 ? '▲' : ($s < 0 ? '▼' : '');
+
+        return [
+            'selisih' => ($s > 0 ? '+' : '') . $rp($s),
+            'persen'  => trim($panah . ' ' . ($b != 0 ? number_format($s / abs($b) * 100, 1, ',', '.') . '%' : '—')),
+            'kelas'   => $s > 0 ? 'text-success' : ($s < 0 ? 'text-danger' : 'text-muted'),
+        ];
+    }
+
     private function dasarPromo(string $dari, string $sampai, array $cabang)
     {
         return $this->dasar($dari, $sampai, $cabang)

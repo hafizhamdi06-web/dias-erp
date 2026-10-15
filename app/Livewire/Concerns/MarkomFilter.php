@@ -3,6 +3,7 @@
 namespace App\Livewire\Concerns;
 
 use App\Models\Branch;
+use Illuminate\Support\Carbon;
 
 /**
  * Saringan bersama tiga layar Dashboard Penjualan Markom:
@@ -105,6 +106,28 @@ trait MarkomFilter
 
             return [null, $e->getMessage()];
         }
+    }
+
+    /**
+     * Rentang pembanding utk tombol "Bulan lalu"/"Tahun lalu": rentang yg sama digeser
+     * mundur. `NoOverflow` supaya 31 Mar -> 28/29 Feb, bukan meloncat ke 2/3 Mar.
+     *
+     * @return array{0:string,1:string}
+     */
+    protected function periodeLalu(string $dari, string $sampai, string $satuan): array
+    {
+        $geser = fn ($t) => $satuan === 'tahun'
+            ? Carbon::parse($t)->subYearNoOverflow()->toDateString()
+            : Carbon::parse($t)->subMonthNoOverflow()->toDateString();
+
+        return [$geser($dari), $geser($sampai)];
+    }
+
+    protected function teksPeriode(string $dari, string $sampai): string
+    {
+        $f = fn ($t) => $t ? Carbon::parse($t)->locale('id')->isoFormat('D MMM Y') : '—';
+
+        return $f($dari) . ' s/d ' . $f($sampai);
     }
 
     /** Teks ringkas pilihan cabang utk tombol & sub judul. */

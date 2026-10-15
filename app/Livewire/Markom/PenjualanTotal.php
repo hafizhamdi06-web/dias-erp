@@ -57,11 +57,4 @@ class PenjualanTotal extends Component
             'periode'     => $this->teksPeriode($this->dari, $this->sampai),
         ]);
     }
-
-    private function teksPeriode(string $dari, string $sampai): string
-    {
-        $f = fn ($t) => $t ? Carbon::parse($t)->locale('id')->isoFormat('D MMM Y') : '—';
-
-        return $f($dari) . ' s/d ' . $f($sampai);
-    }
 }

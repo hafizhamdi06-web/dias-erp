@@ -1,15 +1,7 @@
 {{-- Dashboard Penjualan Markom - 2. Penjualan Komparasi (Periode A vs Periode B). --}}
 @php
     $rp = fn ($n) => number_format((float) $n, 0, ',', '.');
-    // Selisih A - B & persen pertumbuhan terhadap B. B = 0 -> persen tidak bermakna ('—').
-    $tumbuh = function ($a, $b) use ($rp) {
-        $s = $a - $b;
-        $kelas = $s > 0 ? 'text-success' : ($s < 0 ? 'text-danger' : 'text-muted');
-        $panah = $s > 0 ? '▲' : ($s < 0 ? '▼' : '');
-        $persen = $b != 0 ? number_format($s / abs($b) * 100, 1, ',', '.') . '%' : '—';
-
-        return ['selisih' => ($s > 0 ? '+' : '') . $rp($s), 'persen' => trim($panah . ' ' . $persen), 'kelas' => $kelas];
-    };
+    $tumbuh = fn ($a, $b) => \App\Services\DashboardMarkom::tumbuh((float) $a, (float) $b);
 @endphp
 
 <div class="dsb">
@@ -46,8 +38,8 @@
             </div>
         </div>
         <div class="btn-group btn-group-sm">
-            <button type="button" class="btn btn-outline-secondary" wire:click="samakanBulanLalu" title="Periode B = Periode A bulan lalu">Bulan lalu</button>
-            <button type="button" class="btn btn-outline-secondary" wire:click="samakanTahunLalu" title="Periode B = Periode A tahun lalu">Tahun lalu</button>
+            <button type="button" class="btn btn-outline-secondary" wire:click="samakan('bulan')" title="Periode B = Periode A bulan lalu">Bulan lalu</button>
+            <button type="button" class="btn btn-outline-secondary" wire:click="samakan('tahun')" title="Periode B = Periode A tahun lalu">Tahun lalu</button>
         </div>
     </div>
 
@@ -92,16 +84,16 @@
                     </thead>
                     <tbody>
                         @foreach ($baris as $r)
-                            @php($j = $tumbuh($r->jualA, $r->jualB))
-                            @php($p = $tumbuh($r->pasA, $r->pasB))
+                            @php($j = $tumbuh($r->penjualanA, $r->penjualanB))
+                            @php($p = $tumbuh($r->pasienA, $r->pasienB))
                             <tr wire:key="mk-{{ $r->id }}">
                                 <td class="nama">{{ $r->nama ?: '(tanpa cabang)' }}</td>
-                                <td class="angka dsb-jual-t">{{ $rp($r->jualA) }}</td>
-                                <td class="angka">{{ $rp($r->jualB) }}</td>
+                                <td class="angka dsb-jual-t">{{ $rp($r->penjualanA) }}</td>
+                                <td class="angka">{{ $rp($r->penjualanB) }}</td>
                                 <td class="angka {{ $j['kelas'] }}">{{ $j['selisih'] }}</td>
                                 <td class="angka {{ $j['kelas'] }}">{{ $j['persen'] }}</td>
-                                <td class="angka">{{ $rp($r->pasA) }}</td>
-                                <td class="angka">{{ $rp($r->pasB) }}</td>
+                                <td class="angka">{{ $rp($r->pasienA) }}</td>
+                                <td class="angka">{{ $rp($r->pasienB) }}</td>
                                 <td class="angka {{ $p['kelas'] }}">{{ $p['selisih'] }}</td>
                                 <td class="angka {{ $p['kelas'] }}">{{ $p['persen'] }}</td>
                             </tr>

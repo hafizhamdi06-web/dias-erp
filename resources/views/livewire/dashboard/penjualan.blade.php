@@ -277,11 +277,20 @@
                                                 wire:click="toggleInfo({{ $r->id }})">
                                             {{ $infoDibuka === (int) $r->id ? 'Tutup' : 'Detail Paket' }}
                                         </button>
-                                        @if ($r->cogsAlkes > 0)
+                                        {{-- Muncul selama baris alkesnya ADA, bukan hanya kalau
+                                             COGS-nya > 0 - alkes yg HPP-nya belum dihitung tetap
+                                             harus kelihatan (lihat `DashboardPenjualan::baris()`). --}}
+                                        @if (($r->jmlAlkes ?? 0) > 0)
                                             <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
                                                     wire:click="toggleAlkes({{ $r->id }})">
                                                 {{ $alkesDibuka === (int) $r->id ? 'Tutup' : 'Detail Alkes' }}
                                             </button>
+                                            @if ((float) ($r->nilaiAlkes ?? 0) == 0.0)
+                                                <span class="badge text-bg-warning align-self-center"
+                                                      title="Alkes sudah diinput, tapi harga pokoknya (SDBELI) masih 0 - COGS Alkes belum terhitung.">
+                                                    HPP belum dihitung
+                                                </span>
+                                            @endif
                                         @endif
                                     </div>
                                 @else
@@ -349,6 +358,12 @@
                                          cara itu sudah dibuang. --}}
                                     <div class="dsb-sub mt-1" style="font-size:.7rem">
                                         Alkes terpakai pada baris {{ $r->item ?? '—' }} ({{ $r->nama }}).
+                                        @if ((float) ($r->nilaiAlkes ?? 0) == 0.0 && $alkes->isNotEmpty())
+                                            <span class="text-warning fw-semibold">
+                                                Harga pokok (SDBELI) alkes ini masih 0 - HPP belum dihitung,
+                                                jadi COGS Alkes baris ini belum terisi.
+                                            </span>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>

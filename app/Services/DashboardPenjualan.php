@@ -321,6 +321,15 @@ class DashboardPenjualan
             // Nama ITEM ikut ditampilkan: begitu satu nota bisa muncul beberapa kali,
             // tanpa ini barisnya kembar di layar & user tidak tahu bedanya apa.
             $pilih[] = DB::raw('MIN(i.INAMA) as item');
+            // Keberadaan alkes, TERLEPAS dari nilainya (permintaan user 2026-10-15): tombol
+            // "Detail Alkes" dulu hanya muncul kalau COGS Alkes > 0, sehingga alkes yg HPP-nya
+            // belum dihitung (`SDBELI` masih 0 - mis. PG-AL26090815 utk PG-IP26090980)
+            // terlihat seolah tidak ada. `nilaiAlkes` TIDAK digerbang `ditarik()`, jadi bisa
+            // membedakan "HPP belum dihitung" dari "COGS sengaja 0 krn COA tidak ditarik".
+            $pilih[] = DB::raw('MIN((SELECT COUNT(*) FROM fstokd aa WHERE aa.SDIDUALKES = d.SDID)) as jmlAlkes');
+            $pilih[] = DB::raw('MIN((SELECT SUM(' . $this->nilaiCogs('aa', 'ai', 'u.SUTANGGAL') . ')
+                                    FROM fstokd aa LEFT JOIN bitem ai ON ai.IID = aa.SDITEM
+                                    WHERE aa.SDIDUALKES = d.SDID)) as nilaiAlkes');
             $q->groupBy('d.SDID', 'u.SUNOTRANSAKSI');
         } else {
             $q->groupBy($kunci, $nama);

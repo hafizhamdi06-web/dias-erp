@@ -19,6 +19,18 @@ return [
     */
     'struk_default' => env('POS_STRUK_DEFAULT', 'a5'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Cabang Marketplace
+    |--------------------------------------------------------------------------
+    |
+    | GID cabang yang harga jual POS-nya diambil dari harga khusus marketplace
+    | `bitem2.I2HARGAJUALMP`, bukan `bitem.IHARGAJUAL1` - sama dgn CI3 `PJ_POS_HP`
+    | (permintaan user 2026-10-15). Lihat `PosTerminal::kolomHarga()`.
+    |
+    */
+    'cabang_marketplace' => (int) env('POS_CABANG_MARKETPLACE', 18),
+
     /** Pilihan yang boleh - dipakai validasi & dropdown, jangan ditambah sembarangan. */
     'struk_pilihan' => [
         '58' => 'Struk termal 58 mm',

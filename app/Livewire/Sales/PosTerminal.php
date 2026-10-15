@@ -318,6 +318,32 @@ class PosTerminal extends Component
         return Branch::query()->where('GID', $this->branchId)->first(['GID', 'GKODE', 'GNAMA', 'GALAMAT1']);
     }
 
+    /**
+     * Kolom HARGA JUAL utk cabang aktif - SATU-SATUNYA sumber harga item di POS.
+     *
+     * Cabang Marketplace (`config('pos.cabang_marketplace')`, GID 18) memakai harga khusus
+     * marketplace `bitem2.I2HARGAJUALMP` (diisi lewat menu CI3 "Update Harga Marketplace"),
+     * cabang lain `bitem.IHARGAJUAL1`. Aturan disalin dari CI3 `PJ_POS_HP` (get_item, paket,
+     * detail promo) - permintaan user 2026-10-15.
+     *
+     * Item TANPA harga marketplace -> 0, SAMA dgn CI3 (pilihan user, bukan jatuh ke
+     * IHARGAJUAL1): kasir buka kunci harga & isi manual.
+     *
+     * Alias default `IHARGAJUAL1` SENGAJA dipertahankan supaya pemakai lama (`$it->IHARGAJUAL1`)
+     * tidak perlu diubah satu per satu - isinya sudah harga yg berlaku utk cabang ini.
+     * `MAX()` krn `bitem2` punya segelintir baris ganda per item (lihat `DashboardPenjualan::
+     * jumlahBaris()`). Butuh tabel `bitem` TANPA alias di kueri pemanggil.
+     */
+    private function kolomHarga(string $alias = 'IHARGAJUAL1')
+    {
+        if ((int) $this->branchId !== (int) config('pos.cabang_marketplace')) {
+            return DB::raw("bitem.IHARGAJUAL1 AS {$alias}");
+        }
+
+        return DB::raw('COALESCE((SELECT MAX(b2.I2HARGAJUALMP) FROM bitem2 b2 WHERE b2.I2IDITEM = bitem.IID), 0)'
+            . " AS {$alias}");
+    }
+
     private function stokColumn(int $gid): string
     {
         $col = (string) (DB::selectOne('SELECT F_KOLOMGUDANG(?) AS c', [$gid])->c ?? '');
@@ -363,7 +389,7 @@ class PosTerminal extends Component
                 ->orWhere('IBARCODE', 'like', "%{$q}%"))
             ->orderBy('INAMA')
             ->limit(20)
-            ->get(['IID as id', 'IKODE as kode', 'INAMA as nama', 'IHARGAJUAL1 as harga', 'ITIPEITEM as tipe', DB::raw("{$stokCol} AS stok")]);
+            ->get(['IID as id', 'IKODE as kode', 'INAMA as nama', $this->kolomHarga('harga'), 'ITIPEITEM as tipe', DB::raw("{$stokCol} AS stok")]);
     }
 
     /**
@@ -484,7 +510,7 @@ class PosTerminal extends Component
         $it = $this->applyIcabangFilter(
             DB::table('bitem')->where('IID', $id)->where('ISTATUS', 0),
             (int) $branch->GID
-        )->first(['IID', 'IKODE', 'INAMA', 'IHARGAJUAL1', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', 'IDISKON', DB::raw("{$stokCol} AS stok")]);
+        )->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', 'IDISKON', DB::raw("{$stokCol} AS stok")]);
 
         if (! $it) {
             return false;
@@ -1724,7 +1750,7 @@ class PosTerminal extends Component
         }
         $allCodes = array_values(array_unique($allCodes));
         $items = $allCodes !== []
-            ? DB::table('bitem')->whereIn('IKODE', $allCodes)->where('ISTATUS', 0)->get(['IKODE', 'INAMA', 'IHARGAJUAL1'])->keyBy('IKODE')
+            ? DB::table('bitem')->whereIn('IKODE', $allCodes)->where('ISTATUS', 0)->get(['IKODE', 'INAMA', $this->kolomHarga()])->keyBy('IKODE')
             : collect();
 
         $slots = [];
@@ -1803,7 +1829,7 @@ class PosTerminal extends Component
             $it = $this->applyIcabangFilter(
                 DB::table('bitem')->where('IKODE', $kode)->where('ISTATUS', 0),
                 (int) $branch->GID
-            )->first(['IID', 'IKODE', 'INAMA', 'IHARGAJUAL1', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
+            )->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
 
             if (! $it) {
                 $skipped[] = $kode;
@@ -1913,7 +1939,7 @@ class PosTerminal extends Component
         $pilihan = $this->splitPipeList($row->MPDPILIHAN1);
         $allCodes = array_values(array_unique(array_filter(array_merge($kelitem ? [$kelitem] : [], $pilihan))));
         $items = $allCodes !== []
-            ? DB::table('bitem')->whereIn('IKODE', $allCodes)->where('ISTATUS', 0)->get(['IKODE', 'INAMA', 'IHARGAJUAL1'])->keyBy('IKODE')
+            ? DB::table('bitem')->whereIn('IKODE', $allCodes)->where('ISTATUS', 0)->get(['IKODE', 'INAMA', $this->kolomHarga()])->keyBy('IKODE')
             : collect();
 
         $itemSlot = null;
@@ -2019,7 +2045,7 @@ class PosTerminal extends Component
             $it = $this->applyIcabangFilter(
                 DB::table('bitem')->where('IKODE', $kode)->where('ISTATUS', 0),
                 (int) $branch->GID
-            )->first(['IID', 'IKODE', 'INAMA', 'IHARGAJUAL1', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
+            )->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
 
             if (! $it) {
                 $skipped[] = $kode;
@@ -2265,7 +2291,7 @@ class PosTerminal extends Component
             $it = $this->applyIcabangFilter(
                 DB::table('bitem')->where('IID', (int) $r->PDITEM)->where('ISTATUS', 0),
                 (int) $branch->GID
-            )->first(['IID', 'IKODE', 'INAMA', 'IHARGAJUAL1', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
+            )->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
 
             if (! $it) {
                 $skipped[] = $itemNames[(int) $r->PDITEM] ?? ('IID ' . $r->PDITEM);
@@ -2480,7 +2506,7 @@ class PosTerminal extends Component
             $it = $this->applyIcabangFilter(
                 DB::table('bitem')->where('IID', (int) $r->PDITEM)->where('ISTATUS', 0),
                 (int) $branch->GID
-            )->first(['IID', 'IKODE', 'INAMA', 'IHARGAJUAL1', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
+            )->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
 
             if (! $it) {
                 $meta = $itemMeta[(int) $r->PDITEM] ?? null;
@@ -2577,7 +2603,7 @@ class PosTerminal extends Component
             $it = $this->applyIcabangFilter(
                 DB::table('bitem')->where('IID', $row['item'])->where('ISTATUS', 0),
                 (int) $branch->GID
-            )->first(['IID', 'IKODE', 'INAMA', 'IHARGAJUAL1', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
+            )->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
 
             if (! $it) {
                 $skipped[] = $row['kode'];

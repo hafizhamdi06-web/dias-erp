@@ -59,8 +59,19 @@ class MenuSeeder extends Seeder
             // & `master/paket` dipakai ~20 `can_do()`/`activity_log()` di komponen+blade -
             // menggantinya cuma demi kosmetik menu tidak sepadan dgn risikonya.
             'sales.alkes'      => ['Input Alkes Depo',  'sales/alkes',       'fas fa-syringe',            'link',  38, 'sales'],
+            // Closing Harian IP (permintaan user 2026-10-15) - tindakan IP yg alkesnya belum
+            // diinput. Sort sama dgn Input Alkes; dibuat sesudahnya, jadi tampil di bawahnya.
+            'sales.closing-ip' => ['Closing Harian IP', 'sales/closing-ip',  'fas fa-clipboard-check',    'link',  38, 'sales'],
             'master.promo'     => ['Master Promo',      'master/promo',      'fas fa-tag',                'link',  39, 'sales'],
             'master.paket'     => ['Master Paket',      'master/paket',      'fas fa-boxes-packing',      'link',  40, 'sales'],
+
+            // ---- Dashboard Penjualan Markom (permintaan user 2026-10-15) ----------
+            // Grup sendiri di tingkat atas (sort 35, di antara Penjualan & Pembelian) - layar
+            // PANTAU utk tim marketing, hak aksesnya diatur terpisah dari menu Penjualan.
+            'markom'           => ['Dashboard Penjualan Markom', null, 'fas fa-bullhorn',              'group', 35, null],
+            'markom.total'     => ['Penjualan Total',   'markom/total',      'fas fa-sack-dollar',        'link',  35, 'markom'],
+            'markom.komparasi' => ['Penjualan Komparasi', 'markom/komparasi', 'fas fa-code-compare',      'link',  36, 'markom'],
+            'markom.promo'     => ['Penjualan Promo',   'markom/promo',      'fas fa-tags',               'link',  37, 'markom'],
 
             // ---- Pembelian ----------------------------------------------
             'purchase'         => ['Pembelian',         null,               'fas fa-basket-shopping',    'group', 40, null],

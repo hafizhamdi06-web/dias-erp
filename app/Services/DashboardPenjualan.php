@@ -142,8 +142,11 @@ class DashboardPenjualan
      *
      * `NULLIF(...,0)` di pembagi: nota bernilai 0 akan jadi NULL (diabaikan `SUM`), sama
      * hasilnya dgn CI3 tapi tanpa galat bagi-nol.
+     *
+     * PUBLIC krn dipakai juga `DashboardMarkom` - Nilai Penjualan kedua dashboard harus
+     * sama. Butuh alias `d` (fstokd), `u` (fstoku), `i` (bitem), `mc` (bmerchant).
      */
-    private function ekspresiPenjualan(): string
+    public function ekspresiPenjualan(): string
     {
         $uangDiterima = '(u.SUTOTALKARTUDEBIT + u.SUTOTALKARTUKREDIT + u.SUTOTALTRANSFER
                           + (u.SUTOTALKAS - u.SUTOTALSISA) + u.SUTOTALDP

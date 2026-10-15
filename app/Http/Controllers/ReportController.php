@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\ClosingHarianIp;
 use App\Services\DashboardPenjualan;
 use App\Services\PdfReport;
 use Illuminate\Http\Request;
@@ -1486,6 +1487,42 @@ class ReportController extends Controller
             ->view('reports.dashboard-penjualan-transaksi-xls', $data)
             ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
             ->header('Content-Disposition', 'attachment; filename="dashboard-penjualan-transaksi.xls"');
+    }
+
+    /**
+     * Ekspor Excel Closing Harian IP - kueri & hak cabang dari `ClosingHarianIp`, SAMA dgn
+     * layar. Hak menu dicek di sini krn route ini bisa dibuka langsung lewat URL.
+     */
+    public function closingIpExcel(Request $r, ClosingHarianIp $svc)
+    {
+        abort_unless(can_do('sales/closing-ip', 'view'), 403);
+
+        $saring = [
+            'dari'   => (string) $r->query('dari', now()->toDateString()),
+            'sampai' => (string) $r->query('sampai', now()->toDateString()),
+            'cabang' => (int) $r->query('cabang', 0),
+            'search' => (string) $r->query('search', ''),
+        ];
+
+        $rows = $svc->urut($svc->query($saring))->get(ClosingHarianIp::KOLOM);
+        $namaCabang = $saring['cabang']
+            ? (string) DB::table('bgudang')->where('GID', $saring['cabang'])->value('GNAMA')
+            : 'Semua cabang';
+
+        $data = [
+            'title'    => 'Closing Harian IP - Tindakan Belum Input Alkes',
+            'periode'  => \Carbon\Carbon::parse($saring['dari'])->format('d/m/Y') . ' s/d '
+                        . \Carbon\Carbon::parse($saring['sampai'])->format('d/m/Y'),
+            'subtitle' => 'Cabang: ' . $namaCabang . ($saring['search'] !== '' ? ' · Cari: ' . $saring['search'] : ''),
+            'company'  => app(PdfReport::class)->companyInfo(),
+            'rows'     => $rows,
+        ];
+
+        return response()
+            ->view('reports.closing-ip-xls', $data)
+            ->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="closing-harian-ip-'
+                . $saring['dari'] . '_' . $saring['sampai'] . '.xls"');
     }
 
     /** Nama PT/cabang/COA/item yg sedang disaring - utk kepala berkas Excel. */

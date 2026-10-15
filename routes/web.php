@@ -76,6 +76,8 @@ Route::middleware('auth')->group(function () {
     // Ekspor tingkat Per Transaksi Dashboard Penjualan - route BIASA, bukan Livewire
     // (unduhan dari dalam Livewire mengganggu tab Workspace lain).
     Route::get('dashboard/penjualan/excel', [ReportController::class, 'dashboardPenjualanExcel'])->name('dashboard.penjualan.excel');
+    // Ekspor Closing Harian IP - route biasa, alasan sama dgn ekspor Dashboard Penjualan.
+    Route::get('sales/closing-ip/excel', [ReportController::class, 'closingIpExcel'])->name('sales.closing-ip.excel');
     Route::get('reports/penjualan-per-barang', [ReportController::class, 'penjualanPerBarang'])->name('reports.penjualan-per-barang');
     Route::get('reports/penjualan-per-barang/excel', [ReportController::class, 'penjualanPerBarangExcel'])->name('reports.penjualan-per-barang.excel');
     Route::get('reports/ip-tindakan-produk', [ReportController::class, 'ipTindakanProduk'])->name('reports.ip-tindakan-produk');

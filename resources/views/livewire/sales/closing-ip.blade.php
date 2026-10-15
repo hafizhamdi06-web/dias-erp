@@ -28,7 +28,7 @@
                     </div>
                 </div>
             </div>
-            <div class="text-end">
+            <div class="d-flex align-items-center gap-2">
                 @if ((int) $ringkas->baris === 0)
                     <span class="badge text-bg-success fs-6"><i class="fas fa-check me-1"></i> Semua alkes sudah diinput</span>
                 @else
@@ -36,6 +36,11 @@
                         {{ number_format($ringkas->baris) }} tindakan belum diinput alkes
                         · {{ number_format($ringkas->ip) }} transaksi IP
                     </span>
+                    {{-- Mengunduh SELURUH baris sesuai saringan, bukan cuma halaman ini. --}}
+                    <button type="button" class="btn btn-sm btn-outline-success text-nowrap"
+                            wire:click="unduhExcel" wire:loading.attr="disabled" wire:target="unduhExcel">
+                        <i class="fas fa-file-excel me-1"></i>Export Excel
+                    </button>
                 @endif
             </div>
         </div>

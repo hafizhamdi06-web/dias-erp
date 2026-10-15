@@ -3,7 +3,7 @@
 namespace App\Livewire\Sales;
 
 use App\Models\Branch;
-use App\Services\AlkesWriter;
+use App\Services\ClosingHarianIp;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
@@ -102,57 +102,34 @@ class ClosingIp extends Component
             : Branch::options();
     }
 
+    /** Saringan layar - dipakai kueri layar DAN URL ekspor, jadi keduanya selalu sama. */
+    private function saring(): array
+    {
+        return ['dari' => $this->dari, 'sampai' => $this->sampai, 'cabang' => $this->cabang, 'search' => $this->search];
+    }
+
     private function query()
     {
-        $q = trim($this->search);
-        $boleh = auth()->user()->visibleBranchIds();
-        // Pilihan dari dropdown tetap diperiksa lagi di sini - nilai `cabang` bisa
-        // dikirim manual lewat request Livewire, tidak harus dari opsi yg tampil.
-        $pilih = (int) $this->cabang;
-        if ($pilih && $boleh !== [] && ! in_array($pilih, $boleh, true)) {
-            $pilih = 0;
-        }
+        return app(ClosingHarianIp::class)->query($this->saring());
+    }
 
-        return DB::table('fstokd as d')
-            ->join('fstoku as u', 'u.SUID', '=', 'd.SDIDSU')
-            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
-            ->leftJoin('fstoku as al', 'al.SUID', '=', 'd.SDIDALKESNYA')
-            ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
-            ->leftJoin('bkontak as dr', 'dr.KID', '=', 'd.SDDOKTER')
-            ->where('u.SUSUMBER', 'IP')
-            ->where('u.SUSTATUS', '<>', AlkesWriter::STATUS_BATAL)
-            ->leftJoin('bgudang as g', 'g.GID', '=', 'u.SUCABANG')
-            ->when($pilih, fn ($b) => $b->where('u.SUCABANG', $pilih),
-                fn ($b) => $b->when($boleh !== [], fn ($w) => $w->whereIn('u.SUCABANG', $boleh)))
-            ->where('i.IADAALKES', 1)
-            ->whereIn('i.IJENISITEM', AlkesWriter::JENIS_TINDAKAN)
-            ->where('i.IRESEP', 0)
-            ->where('d.SDKELUAR', '>', 0)
-            ->whereRaw('NOT (COALESCE(d.SDDARIPAKET, 0) <> 0 AND COALESCE(d.SDKEDATANGAN, 0) = 0)')
-            ->where(fn ($b) => $b->whereNull('al.SUID')->orWhere('al.SUSTATUS', AlkesWriter::STATUS_BATAL))
-            ->when($this->dari !== '', fn ($b) => $b->whereDate('u.SUTANGGAL', '>=', $this->dari))
-            ->when($this->sampai !== '', fn ($b) => $b->whereDate('u.SUTANGGAL', '<=', $this->sampai))
-            ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w
-                ->where('u.SUNOTRANSAKSI', 'like', "%{$q}%")
-                ->orWhere('k.KNAMA', 'like', "%{$q}%")
-                ->orWhere('i.INAMA', 'like', "%{$q}%")));
+    /**
+     * Unduh Excel - lewat route BIASA (`ReportController::closingIpExcel()`), pola sama
+     * `Dashboard\Penjualan::unduhExcel()`: unduhan dari dalam Livewire mengganggu tab
+     * Workspace lain. Yg diunduh SELURUH baris sesuai saringan, bukan halaman yg tampil.
+     */
+    public function unduhExcel(): void
+    {
+        $this->dispatch('report-excel-download',
+            url: route('sales.closing-ip.excel', array_filter($this->saring(), fn ($v) => $v !== '' && $v !== null)));
     }
 
     public function render()
     {
         abort_unless(can_do('sales/closing-ip', 'view'), 403);
 
-        $rows = $this->query()
-            ->orderBy('u.SUTANGGAL')
-            ->orderBy('u.SUNOTRANSAKSI')
-            ->orderBy('d.SDURUTAN')
-            ->paginate(50, [
-                'u.SUID as ipId', 'u.SUNOTRANSAKSI as noIp', 'u.SUTANGGAL as tanggal',
-                'k.KNAMA as pasien', 'i.IKODE as kode', 'i.INAMA as tindakan',
-                'd.SDID as sdid', 'd.SDKELUAR as qty', 'dr.KNAMA as dokter',
-                'd.SDDARIPAKET as dariPaket', 'd.SDKEDATANGAN as kedatangan',
-                'u.SUCABANG as cabangId', 'g.GNAMA as cabang',
-            ]);
+        $svc = app(ClosingHarianIp::class);
+        $rows = $svc->urut($this->query())->paginate(50, ClosingHarianIp::KOLOM);
 
         $ringkas = $this->query()
             ->first([DB::raw('COUNT(*) as baris'), DB::raw('COUNT(DISTINCT u.SUID) as ip')]);

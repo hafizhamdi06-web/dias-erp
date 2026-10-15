@@ -63,6 +63,9 @@
                                 <td>
                                     <span class="font-monospace small text-muted">{{ $r->kode }}</span>
                                     {{ $r->tindakan }}
+                                    @if ((int) $r->dariPaket !== 0)
+                                        <span class="badge text-bg-info ms-1">Paket · kedatangan ke-{{ (int) $r->kedatangan }}</span>
+                                    @endif
                                 </td>
                                 <td class="text-end">{{ (float) $r->qty + 0 }}</td>
                                 <td class="text-muted small">{{ $r->dokter ?: '—' }}</td>

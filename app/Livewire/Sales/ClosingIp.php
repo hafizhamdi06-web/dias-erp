@@ -27,6 +27,12 @@ use Livewire\WithPagination;
  *
  * Baris ber-qty 0 dibuang - tindakannya tidak dikerjakan (mis. baris paket), jadi tidak
  * ada alkes yg terpakai.
+ *
+ * Baris PAKET (`SDDARIPAKET <> 0`) hanya wajib alkes kalau `SDKEDATANGAN > 0` (permintaan
+ * user 2026-10-15). Kedatangan ke-0 = baris pembelian paketnya, tindakannya baru dikerjakan
+ * di kedatangan berikutnya. Terukur: dari 115 baris paket kedatangan 0, tidak satu pun
+ * pernah diinput alkes. Penanda paketnya `SDDARIPAKET`, BUKAN `SDIDPOTONGSTOK` - baris yg
+ * hanya punya `SDIDPOTONGSTOK` tetap rutin diinput alkes (115 baris), jadi tetap wajib.
  */
 #[Layout('layouts.app')]
 #[Title('Closing Harian IP')]
@@ -122,6 +128,7 @@ class ClosingIp extends Component
             ->whereIn('i.IJENISITEM', AlkesWriter::JENIS_TINDAKAN)
             ->where('i.IRESEP', 0)
             ->where('d.SDKELUAR', '>', 0)
+            ->whereRaw('NOT (COALESCE(d.SDDARIPAKET, 0) <> 0 AND COALESCE(d.SDKEDATANGAN, 0) = 0)')
             ->where(fn ($b) => $b->whereNull('al.SUID')->orWhere('al.SUSTATUS', AlkesWriter::STATUS_BATAL))
             ->when($this->dari !== '', fn ($b) => $b->whereDate('u.SUTANGGAL', '>=', $this->dari))
             ->when($this->sampai !== '', fn ($b) => $b->whereDate('u.SUTANGGAL', '<=', $this->sampai))
@@ -143,6 +150,7 @@ class ClosingIp extends Component
                 'u.SUID as ipId', 'u.SUNOTRANSAKSI as noIp', 'u.SUTANGGAL as tanggal',
                 'k.KNAMA as pasien', 'i.IKODE as kode', 'i.INAMA as tindakan',
                 'd.SDID as sdid', 'd.SDKELUAR as qty', 'dr.KNAMA as dokter',
+                'd.SDDARIPAKET as dariPaket', 'd.SDKEDATANGAN as kedatangan',
                 'u.SUCABANG as cabangId', 'g.GNAMA as cabang',
             ]);
 

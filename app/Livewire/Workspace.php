@@ -50,6 +50,7 @@ class Workspace extends Component
             'master.kelompok'   => ['master.kelompok-manager', 'Kelompok Item', 'fas fa-layer-group'],
             'master.satuan'     => ['master.unit-manager', 'Satuan', 'fas fa-ruler'],
             'master.item'       => ['master.item-manager', 'Data Item POS', 'fas fa-box'],
+            'master.harga-mp'   => ['master.harga-marketplace', 'Data Harga Marketplace', 'fas fa-store'],
             'master.karyawan'   => ['master.karyawan-manager', 'Data Karyawan', 'fas fa-user-nurse'],
             'master.pasien'     => ['master.pasien-manager', 'Data Pasien', 'fas fa-bed-pulse'],
             'master.promo'      => ['master.promo-manager', 'Master Promo', 'fas fa-tag'],

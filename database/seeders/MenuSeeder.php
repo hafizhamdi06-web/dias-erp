@@ -30,6 +30,9 @@ class MenuSeeder extends Seeder
             'master.kelompok'  => ['Kelompok Item',     'master/kelompok',   'fas fa-layer-group',        'link',  21, 'master'],
             'master.satuan'    => ['Satuan',            'master/satuan',     'fas fa-ruler',              'link',  22, 'master'],
             'master.item'      => ['Data Item POS',     'master/item',       'fas fa-box',                'link',  23, 'master'],
+            // Data Harga Marketplace (permintaan user 2026-10-15) - cek & ubah bitem2.I2HARGAJUALMP.
+            // Sort sama dgn Data Item POS; dibuat sesudahnya, jadi tampil di bawahnya.
+            'master.harga-mp'  => ['Data Harga Marketplace', 'master/harga-mp', 'fas fa-store',          'link',  23, 'master'],
             'master.karyawan'  => ['Data Karyawan',     'master/karyawan',   'fas fa-user-nurse',         'link',  24, 'master'],
             'master.pasien'    => ['Data Pasien',       'master/pasien',     'fas fa-bed-pulse',          'link',  25, 'master'],
             'master.pelanggan' => ['Data Pelanggan',    'master/pelanggan',  'fas fa-address-card',       'link',  26, 'master'],

@@ -1048,7 +1048,64 @@ class PosTerminal extends Component
         }
 
         $this->paySebelumnya = $this->pay;
+        $this->merchantDipakai = [];
+        $this->merchantDiketahui = null;
         $this->showPayModal = true;
+    }
+
+    /**
+     * Transaksi LAIN yg sudah memakai no. merchant ini - diisi saat OK ditekan, ditampilkan
+     * sbg info di dialog bayar. @var list<array{nomor:string,tanggal:string}>
+     */
+    public array $merchantDipakai = [];
+
+    /**
+     * Kunci `pelanggan|jenis|no` yg infonya SUDAH ditampilkan. OK kedua dgn kunci yg sama =
+     * kasir sudah membaca info & tetap melanjutkan; kalau nomor/jenisnya diganti, dicek ulang.
+     */
+    public ?string $merchantDiketahui = null;
+
+    private function kunciMerchant(): string
+    {
+        $mc = $this->pay['merchant'];
+
+        return $this->custId . '|' . trim((string) $mc['jenis']) . '|' . trim((string) $mc['no']);
+    }
+
+    /**
+     * Cek no. merchant yg SUDAH PERNAH dipakai (permintaan user 2026-10-15): pelanggan SAMA,
+     * jenis merchant SAMA (`SUMERCHANTJENIS`), no. merchant SAMA (`SUMERCHANTNO`), di
+     * transaksi mana pun yg tidak batal. Transaksi asal yg sedang di-Edit dikecualikan -
+     * nomornya memang miliknya sendiri.
+     *
+     * Contoh nyata: pelanggan 314460, CARENOW, satu no. merchant dipakai di BL-IP26060137 &
+     * BL-IP26060141 (07/06/2026).
+     *
+     * @return list<array{nomor:string,tanggal:string}>
+     */
+    private function cekMerchantDipakai(): array
+    {
+        $mc = $this->pay['merchant'];
+        $no = trim((string) $mc['no']);
+        $jenis = trim((string) $mc['jenis']);
+
+        if ((float) $mc['jumlah'] <= 0 || $no === '' || $jenis === '' || ! $this->custId) {
+            return [];
+        }
+
+        return DB::table('fstoku')
+            ->where('SUKONTAK', $this->custId)
+            ->where('SUMERCHANTJENIS', $jenis)
+            ->whereRaw('TRIM(SUMERCHANTNO) = ?', [$no])
+            ->where('SUSTATUS', '<>', 9)
+            ->when($this->editingFromId, fn ($b) => $b->where('SUID', '<>', $this->editingFromId))
+            ->orderBy('SUTANGGAL')
+            ->limit(10)
+            ->get(['SUNOTRANSAKSI', 'SUTANGGAL'])
+            ->map(fn ($r) => [
+                'nomor'   => (string) $r->SUNOTRANSAKSI,
+                'tanggal' => $r->SUTANGGAL ? \Carbon\Carbon::parse($r->SUTANGGAL)->format('d/m/Y') : '-',
+            ])->all();
     }
 
     /**
@@ -1067,6 +1124,18 @@ class PosTerminal extends Component
             return;
         }
 
+        // No. merchant sudah pernah dipakai -> INFO, bukan larangan: dialog tetap terbuka
+        // sekali, OK berikutnya (nomor & jenis tidak diganti) melanjutkan.
+        $dipakai = $this->cekMerchantDipakai();
+        if ($dipakai !== [] && $this->merchantDiketahui !== $this->kunciMerchant()) {
+            $this->merchantDipakai = $dipakai;
+            $this->merchantDiketahui = $this->kunciMerchant();
+
+            return;
+        }
+
+        $this->merchantDipakai = [];
+        $this->merchantDiketahui = null;
         $this->paySebelumnya = [];
         $this->showPayModal = false;
     }
@@ -1079,6 +1148,8 @@ class PosTerminal extends Component
         }
 
         $this->paySebelumnya = [];
+        $this->merchantDipakai = [];
+        $this->merchantDiketahui = null;
         $this->resetErrorBag();
         $this->showPayModal = false;
     }

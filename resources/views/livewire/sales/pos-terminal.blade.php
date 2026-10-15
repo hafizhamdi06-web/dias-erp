@@ -581,6 +581,19 @@
                         </div>
                     </div>
 
+                    {{-- Info no. merchant sudah pernah dipakai (pelanggan + jenis + nomor sama).
+                         INFO, bukan larangan - OK sekali lagi melanjutkan. --}}
+                    @if ($merchantDipakai !== [])
+                        <div class="alert alert-warning py-2 small mt-2 mb-0">
+                            <div class="fw-semibold"><i class="fas fa-triangle-exclamation me-1"></i>
+                                No. merchant sudah pernah digunakan</div>
+                            No. merchant <strong>{{ $pay['merchant']['no'] }}</strong>
+                            ({{ $pay['merchant']['jenis'] }}) sudah dipakai pelanggan ini di:
+                            {{ collect($merchantDipakai)->map(fn ($t) => $t['nomor'] . ' (' . $t['tanggal'] . ')')->implode(', ') }}.
+                            <div class="mt-1">Periksa kembali nomornya, atau tekan <strong>OK</strong> sekali lagi untuk tetap melanjutkan.</div>
+                        </div>
+                    @endif
+
                     @error('pay') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror
                     @error('cart') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror
                     @error('cust') <div class="alert alert-danger py-2 small mt-2 mb-0">{{ $message }}</div> @enderror

@@ -26,6 +26,7 @@ use Illuminate\Support\Facades\DB;
  *                                              qty x harga)
  *   COGS Produk    -> `ekspresiCogsProduk()`  (`SDBELI`, 0 utk baris paket+kedatangan)
  *   COGS Alkes     -> `ekspresiCogsAlkes()`   (`SUM(SDBELI)` alkes lewat `SDIDUALKES`)
+ *   ...KECUALI transaksi s/d Juli 2026: COGS = `bitem.ICOGS x SDKELUAR` (lihat `nilaiCogs()`)
  *   Penj. Produk   -> dua cabang `ICOA2021` (lihat `ukuran()`)
  *   Penj. Alkes    = COGS Alkes x MARKUP (1,05)
  *
@@ -50,6 +51,13 @@ class DashboardPenjualan
 
     /** PPN atas (Penj. Produk + Penj. Alkes). */
     public const PPN = 0.11;
+
+    /**
+     * Transaksi SEBELUM tanggal ini: COGS = `bitem.ICOGS x SDKELUAR` (permintaan user
+     * 2026-10-15) - sama dgn kolom "Nilai Keluar ICOGS" di CI3 `laporan-cogs-v6`. Mulai
+     * tanggal ini (Agustus 2026 ke atas) COGS = `SDBELI` spt rumus acuan.
+     */
+    public const AWAL_SDBELI = '2026-08-01';
 
     public const TINGKAT = ['pt', 'cabang', 'coa', 'item', 'transaksi'];
 
@@ -173,6 +181,18 @@ class DashboardPenjualan
         return 'COALESCE(ct.CTTIDAKDITARIK, 0) = 0';
     }
 
+    /**
+     * Nilai COGS satu baris `fstokd` ber-alias `$d` (item-nya `$i`), menurut tanggal
+     * transaksi `$tanggal`: Juli ke bawah `ICOGS x SDKELUAR`, Agustus ke atas `SDBELI`.
+     * Lihat `AWAL_SDBELI`.
+     */
+    private function nilaiCogs(string $d, string $i, string $tanggal): string
+    {
+        return "IF({$tanggal} < '" . self::AWAL_SDBELI . "',
+                   COALESCE({$i}.ICOGS,0) * COALESCE({$d}.SDKELUAR,0),
+                   COALESCE({$d}.SDBELI,0))";
+    }
+
     private function ekspresiCogsProduk(): string
     {
         // TAMBAHAN di luar CI3 (permintaan user 2026-10-14): baris ber-QTY 0 juga bernilai
@@ -182,7 +202,7 @@ class DashboardPenjualan
         // COGS ALKES sengaja TIDAK ikut dinolkan - alkesnya memang benar-benar terpakai.
         return 'IF((COALESCE(d.SDDARIPAKET,0) <> 0 AND COALESCE(d.SDKEDATANGAN,0) > 0)
                    OR COALESCE(d.SDKELUAR,0) = 0
-                   OR NOT (' . $this->ditarik() . '), 0, COALESCE(d.SDBELI,0))';
+                   OR NOT (' . $this->ditarik() . '), 0, ' . $this->nilaiCogs('d', 'i', 'u.SUTANGGAL') . ')';
     }
 
     /**
@@ -197,7 +217,9 @@ class DashboardPenjualan
     private function ekspresiCogsAlkes(): string
     {
         return '(CASE WHEN ' . $this->ditarik() . '
-                      THEN (SELECT SUM(COALESCE(aa.SDBELI,0)) FROM fstokd aa
+                      THEN (SELECT SUM(' . $this->nilaiCogs('aa', 'ai', 'u.SUTANGGAL') . ')
+                             FROM fstokd aa
+                             LEFT JOIN bitem ai ON ai.IID = aa.SDITEM
                              WHERE aa.SDIDUALKES = d.SDID)
                  END)';
     }
@@ -395,6 +417,9 @@ class DashboardPenjualan
             // sama dgn `queryAlkes` CI3 (`aa.SDIDUALKES = a2.sdid`) dan dgn
             // `ekspresiCogsAlkes()`, jadi rincian ini pasti menjumlah ke kolom COGS
             // Alkes di barisnya.
+            // Tanggal diambil dari nota baris IP induknya - sama dgn `ekspresiCogsAlkes()`.
+            ->join('fstokd as pd', 'pd.SDID', '=', 'ad.SDIDUALKES')
+            ->join('fstoku as pu', 'pu.SUID', '=', 'pd.SDIDSU')
             ->where('ad.SDIDUALKES', $sdid)
             ->groupBy('ai.IID', 'ai.IKODE', 'ai.INAMA')
             ->orderBy('ai.INAMA')
@@ -402,8 +427,8 @@ class DashboardPenjualan
                 DB::raw('ai.IKODE as kode'),
                 DB::raw('ai.INAMA as nama'),
                 DB::raw('SUM(ad.SDKELUAR) as qty'),
-                // `SDBELI` - sumber COGS alkes yg sama dgn CI3.
-                DB::raw('SUM(COALESCE(ad.SDBELI,0)) as cogs'),
+                // Rumus yg sama dgn `ekspresiCogsAlkes()`: ICOGS x qty s/d Juli, SDBELI sesudahnya.
+                DB::raw('SUM(' . $this->nilaiCogs('ad', 'ai', 'pu.SUTANGGAL') . ') as cogs'),
             ]);
     }
 

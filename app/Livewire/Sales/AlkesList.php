@@ -3,6 +3,7 @@
 namespace App\Livewire\Sales;
 
 use App\Services\AlkesWriter;
+use App\Services\ClosingHarianIp;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
@@ -100,6 +101,50 @@ class AlkesList extends Component
         $this->dispatch('toast', message: 'Alkes ' . $nomor . ' dibatalkan, stok dikembalikan.', type: 'success');
     }
 
+    /** Rentang daftar "Perlu diinput alkes" - cukup panjang supaya yg terlewat kemarin tetap kelihatan. */
+    public const HARI_PERLU = 30;
+
+    /** Cari di panel "Perlu diinput alkes": No IP / pasien / tindakan / No Ref tindakan. */
+    public string $perluQ = '';
+
+    /**
+     * Transaksi IP cabang ini yg tindakannya WAJIB alkes tapi belum diinput (permintaan user
+     * 2026-10-16: "input alkes sangat perlu diperhatikan, langsung tampilkan yg harus
+     * diinput"). Aturannya SAMA PERSIS dgn Closing Harian IP - kuerinya dipakai bersama
+     * (`ClosingHarianIp`), termasuk aturan paket kedatangan 0 & nota cicilan surgery.
+     *
+     * Dikelompokkan per nota IP krn form Input Alkes dibuka per IP. Hanya cabang AKTIF user:
+     * `AlkesWriter::fromIp()` menolak IP cabang lain.
+     */
+    private function perluDiinput(int $cabang)
+    {
+        if (! $cabang) {
+            return collect();
+        }
+        $svc = app(ClosingHarianIp::class);
+
+        return $svc->urut($svc->query([
+            'dari'   => now()->subDays(self::HARI_PERLU)->toDateString(),
+            'sampai' => now()->toDateString(),
+            'cabang' => $cabang,
+            'search' => $this->perluQ,
+        ]))->get(ClosingHarianIp::KOLOM)
+            ->groupBy('ipId')
+            ->map(fn ($baris) => (object) [
+                'ipId'     => (int) $baris->first()->ipId,
+                'noIp'     => $baris->first()->noIp,
+                'tanggal'  => $baris->first()->tanggal,
+                'pasien'   => $baris->first()->pasien,
+                'tindakan' => $baris->map(fn ($b) => [
+                    'nama'       => $b->tindakan,
+                    'qty'        => (float) $b->qty,
+                    'kedatangan' => (int) $b->dariPaket !== 0 ? (int) $b->kedatangan : null,
+                    'dokter'     => $b->dokter,
+                    'noref'      => $b->noref,
+                ])->all(),
+            ])->values();
+    }
+
     #[On('alkes-saved')]
     public function refreshList(): void
     {
@@ -134,6 +179,7 @@ class AlkesList extends Component
 
         return view('livewire.sales.alkes-list', [
             'rows'     => $rows,
+            'perlu'    => $this->perluDiinput($cabang),
             'pullable' => $this->showPicker
                 ? app(AlkesWriter::class)->pullableIp($cabang, $this->pickerQ, $this->dari, $this->sampai)
                 : [],

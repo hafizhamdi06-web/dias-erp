@@ -23,7 +23,7 @@
                     <label class="form-label mb-1 small text-muted">Cari</label>
                     <div class="input-group input-group-sm" style="width: 260px">
                         <span class="input-group-text"><i class="fas fa-search"></i></span>
-                        <input type="text" class="form-control" placeholder="no IP / pasien / tindakan…"
+                        <input type="text" class="form-control" placeholder="no IP / pasien / tindakan / no ref…"
                                wire:model.live.debounce.400ms="search">
                     </div>
                 </div>

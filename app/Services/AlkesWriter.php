@@ -83,29 +83,46 @@ class AlkesWriter
     /**
      * Transaksi IP (POS) di cabang ini yg PUNYA baris tindakan - utk picker "Cari No IP".
      *
+     * Cari (permintaan user 2026-10-16): No IP, nama pasien, nama/kode TINDAKAN, atau No Ref
+     * tindakan (`fstokd.SDNOREF`). Yg dicari tindakan & No Ref-nya hanya baris TINDAKAN -
+     * aturan sama dgn grid tindakan `fromIp()`. Ringkasan tindakan + No Ref ikut dikirim
+     * supaya kasir tahu kenapa nota itu cocok. IP batal tidak ditampilkan.
+     *
      * @return array<int,object>
      */
     public function pullableIp(int $cabang, string $q = '', ?string $dari = null, ?string $sampai = null): array
     {
+        $tindakan = fn ($sub) => $sub->from('fstokd as d')
+            ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->whereColumn('d.SDIDSU', 'u.SUID')
+            ->whereIn('i.IJENISITEM', self::JENIS_TINDAKAN)
+            ->where('i.IRESEP', 0);
+
         return DB::table('fstoku as u')
             ->leftJoin('bkontak as k', 'k.KID', '=', 'u.SUKONTAK')
             ->where('u.SUSUMBER', 'IP')
+            ->where('u.SUSTATUS', '<>', self::STATUS_BATAL)
             ->where('u.SUCABANG', $cabang)
             ->when($dari, fn ($b) => $b->whereDate('u.SUTANGGAL', '>=', $dari))
             ->when($sampai, fn ($b) => $b->whereDate('u.SUTANGGAL', '<=', $sampai))
             ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w
                 ->where('u.SUNOTRANSAKSI', 'like', "%{$q}%")
-                ->orWhere('k.KNAMA', 'like', "%{$q}%")))
-            ->whereExists(fn ($sub) => $sub->selectRaw(1)->from('fstokd as d')
-                ->join('bitem as i', 'i.IID', '=', 'd.SDITEM')
-                ->whereColumn('d.SDIDSU', 'u.SUID')
-                ->whereIn('i.IJENISITEM', self::JENIS_TINDAKAN)
-                ->where('i.IRESEP', 0))
+                ->orWhere('k.KNAMA', 'like', "%{$q}%")
+                ->orWhereExists(fn ($sub) => $tindakan($sub->selectRaw(1))->where(fn ($x) => $x
+                    ->where('i.INAMA', 'like', "%{$q}%")
+                    ->orWhere('i.IKODE', 'like', "%{$q}%")
+                    ->orWhere('d.SDNOREF', 'like', "%{$q}%")))))
+            ->whereExists(fn ($sub) => $tindakan($sub->selectRaw(1)))
             ->orderByDesc('u.SUID')
             ->limit(50)
             ->get([
                 'u.SUID as id', 'u.SUNOTRANSAKSI as nomor', 'u.SUTANGGAL as tanggal',
                 'u.SUCABANG as cabang', 'u.SUKONTAK as kontak', 'k.KNAMA as pelanggan',
+                DB::raw("(SELECT GROUP_CONCAT(CONCAT(i2.INAMA, IF(COALESCE(d2.SDNOREF, '') <> '', CONCAT(' [', d2.SDNOREF, ']'), ''))
+                                              ORDER BY d2.SDURUTAN SEPARATOR ', ')
+                            FROM fstokd d2 JOIN bitem i2 ON i2.IID = d2.SDITEM
+                           WHERE d2.SDIDSU = u.SUID AND i2.IJENISITEM IN (" . implode(',', self::JENIS_TINDAKAN) . ")
+                             AND i2.IRESEP = 0) as tindakan"),
             ])->all();
     }
 

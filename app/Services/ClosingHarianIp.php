@@ -20,7 +20,7 @@ class ClosingHarianIp
     public const KOLOM = [
         'u.SUID as ipId', 'u.SUNOTRANSAKSI as noIp', 'u.SUTANGGAL as tanggal',
         'k.KNAMA as pasien', 'i.IKODE as kode', 'i.INAMA as tindakan',
-        'd.SDID as sdid', 'd.SDKELUAR as qty', 'dr.KNAMA as dokter',
+        'd.SDID as sdid', 'd.SDKELUAR as qty', 'dr.KNAMA as dokter', 'd.SDNOREF as noref',
         'd.SDDARIPAKET as dariPaket', 'd.SDKEDATANGAN as kedatangan',
         'u.SUCABANG as cabangId', 'g.GNAMA as cabang',
     ];
@@ -56,13 +56,19 @@ class ClosingHarianIp
             ->where('i.IRESEP', 0)
             ->where('d.SDKELUAR', '>', 0)
             ->whereRaw('NOT (COALESCE(d.SDDARIPAKET, 0) <> 0 AND COALESCE(d.SDKEDATANGAN, 0) = 0)')
+            // Nota CICILAN surgery: tindakannya belum dikerjakan (salinan item), alkes baru
+            // wajib di nota pelunasan/hari operasi - lihat `Surgery`.
+            ->whereRaw('NOT ' . Surgery::kondisiCicilan('u'))
             ->where(fn ($b) => $b->whereNull('al.SUID')->orWhere('al.SUSTATUS', AlkesWriter::STATUS_BATAL))
             ->when($dari !== '', fn ($b) => $b->whereDate('u.SUTANGGAL', '>=', $dari))
             ->when($sampai !== '', fn ($b) => $b->whereDate('u.SUTANGGAL', '<=', $sampai))
             ->when($q !== '', fn ($b) => $b->where(fn ($w) => $w
                 ->where('u.SUNOTRANSAKSI', 'like', "%{$q}%")
                 ->orWhere('k.KNAMA', 'like', "%{$q}%")
-                ->orWhere('i.INAMA', 'like', "%{$q}%")));
+                ->orWhere('i.INAMA', 'like', "%{$q}%")
+                ->orWhere('i.IKODE', 'like', "%{$q}%")
+                // No Ref tindakan (permintaan user 2026-10-16) - juga dipakai Input Alkes.
+                ->orWhere('d.SDNOREF', 'like', "%{$q}%")));
     }
 
     /** Urutan baris yg sama di layar & ekspor. */

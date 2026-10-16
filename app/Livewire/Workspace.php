@@ -56,6 +56,7 @@ class Workspace extends Component
             'master.promo'      => ['master.promo-manager', 'Master Promo', 'fas fa-tag'],
             'master.paket'      => ['master.paket-manager', 'Master Paket', 'fas fa-boxes-packing'],
             'sales.dashboard'   => ['dashboard.penjualan', 'Dashboard Penjualan', 'fas fa-chart-line'],
+            'sales.surgery'     => ['dashboard.surgery', 'Dashboard Surgery', 'fas fa-user-doctor'],
             'sales.pos'         => ['sales.pos-terminal', 'Kasir / POS', 'fas fa-cash-register'],
             'sales.pos-data'    => ['sales.pos-data-list', 'Data Transaksi POS', 'fas fa-table-list'],
             'purchase.pkb'      => ['purchase.pkb-list', 'Perintah Kirim Barang', 'fas fa-dolly-flatbed'],
@@ -101,6 +102,8 @@ class Workspace extends Component
             'laporan.iv.mutasi-detail' => ['reports.ivm-mutasi-detail', 'Daftar IV Mutasi Detail', 'fas fa-list-ul'],
             'laporan.iv.daftar-invoice' => ['reports.iv-daftar-invoice', 'IP IV Daftar Invoice', 'fas fa-file-invoice'],
             'laporan.iv.daftar-mutasi' => ['reports.ivm-daftar-invoice', 'IVM Daftar Invoice Mutasi', 'fas fa-file-invoice-dollar'],
+            'panduan.pos'       => ['panduan.pos', 'Panduan Kasir / POS', 'fas fa-cash-register'],
+            'panduan.surgery'   => ['panduan.surgery', 'Panduan Transaksi Surgery', 'fas fa-user-doctor'],
         ];
     }
 

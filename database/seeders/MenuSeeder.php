@@ -45,6 +45,9 @@ class MenuSeeder extends Seeder
             // rincian PT > Cabang > COA > Item > Transaksi. Ditaruh paling atas di grup
             // Penjualan krn ini layar PANTAU, bukan entri: dibuka lebih dulu.
             'sales.dashboard'  => ['Dashboard Penjualan', 'sales/dashboard', 'fas fa-chart-line',        'link',  31, 'sales'],
+            // Dashboard Surgery (permintaan user 2026-10-16) - pantau surgery yg dibayar cicil.
+            // Sort sama dgn Dashboard Penjualan; dibuat sesudahnya, jadi tampil di bawahnya.
+            'sales.surgery'    => ['Dashboard Surgery', 'sales/surgery',     'fas fa-user-doctor',        'link',  31, 'sales'],
             'sales.pos'        => ['Kasir / POS',       'sales/pos',         'fas fa-cash-register',      'link',  32, 'sales'],
             // Dulu hanya bisa dibuka dari tombol di dalam layar kasir; jadi menu sendiri atas
             // permintaan user 2026-09-28. Path `sales/pos-data` SENGAJA terpisah dari
@@ -155,6 +158,12 @@ class MenuSeeder extends Seeder
             'laporan.iv.mutasi-detail' => ['Daftar IV Mutasi Detail', 'laporan/iv-mutasi-detail', 'fas fa-list-ul', 'link', 97, 'laporan.iv'],
             'laporan.iv.daftar-invoice' => ['IP IV Daftar Invoice', 'laporan/iv-daftar-invoice', 'fas fa-file-invoice', 'link', 98, 'laporan.iv'],
             'laporan.iv.daftar-mutasi' => ['IVM Daftar Invoice Mutasi', 'laporan/iv-daftar-mutasi', 'fas fa-file-invoice-dollar', 'link', 99, 'laporan.iv'],
+
+            // ---- Panduan sistem (permintaan user 2026-10-16) -------------------
+            // Halaman bantuan cara pakai, satu link per topik. Paling bawah di sidebar.
+            'panduan'          => ['Panduan',           null,                'fas fa-book',               'group', 95, null],
+            'panduan.pos'      => ['Kasir / POS',       'panduan/pos',       'fas fa-cash-register',      'link',  96, 'panduan'],
+            'panduan.surgery'  => ['Transaksi Surgery', 'panduan/surgery',   'fas fa-user-doctor',        'link',  97, 'panduan'],
         ];
 
         $idBySegment = [];

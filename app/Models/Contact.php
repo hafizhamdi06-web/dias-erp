@@ -125,6 +125,24 @@ class Contact extends Model
                     ->where($kolom, 'like', "{$q}%")
                     ->limit(self::BATAS_KANDIDAT);
             }
+
+            /* KIDPASIEN TANPA awalan "NMW-" (permintaan user 2026-10-16: POS bisa cari
+             | KIDPASIEN). 98% KIDPASIEN berbentuk "NMW-" + 2 huruf + angka (mis.
+             | NMW-DP194674), dan kasir biasa mengetik "DP194674" atau angkanya saja -
+             | prefix-LIKE di atas tidak menemukannya. Keduanya tetap memakai index
+             | idx_bkontak_kidpasien (terukur 56 ms & 145 ms), bukan LIKE '%q%'. */
+            if (stripos($q, 'NMW-') !== 0) {
+                $cabang[] = \Illuminate\Support\Facades\DB::table('bkontak')
+                    ->select('KID', 'KNAMA')
+                    ->where('KIDPASIEN', 'like', "NMW-{$q}%")
+                    ->limit(self::BATAS_KANDIDAT);
+            }
+            if (ctype_digit($q)) {
+                $cabang[] = \Illuminate\Support\Facades\DB::table('bkontak')
+                    ->select('KID', 'KNAMA')
+                    ->where('KIDPASIEN', 'like', "NMW-__{$q}%")
+                    ->limit(self::BATAS_KANDIDAT);
+            }
         }
 
         if ($cabang === []) {

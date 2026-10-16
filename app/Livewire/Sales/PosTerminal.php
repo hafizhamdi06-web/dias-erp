@@ -492,7 +492,7 @@ class PosTerminal extends Component
 
         // Jangan ORDER BY saat ada pencarian (FULLTEXT + sort = filesort, lambat).
         return $query->limit(15)
-            ->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama', 'k.K1TELP1 as telp', 't.KTNAMA as tipe', 'g.GKODE as cabang']);
+            ->get(['k.KID as id', 'k.KKODE as kode', 'k.KIDPASIEN as idpasien', 'k.KNAMA as nama', 'k.K1TELP1 as telp', 't.KTNAMA as tipe', 'g.GKODE as cabang']);
     }
 
     public function moveCustHighlight(int $delta): void

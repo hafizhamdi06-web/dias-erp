@@ -925,7 +925,7 @@
                      x-init="$nextTick(() => $refs.custSearch.focus())"
                      @refocus-cust.window="$nextTick(() => $refs.custSearch.focus())">
                     <input type="text" class="form-control mb-2" x-ref="custSearch" wire:key="cust-search-input"
-                           placeholder="nama / kode / member / telp…" autocomplete="off"
+                           placeholder="nama / kode / ID pasien / member / telp…" autocomplete="off"
                            wire:model.live.debounce.300ms="custQ"
                            wire:keydown.arrow-down.prevent="moveCustHighlight(1)"
                            wire:keydown.arrow-up.prevent="moveCustHighlight(-1)"
@@ -936,6 +936,7 @@
                             <thead>
                                 <tr>
                                     <th>Kode</th>
+                                    <th>ID Pasien</th>
                                     <th>Nama</th>
                                     <th>Tipe</th>
                                     <th>Cabang</th>
@@ -948,13 +949,14 @@
                                         class="{{ $i === $custHighlight ? 'table-active' : '' }}"
                                         style="cursor: pointer" wire:click="pickCustomer({{ $c->id }})">
                                         <td class="fw-semibold">{{ $c->kode }}</td>
+                                        <td class="font-monospace small">{{ $c->idpasien ?: '—' }}</td>
                                         <td>{{ $c->nama }}</td>
                                         <td class="text-muted small">{{ $c->tipe }}</td>
                                         <td class="text-muted small">{{ $c->cabang ?: '—' }}</td>
                                         <td class="text-muted small">{{ $c->telp ?: '—' }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="5" class="text-center text-muted py-4">
+                                    <tr><td colspan="6" class="text-center text-muted py-4">
                                         {{ mb_strlen(trim($custQ)) < 2 ? 'Ketik minimal 2 huruf…' : 'Tidak ada hasil.' }}
                                     </td></tr>
                                 @endforelse

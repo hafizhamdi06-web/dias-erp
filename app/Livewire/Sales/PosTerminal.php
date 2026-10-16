@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\User;
 use App\Services\LegacyAuth;
 use App\Services\PosSaleWriter;
+use App\Services\Surgery;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
@@ -99,8 +100,9 @@ class PosTerminal extends Component
      * `Contact::applySearch()`, krn `bkontak` 315rb+ baris - JANGAN `LIKE '%q%'` polos).
      * SUCATATAN sengaja TIDAK dibuat properti baru - berbagi `$catatan` yg sudah ada (field
      * yg sama, cuma ditampilkan jg di modal ini).
-     * `SUIDMEDLIB`/`SULMCID` ("ID Medlib"/"ID PRO") readonly - rujukan sistem lain
-     * (`official_nmw.ops_medical.medId` dst per catatan user), TIDAK diisi dari form ini.
+     * `SUIDMEDLIB`/`SULMCID` ("ID Medlib"/"ID PRO") readonly DI MODAL INI - rujukan sistem
+     * lain (`official_nmw.ops_medical.medId` dst). SULMCID diisi otomatis oleh Tarik PRO
+     * (`pilihPro()`), bukan diketik.
      */
     public bool $showOtherDataModal = false;
     public ?int $suTraining = null;
@@ -146,7 +148,31 @@ class PosTerminal extends Component
         // asal baris DP itu (info tampilan saja, tidak disimpan). 'jenis' = fstoku.SUJENISDP -
         // legacy pakai ulang daftar bmerchant sbg pilihannya (bukan master khusus, quirk asli).
         'dp' => ['jumlah' => 0, 'sdid' => null, 'no' => null, 'nama_item' => null, 'jenis' => null],
+        // Piutang (sisa yg belum dibayar) -> fstoku.SUNILAIPIUTANG. HANYA utk transaksi SURGERY
+        // (lihat `$surgery`) - dicek `validasiPembayaran()`.
+        'piutang' => 0,
     ];
+
+    /*
+     * ---------------- SURGERY (cicilan) ----------------
+     * Alur VB6 `eFrmPOS2` (permintaan user 2026-10-16, aturan lengkap di `App\Services\Surgery`):
+     *   - tiap nota surgery dicentang "Surgery"            -> SUSURGERYDP
+     *   - nota pertama: tindakan lengkap, sisa = Piutang    -> SUNILAIPIUTANG
+     *   - nota berikutnya: tombol "No IP Surgery" menarik nota surgery TERAKHIR pasien itu,
+     *     menyalin itemnya, dan "sudah dibayar" sebelumnya ikut dihitung sbg pembayaran
+     *       SUSURGERYDPIDU        = SUID nota yg ditarik
+     *       SUSURGERYDPPEMBAYARAN = total - piutang nota yg ditarik (kumulatif)
+     *       SUSURGERYDPTOTAL      = total nota yg ditarik
+     *       SUSURGERYDPPIUTANG    = piutang nota yg ditarik
+     *   - nota lunas (piutang 0) = hari operasi.
+     */
+    public bool $surgery = false;
+    public ?int $surgeryIdu = null;
+    public ?string $surgeryNo = null;
+    public float $surgeryTotal = 0;
+    public float $surgeryPembayaran = 0;
+    public float $surgeryPiutang = 0;
+    public bool $showSurgeryModal = false;
 
     // pencarian
     public string $itemQ = '';
@@ -940,6 +966,7 @@ class PosTerminal extends Component
         $this->odQueue = [];
         $this->unlockedLines = [];
         $this->resetPaketState();
+        $this->resetSurgery();
     }
 
     /* ---------------- Pelanggan ---------------- */
@@ -953,6 +980,11 @@ class PosTerminal extends Component
 
         if (! $row) {
             return;
+        }
+
+        // Nota surgery yg ditarik milik pasien lama - tidak berlaku utk pasien lain.
+        if ($this->surgeryIdu && (int) $row->KID !== (int) $this->custId) {
+            $this->resetSurgeryLink();
         }
 
         $this->custId = (int) $row->KID;
@@ -1013,7 +1045,563 @@ class PosTerminal extends Component
             'merchant' => ['jumlah' => 0, 'no' => '', 'jenis' => null],
             'voucher'  => ['jumlah' => 0, 'no' => '', 'vid' => null, 'program' => null, 'nama' => null],
             'dp'       => ['jumlah' => 0, 'sdid' => null, 'no' => null, 'nama_item' => null, 'jenis' => null],
+            'piutang'  => 0,
         ];
+    }
+
+    /* ---------------- Surgery ---------------- */
+
+    /** Lepas tautan ke nota surgery sebelumnya (centang Surgery-nya sendiri dibiarkan). */
+    private function resetSurgeryLink(): void
+    {
+        $this->surgeryIdu = null;
+        $this->surgeryNo = null;
+        $this->surgeryTotal = 0;
+        $this->surgeryPembayaran = 0;
+        $this->surgeryPiutang = 0;
+    }
+
+    private function resetSurgery(): void
+    {
+        $this->resetSurgeryLink();
+        $this->surgery = false;
+        $this->showSurgeryModal = false;
+    }
+
+    /** Centang Surgery dilepas -> tautan & piutang ikut hilang (keduanya khusus surgery). */
+    public function updatedSurgery(bool $nilai): void
+    {
+        if (! $nilai) {
+            $this->resetSurgeryLink();
+            $this->pay['piutang'] = 0;
+        }
+    }
+
+    /** Tombol "Lepas" - batalkan tarikan No IP Surgery (isi keranjang dibiarkan). */
+    public function lepasSurgery(): void
+    {
+        $this->resetSurgeryLink();
+    }
+
+    /** Tombol "Sisa → Piutang" di dialog bayar - sisa tagihan saat ini dijadikan piutang. */
+    public function isiPiutangSisa(): void
+    {
+        if (! $this->surgery) {
+            return;
+        }
+        $lain = $this->totalBayar() - (float) $this->pay['piutang'];
+        $this->pay['piutang'] = max(0, round($this->grandTotal() - $lain, 2));
+    }
+
+    public function openSurgeryModal(): void
+    {
+        if (! $this->custId) {
+            $this->addError('cust', 'Pilih pasien dulu sebelum menarik No IP Surgery.');
+            $this->openCustModal();
+
+            return;
+        }
+        $this->showSurgeryModal = true;
+    }
+
+    public function closeSurgeryModal(): void
+    {
+        $this->showSurgeryModal = false;
+    }
+
+    /**
+     * Nota surgery pasien ini yg BISA dilanjutkan: dicentang Surgery, tidak batal, masih ada
+     * piutang, dan belum dilanjutkan nota lain (= ujung rantai). Semua cabang, sama dgn VB6
+     * (`chkSemuaCabang`).
+     *
+     * LEBIH KETAT dari VB6, yg menampilkan SEMUA nota surgery pasien termasuk yg sudah
+     * dilanjutkan/lunas - di data nyata itu membuat nota yg sama bisa ditarik dua kali.
+     * Nota yg sedang di-Edit tidak dihitung sbg "lanjutan" - menyimpan ulang nota B tetap
+     * harus bisa menarik nota A yg dulu ditariknya.
+     */
+    private function surgeryResults()
+    {
+        if (! $this->custId) {
+            return collect();
+        }
+
+        return DB::table('fstoku as u')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'u.SUCABANG')
+            ->where('u.SUSUMBER', 'IP')
+            ->where('u.SUSTATUS', '<>', 9)
+            ->where('u.SUKONTAK', $this->custId)
+            ->whereRaw(Surgery::kondisiCicilan('u'))
+            ->when($this->editingFromId, fn ($b) => $b->where('u.SUID', '<>', $this->editingFromId))
+            ->whereNotExists(fn ($q) => $q->from('fstoku as n')
+                ->whereColumn('n.SUSURGERYDPIDU', 'u.SUID')
+                ->where('n.SUSTATUS', '<>', 9)
+                ->when($this->editingFromId, fn ($w) => $w->where('n.SUID', '<>', $this->editingFromId)))
+            ->orderByDesc('u.SUTANGGAL')
+            ->orderByDesc('u.SUID')
+            ->get([
+                'u.SUID as id', 'u.SUNOTRANSAKSI as nomor', 'u.SUTANGGAL as tanggal', 'g.GNAMA as cabang',
+                'u.SUTOTALTRANSAKSI as total', 'u.SUNILAIPIUTANG as piutang',
+                DB::raw('(u.SUTOTALTRANSAKSI - u.SUNILAIPIUTANG) as dibayar'),
+            ]);
+    }
+
+    /**
+     * Tarik nota surgery: keranjang DIGANTI item nota itu (VB6 juga mengosongkan grid), lalu
+     * "sudah dibayar" sebelumnya dihitung sbg pembayaran. Pasien sudah terpilih, jadi
+     * diskon asli baris tidak ketiban diskon member (lihat komentar di `editTransaction()`).
+     */
+    public function pilihSurgery(int $suid): void
+    {
+        $nota = $this->surgeryResults()->firstWhere('id', $suid);
+        if (! $nota) {
+            $this->addError('surgery', 'Nota surgery tidak bisa ditarik (sudah dilanjutkan, lunas, atau bukan milik pasien ini).');
+
+            return;
+        }
+
+        // ID asal Tarik Medlib TIDAK ikut tersalin: invoice/resep itu sudah tercatat di nota
+        // sebelumnya - kalau dibawa, nota ini ditolak "invoice sudah masuk DIAS".
+        $this->cart = array_map(fn ($l) => array_merge($l,
+            ['sdsodid' => null, 'sdprdid' => null, 'sdmedidu' => null, 'sdmedidd' => null, 'medlib' => false,
+                'sdpro' => null, 'sdprorecom' => null, 'sdproidu' => null, 'sdproidd' => null, 'pro' => false]),
+            $this->barisDariTransaksi($suid, (int) $this->custId));
+        $this->odQueue = [];
+        $this->unlockedLines = [];
+
+        $this->surgery = true;
+        $this->surgeryIdu = (int) $nota->id;
+        $this->surgeryNo = $nota->nomor;
+        $this->surgeryTotal = (float) $nota->total;
+        $this->surgeryPiutang = (float) $nota->piutang;
+        $this->surgeryPembayaran = (float) $nota->dibayar;
+        $this->pay['piutang'] = 0;
+        $this->showSurgeryModal = false;
+    }
+
+    /* ---------------- Tarik Medlib (official_nmw) ----------------
+     * Port VB6 `eFrmPOS2.cmdTarikMedlib_Click` -> `bFrmCariMedlib` (permintaan user 2026-10-16).
+     * Dua sumber dari DB `official_nmw` (aplikasi Medlib/online):
+     *   'invoice' = invoice yg SUDAH DIBAYAR online (Jokul) & belum masuk DIAS
+     *               (`ivhStatusDIAS = 0`), pasien & cabang aktif.
+     *   'resep'   = resep rekam medis yg BELUM dibayar, maks 1 bulan terakhir.
+     * Item yg ditarik membawa ID asalnya (lihat `pilihMedlib()`), dan trigger `fstokd_add`
+     * menandai invoice-nya `ivhStatusDIAS = 1` lewat `SDPRDID` - jadi invoice yg sudah
+     * disimpan tidak muncul lagi.
+     */
+    public bool $showMedlibModal = false;
+    public string $medlibTab = 'invoice';
+    /** Baris yg dicentang - kunci `ivdId` (tab invoice) / `mdcId` (tab resep). @var list<string> */
+    public array $medlibPilih = [];
+
+    /** Tipe reservasi yg membuat baris resep = "RESEP SKIN CARE DKK" (VB6 TampilkanDetail_Medlib). */
+    private const MEDLIB_TIPE_DKK = [1, 2, 3, 5, 6];
+
+    public function openMedlibModal(): void
+    {
+        if (! $this->custId) {
+            $this->addError('cust', 'Pilih pasien dulu sebelum Tarik Medlib.');
+            $this->openCustModal();
+
+            return;
+        }
+        $this->medlibPilih = [];
+        $this->medlibTab = 'invoice';
+        $this->showMedlibModal = true;
+    }
+
+    public function closeMedlibModal(): void
+    {
+        $this->showMedlibModal = false;
+        $this->medlibPilih = [];
+    }
+
+    public function updatedMedlibTab(): void
+    {
+        $this->medlibPilih = [];
+    }
+
+    /** ID asal yg SUDAH ada di keranjang - supaya baris yg sama tidak ditarik dua kali. */
+    private function medlibDiKeranjang(string $kolom): array
+    {
+        return array_values(array_filter(array_map(fn ($l) => $l[$kolom] ?? null, $this->cart)));
+    }
+
+    /**
+     * Invoice SUDAH DIBAYAR & belum masuk DIAS - kueri dari VB6 `bFrmCariMedlib.IsiData`
+     * (grid IG_Produk).
+     *
+     * HARGA = HARGA INVOICE (`ivdPrice`), BUKAN harga master spt VB6 (keputusan user
+     * 2026-10-16). VB6 memakai IHARGAJUAL1/IHARGAWEB + diskon %, padahal di SEMUA invoice
+     * lunas sejak Sep 2026 (108 baris) harga invoice beda dgn master - 19 di antaranya
+     * master-nya 0 (mis. KONSUL BEDAH: invoice 350.000, master 0). Akibatnya total keranjang
+     * tidak sama dgn yg dibayar online & muncul "kembalian" palsu. Grand total invoice =
+     * harga item + ongkir (108/108), jadi dgn harga invoice totalnya pas.
+     */
+    private function medlibInvoiceRows()
+    {
+        if (! $this->custId || ! $this->branchId) {
+            return collect();
+        }
+        $sudah = $this->medlibDiKeranjang('sdsodid');
+
+        return DB::table('official_nmw.ops_invoice_detail as d')
+            ->join('official_nmw.ops_invoice_header as h', 'h.ivhId', '=', 'd.ivdIvhId')
+            ->join('bitem as i', 'i.IID', '=', 'd.ivdIID')
+            ->join('official_nmw.ops_payment as p', 'p.payIvhCode', '=', 'h.ivhCode')
+            ->join('official_nmw.ops_medical as m', 'm.medId', '=', 'h.ivhMedId')
+            ->join('official_nmw.data_users as us', 'us.usrId', '=', 'm.medCreateId')
+            ->join('bkontak as dr', 'dr.KID', '=', 'us.usrKID')
+            ->leftJoin('official_nmw.ops_reservation as r', 'r.rsvMedId', '=', 'm.medId')
+            ->leftJoin('official_nmw.ops_reservation_type as rt', 'rt.rtpId', '=', 'r.rsvRtpId')
+            ->where('h.ivhGID', $this->branchId)
+            ->where('p.payStatus', 1)
+            ->where('h.ivhStatusDIAS', 0)
+            ->where('h.ivhKID', $this->custId)
+            ->when($sudah !== [], fn ($b) => $b->whereNotIn('d.ivdId', $sudah))
+            ->orderBy('h.ivhDate')
+            ->orderBy('d.ivdId')
+            ->get([
+                'd.ivdId as kunci', 'h.ivhId', 'm.medCode as noResep', 'i.IID as item', 'i.IKODE as kode', 'i.INAMA as nama',
+                'd.ivdQty as qty', 'h.ivhDate as tanggal', 'rt.rtpCode as tipeKonsul', 'r.rsvRtpId as tipeId',
+                'dr.KID as dokterId', 'dr.KNAMA as dokter', 'h.ivhCode as noInvoice', 'h.ivhReff as reff',
+                'd.ivdPrice as harga',
+                DB::raw('0 as diskonPersen'),
+                DB::raw("CASE WHEN h.ivhShippingPrice = '-' THEN 0 ELSE COALESCE(h.ivhShippingPrice, 0) END as ongkir"),
+                DB::raw('COALESCE(h.ivhServiceFee, 0) as biayaLayanan'),
+                'h.ivhGrandTotal as total',
+            ]);
+    }
+
+    /**
+     * Resep rekam medis BELUM dibayar (maks 1 bulan) - kueri disalin dari VB6
+     * `bFrmCariMedlib.IsiData` (grid IG_M). Diskon member hanya kalau pasien member aktif.
+     */
+    private function medlibResepRows()
+    {
+        if (! $this->custId) {
+            return collect();
+        }
+        $sudah = $this->medlibDiKeranjang('sdmedidd');
+
+        return DB::table('official_nmw.ops_medical as m')
+            ->leftJoin('official_nmw.ops_medical_medicine as mm', 'mm.mdcMedId', '=', 'm.medId')
+            ->leftJoin('bitem as i', 'i.IID', '=', 'mm.mdcIID')
+            ->leftJoin('official_nmw.data_users as us', 'us.usrId', '=', 'm.medCreateId')
+            ->leftJoin('bkontak as dr', 'dr.KID', '=', 'us.usrKID')
+            ->leftJoin('official_nmw.ops_invoice_header as h', 'h.ivhMedId', '=', 'm.medId')
+            ->leftJoin('official_nmw.ops_reservation as r', 'r.rsvMedId', '=', 'm.medId')
+            ->leftJoin('official_nmw.ops_reservation_type as rt', 'rt.rtpId', '=', 'r.rsvRtpId')
+            ->leftJoin('official_nmw.ops_payment as p', 'p.payIvhCode', '=', 'h.ivhCode')
+            ->leftJoin('official_nmw.ops_reservation_date as rd', 'rd.rsdId', '=', 'r.rsvRsdId')
+            ->leftJoin('official_nmw.ops_invoice_detail as d', 'd.ivdIvhId', '=', 'h.ivhId')
+            ->whereRaw("COALESCE(i.IKODE, '') <> ''")
+            ->whereRaw('(COALESCE(p.payStatus, 0) = 0 OR (COALESCE(p.payStatus, 0) = 1 AND COALESCE(d.ivdIID, 0) = 2560))')
+            ->where('m.medKID', $this->custId)
+            ->whereRaw('TIMESTAMPDIFF(MONTH, rd.rsdDate, NOW()) <= 1')
+            ->when($sudah !== [], fn ($b) => $b->whereNotIn('mm.mdcId', $sudah))
+            ->orderBy('rd.rsdDate')
+            ->orderBy('mm.mdcId')
+            ->get([
+                'mm.mdcId as kunci', 'm.medId', 'm.medCode as noResep', 'i.IID as item', 'i.IKODE as kode', 'i.INAMA as nama',
+                'mm.mdcQty as qty', 'rd.rsdDate as tanggal', 'rt.rtpCode as tipeKonsul', DB::raw('COALESCE(rt.rtpDKK, 0) as dkk'),
+                'dr.KID as dokterId', 'dr.KNAMA as dokter', 'h.ivhCode as noInvoice', 'i.IHARGAJUAL1 as harga',
+                DB::raw('COALESCE(i.IDISKON, 0) as diskonMember'),
+            ])
+            // ops_invoice_detail ikut di-join utk syarat item 2560 - satu resep bisa
+            // berlipat per baris invoice. VB6 menampilkan apa adanya; di sini dibuat unik.
+            ->unique('kunci')->values();
+    }
+
+    public function pilihSemuaMedlib(): void
+    {
+        $rows = $this->medlibTab === 'invoice' ? $this->medlibInvoiceRows() : $this->medlibResepRows();
+        $semua = $rows->pluck('kunci')->map(fn ($k) => (string) $k)->all();
+        $this->medlibPilih = count($this->medlibPilih) === count($semua) ? [] : $semua;
+    }
+
+    /**
+     * Masukkan baris terpilih ke keranjang - port VB6 `TampilkanDetail_Medlib` (invoice) &
+     * `TampilkanDetail_Medlib_BelumInvoice` (resep):
+     *   - tiap produk -> baris item dgn harga/diskon dari Medlib + ID asalnya:
+     *       invoice: SDSODID = ivdId, SDPRDID = ivhId (trigger menandai invoice masuk DIAS)
+     *       resep  : SDMEDIDU = medId, SDMEDIDD = mdcId
+     *   - 1 baris "RESEP SKIN CARE" (atau "… DKK"), qty = jumlah qty produk, dokter/operator
+     *     = dokter pembuat resep, No Ref = no resep, No IC = "000"
+     *   - ONGKIR kalau ada, + "BIAYA LAYANAN" (tab invoice saja, sama dgn VB6)
+     *   - invoice sudah dibayar -> Merchant DOKU = grand total, no. merchant = no. invoice
+     *   - insider (`SUSALESMARKETING`) dari kode reff invoice (`bkontak.KKODEINSIDER`)
+     * Produk juga diberi dokter/No Ref yg sama supaya lolos validasi operator/dokter POS.
+     */
+    public function pilihMedlib(): void
+    {
+        $tab = $this->medlibTab;
+        $rows = ($tab === 'invoice' ? $this->medlibInvoiceRows() : $this->medlibResepRows())
+            ->filter(fn ($r) => in_array((string) $r->kunci, $this->medlibPilih, true))->values();
+
+        if ($rows->isEmpty()) {
+            $this->addError('medlib', 'Centang minimal satu baris.');
+
+            return;
+        }
+
+        $branch = $this->branch();
+        $stokCol = $branch ? $this->stokColumn((int) $branch->GID) : 'ISTOKPG';
+        $meta = DB::table('bitem')->whereIn('IID', $rows->pluck('item')->unique()->all())
+            ->get(['IID', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")])->keyBy('IID');
+
+        $akhir = $rows->last();
+        $dokterId = $akhir->dokterId ? (int) $akhir->dokterId : null;
+        $dokterNama = $akhir->dokter;
+        $noResep = (string) $akhir->noResep;
+
+        foreach ($rows as $r) {
+            $m = $meta[(int) $r->item] ?? null;
+            $dis1 = $tab === 'invoice'
+                ? (float) $r->diskonPersen
+                : ($this->memberActive ? (float) $r->diskonMember : 0.0);
+
+            $this->cart[] = $this->barisMedlib((int) $r->item, (string) $r->kode, (string) $r->nama, (float) $r->qty,
+                (float) $r->harga, $dis1, $m, $dokterId, $dokterNama, $noResep) + ($tab === 'invoice'
+                    ? ['sdsodid' => (int) $r->kunci, 'sdprdid' => (int) $r->ivhId]
+                    : ['sdmedidd' => (int) $r->kunci, 'sdmedidu' => (int) $r->medId]);
+        }
+
+        // Baris "RESEP SKIN CARE" - tipe DKK menurut reservasi baris TERAKHIR (spt VB6).
+        $dkk = $tab === 'invoice'
+            ? in_array((int) $akhir->tipeId, self::MEDLIB_TIPE_DKK, true)
+            : (int) $akhir->dkk === 1;
+        $this->tambahItemPendukung($dkk ? 'RESEP SKIN CARE DKK' : 'RESEP SKIN CARE', (float) $rows->sum('qty'),
+            null, $dokterId, $dokterNama, $noResep);
+
+        $ongkir = $tab === 'invoice' ? (float) $akhir->ongkir : 0.0;
+        if ($ongkir > 0) {
+            $this->tambahItemPendukung('ONGKIR', 1, $ongkir, $dokterId, $dokterNama, $noResep);
+        }
+        if ($tab === 'invoice') {
+            // BIAYA LAYANAN hanya kalau invoice memang mengenakannya, sebesar nilai invoice -
+            // VB6 selalu menambah harga master (2.000) sehingga tagihan melebihi yg dibayar
+            // online. Per Okt 2026 `ivhServiceFee` selalu 0.
+            if ((float) $akhir->biayaLayanan > 0) {
+                $this->tambahItemPendukung('BIAYA LAYANAN', 1, (float) $akhir->biayaLayanan, $dokterId, $dokterNama, $noResep);
+            }
+
+            // Sudah dibayar online -> Merchant DOKU sebesar grand total invoice.
+            $this->pay['merchant'] = ['jumlah' => (float) $akhir->total, 'no' => (string) $akhir->noInvoice, 'jenis' => 'DOKU'];
+
+            if ($akhir->reff) {
+                $insider = DB::table('bkontak')->where('KKODEINSIDER', $akhir->reff)->first(['KID', 'KNAMA']);
+                if ($insider) {
+                    $this->suSalesMarketing = (int) $insider->KID;
+                    $this->suSalesMarketingLabel = $insider->KNAMA;
+                } else {
+                    $this->dispatch('pos-toast', msg: 'Insider "' . $akhir->reff . '" tidak terdaftar.', type: 'warning');
+                }
+            }
+        }
+
+        $this->closeMedlibModal();
+        $this->dispatch('pos-toast', msg: $rows->count() . ' item Medlib ditambahkan ke keranjang.', type: 'success');
+    }
+
+    /** Satu baris keranjang dari Medlib - kerangka kunci sama dgn `addItem()`. */
+    private function barisMedlib(int $item, string $kode, string $nama, float $qty, float $harga, float $dis1, ?object $m,
+        ?int $dokterId, ?string $dokterNama, string $noResep): array
+    {
+        return [
+            'item' => $item, 'kode' => $kode, 'nama' => $nama, 'qty' => $qty, 'harga' => $harga,
+            'dis1' => $dis1, 'dis2' => 0.0,
+            'satuan' => $m && $m->ISATUAN ? (int) $m->ISATUAN : null,
+            'tipe' => $m ? (int) $m->ITIPEITEM : 1, 'stok' => $m ? (float) $m->stok : 0.0,
+            'jenisitem' => $m ? (int) $m->IJENISITEM : 0,
+            'sdkaryawan' => $dokterId, 'sdkaryawan_label' => $dokterNama,
+            'sddokter' => $dokterId, 'sddokter_label' => $dokterNama,
+            'sdnoref' => $noResep, 'sdlantai2' => '000',
+            'sdidpromo' => null, 'promo_label' => null, 'is_bonus' => false,
+            'sddaripaket' => 0, 'sdidpotongstok' => null, 'sdcatatankoli' => null, 'sdkedatangan' => null,
+            'sdsodurutan' => null, 'paket_label' => null, 'sdpaket_pasien' => null,
+            'medlib' => true,
+        ];
+    }
+
+    /** RESEP SKIN CARE / ONGKIR / BIAYA LAYANAN - harga master kecuali `$harga` diisi. */
+    private function tambahItemPendukung(string $kode, float $qty, ?float $harga, ?int $dokterId, ?string $dokterNama, string $noResep): void
+    {
+        $branch = $this->branch();
+        $stokCol = $branch ? $this->stokColumn((int) $branch->GID) : 'ISTOKPG';
+        $it = DB::table('bitem')->where('IKODE', $kode)
+            ->first(['IID', 'IKODE', 'INAMA', $this->kolomHarga(), 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")]);
+        if (! $it) {
+            $this->dispatch('pos-toast', msg: 'Item "' . $kode . '" tidak ada di master item.', type: 'warning');
+
+            return;
+        }
+        $this->cart[] = $this->barisMedlib((int) $it->IID, $it->IKODE, $it->INAMA, $qty,
+            $harga ?? (float) $it->IHARGAJUAL1, 0.0, $it, $dokterId, $dokterNama, $noResep);
+    }
+
+    /* ---------------- Tarik PRO (keranjang rekomendasi PRO, official_nmw) ----------------
+     * Port VB6 `eFrmPOS2.cmdPRO_Click` -> `bFrmCariPRO` (permintaan user 2026-10-16). Sumber:
+     * `official_nmw.log_medlib_cart` (keranjang) + `log_medlib_detail` (baris), milik pasien,
+     * belum masuk DIAS (`lmcDiasIP` kosong), dipilih (`lmdSelected`), tidak ditolak dokter.
+     *   'bayar' = keranjang SUDAH dibayar online  'belum' = belum dibayar
+     * Penanda "sudah masuk DIAS": header `SULMCID` = lmcId -> trigger `fstoku_add` mengisi
+     * `lmcDiasIP`. Trigger hanya menandai SATU keranjang per nota, jadi satu transaksi
+     * hanya boleh menarik satu keranjang PRO.
+     *
+     * Arti kolom harga (terukur 1.249/1.249 baris sejak Sep 2026): `lmdDiscount` = harga
+     * per unit SETELAH diskon (namanya menyesatkan), `lmdGrandPrice` = qty x lmdDiscount.
+     * Harga dasar = `lmdPrice` (BUKAN harga master spt VB6 - keputusan user utk Medlib,
+     * berlaku sama di sini), Disc % = (lmdPrice - harga setelah diskon) / lmdPrice.
+     */
+    public bool $showProModal = false;
+    public string $proTab = 'belum';
+    /** @var list<string> lmdId yg dicentang */
+    public array $proPilih = [];
+
+    public function openProModal(): void
+    {
+        if (! $this->custId) {
+            $this->addError('cust', 'Pilih pasien dulu sebelum Tarik PRO.');
+            $this->openCustModal();
+
+            return;
+        }
+        $this->proPilih = [];
+        $this->showProModal = true;
+    }
+
+    public function closeProModal(): void
+    {
+        $this->showProModal = false;
+        $this->proPilih = [];
+    }
+
+    public function updatedProTab(): void
+    {
+        $this->proPilih = [];
+    }
+
+    private function proRows()
+    {
+        if (! $this->custId) {
+            return collect();
+        }
+        $sudah = $this->medlibDiKeranjang('sdproidd');
+
+        return DB::table('official_nmw.log_medlib_cart as b')
+            ->join('official_nmw.log_medlib_detail as d', 'd.lmdCartId', '=', 'b.lmcId')
+            ->join('bitem as e', 'e.IID', '=', 'd.lmdItemId')
+            ->leftJoin('official_nmw.ops_medical as a', 'a.medId', '=', 'b.lmcMedicalId')
+            ->leftJoin('official_nmw.data_users as udok', 'udok.usrId', '=', 'a.medCreateId')
+            ->leftJoin('bkontak as dr', 'dr.KID', '=', 'udok.usrKID')
+            ->leftJoin('emasterpromod as pmd', fn ($j) => $j->on('pmd.MPDID', '=', 'd.lmdItemTypeId')->where('d.lmdItemType', 'promo'))
+            ->leftJoin('emasterpromou as pmu', 'pmu.MPUID', '=', 'pmd.MPDIDU')
+            ->leftJoin('epaketd as pd', fn ($j) => $j->on('pd.PDID', '=', 'd.lmdItemTypeId')->where('d.lmdItemType', 'package'))
+            ->leftJoin('epaketu as pu', 'pu.PUID', '=', 'pd.PDIDU')
+            ->leftJoin('official_nmw.data_users as upro', 'upro.usrId', '=', 'b.lmcCreateId')
+            ->leftJoin('bkontak as pro', 'pro.KID', '=', 'upro.usrKID')
+            ->whereRaw("COALESCE(b.lmcDiasIP, '') = ''")
+            ->where('b.lmcPaymentStatus', $this->proTab === 'bayar' ? 1 : 0)
+            ->where('d.lmdSelected', 1)
+            ->whereRaw('COALESCE(d.lmdApprovalDokter, 1) = 1')
+            ->where('b.lmcPatientKID', $this->custId)
+            ->when($sudah !== [], fn ($q) => $q->whereNotIn('d.lmdId', $sudah))
+            ->orderByDesc('b.lmcCreateTime')
+            ->orderBy('d.lmdId')
+            ->get([
+                'd.lmdId as kunci', 'b.lmcId as keranjang', 'b.lmcCreateTime as tanggal', 'b.lmcTotalPrice as totalKeranjang',
+                'a.medCode as noResep', 'e.IID as item', 'e.IKODE as kode', 'e.INAMA as nama', 'e.IJENISITEM as jenis',
+                'd.lmdQuantity as qty', 'd.lmdPrice as harga', 'd.lmdGrandPrice as subtotal', 'd.lmdType as tipe',
+                DB::raw('CASE WHEN d.lmdPrice > 0 THEN (d.lmdPrice - COALESCE(d.lmdDiscount, d.lmdPrice)) / d.lmdPrice * 100 ELSE 0 END as diskonPersen'),
+                'dr.KID as dokterId', 'dr.KNAMA as dokter', 'pro.KID as proId', 'pro.KNAMA as proNama',
+                'pmd.MPDID as promoId', 'pmu.MPUKODE as promoKode',
+                'pu.PUID as paketU', 'pd.PDID as paketD', 'pu.PUKODE as paketKode', 'pu.PUJUMLAH as paketJumlah',
+            ]);
+    }
+
+    /** Centang/lepas semua baris SATU keranjang (keranjang pertama yg tampil kalau belum ada yg dicentang). */
+    public function pilihKeranjangPro(int $lmcId): void
+    {
+        $ids = $this->proRows()->where('keranjang', $lmcId)->pluck('kunci')->map(fn ($k) => (string) $k)->all();
+        $this->proPilih = array_values(array_diff($ids, $this->proPilih)) === [] ? [] : $ids;
+    }
+
+    /**
+     * Masukkan baris terpilih - port VB6 `TampilkanDetail_PRO` / `_Belum_Bayar`:
+     *   - tiap baris: harga & diskon dari keranjang PRO, promo/paket ikut, ID asal
+     *     SDPROIDU (keranjang) & SDPROIDD (baris)
+     *   - PRO: lmdType 'add_on' -> SDPRO (operator 2), selain itu -> SDPRORECOM (perekomendasi)
+     *   - dokter hanya utk tindakan (jenis 1/4/6/10); operator & No Ref diisi kasir (dialog
+     *     Operator/Dokter dibuka otomatis, spt menambah tindakan biasa)
+     *   - ada PRODUK (jenis 0) -> + "RESEP SKIN CARE" (qty = jumlah qty, No IC "000")
+     *   - keranjang sudah dibayar -> Merchant DOKU = total keranjang (`lmcTotalPrice`)
+     */
+    public function pilihPro(): void
+    {
+        $rows = $this->proRows()->filter(fn ($r) => in_array((string) $r->kunci, $this->proPilih, true))->values();
+        if ($rows->isEmpty()) {
+            $this->addError('pro', 'Centang minimal satu baris.');
+
+            return;
+        }
+        $keranjang = $rows->pluck('keranjang')->unique();
+        $lainDiKeranjang = collect($this->cart)->pluck('sdproidu')->filter()->unique()->reject(fn ($v) => (int) $v === (int) $keranjang->first());
+        if ($keranjang->count() > 1 || $lainDiKeranjang->isNotEmpty()) {
+            $this->addError('pro', 'Satu transaksi hanya untuk SATU keranjang PRO - pilih baris dari keranjang yang sama.');
+
+            return;
+        }
+
+        $branch = $this->branch();
+        $stokCol = $branch ? $this->stokColumn((int) $branch->GID) : 'ISTOKPG';
+        $meta = DB::table('bitem')->whereIn('IID', $rows->pluck('item')->unique()->all())
+            ->get(['IID', 'ISATUAN', 'ITIPEITEM', 'IJENISITEM', DB::raw("{$stokCol} AS stok")])->keyBy('IID');
+        $akhir = $rows->last();
+        $baruMulai = count($this->cart);
+
+        foreach ($rows as $r) {
+            $tindakan = in_array((int) $r->jenis, self::JENIS_PERLU_OPERATOR, true);
+            $l = $this->barisMedlib((int) $r->item, (string) $r->kode, (string) $r->nama, (float) $r->qty, (float) $r->harga,
+                round((float) $r->diskonPersen, 6), $meta[(int) $r->item] ?? null,
+                $tindakan && $r->dokterId ? (int) $r->dokterId : null, $tindakan ? $r->dokter : null, '');
+            $paketBanyak = (float) $r->paketJumlah > 1;
+
+            $this->cart[] = array_merge($l, [
+                // Operator & No Ref/IC diisi kasir - bukan dari keranjang PRO.
+                'sdkaryawan' => null, 'sdkaryawan_label' => null, 'sdnoref' => null, 'sdlantai2' => null,
+                'sdidpromo' => $r->promoId ? (int) $r->promoId : null, 'promo_label' => $r->promoKode,
+                'sddaripaket' => $paketBanyak ? 1 : 0,
+                'sdidpotongstok' => $r->paketU ? (int) $r->paketU : null, 'sdsodurutan' => $r->paketD ? (int) $r->paketD : null,
+                'paket_label' => $r->paketKode, 'sdpaket_pasien' => $paketBanyak ? (int) $this->custId : null,
+                'sdpro' => $r->tipe === 'add_on' && $r->proId ? (int) $r->proId : null,
+                'sdprorecom' => $r->tipe !== 'add_on' && $r->proId ? (int) $r->proId : null,
+                'sdproidu' => (int) $r->keranjang, 'sdproidd' => (int) $r->kunci,
+                'medlib' => false, 'pro' => true,
+            ]);
+        }
+
+        if ($rows->contains(fn ($r) => (int) $r->jenis === 0)) {
+            $this->tambahItemPendukung('RESEP SKIN CARE', (float) $rows->sum('qty'), null,
+                $akhir->dokterId ? (int) $akhir->dokterId : null, $akhir->dokter, (string) $akhir->noResep);
+        }
+        if ($this->proTab === 'bayar') {
+            $this->pay['merchant'] = ['jumlah' => (float) $akhir->totalKeranjang, 'no' => (string) $akhir->noResep, 'jenis' => 'DOKU'];
+        }
+        $this->suLmcId = (int) $akhir->keranjang;
+
+        $this->closeProModal();
+        $this->dispatch('pos-toast', msg: $rows->count() . ' item PRO ditambahkan ke keranjang.', type: 'success');
+
+        // Tindakan dari PRO belum ber-operator/No Ref -> buka dialognya spt menambah tindakan biasa.
+        $perlu = [];
+        foreach ($this->cart as $i => $c) {
+            if ($i >= $baruMulai && ! empty($c['pro']) && in_array((int) ($c['jenisitem'] ?? -1), self::JENIS_PERLU_OPERATOR, true)) {
+                $perlu[] = $i;
+            }
+        }
+        if ($perlu !== []) {
+            $this->startOdFlowForLines($perlu);
+        }
     }
 
     /* ---------------- Modal Pembayaran ---------------- */
@@ -1355,7 +1943,11 @@ class PosTerminal extends Component
             + (float) $this->pay['transfer']['jumlah']
             + (float) $this->pay['merchant']['jumlah']
             + (float) $this->pay['voucher']['jumlah']
-            + (float) $this->pay['dp']['jumlah'],
+            + (float) $this->pay['dp']['jumlah']
+            // Surgery - sama dgn VB6 `JumlahSubTOtal`: piutang & "sudah dibayar" nota
+            // sebelumnya ikut menutup tagihan (bukan uang yg diterima hari ini).
+            + (float) $this->pay['piutang']
+            + ($this->surgeryIdu ? $this->surgeryPembayaran : 0),
             2
         );
     }
@@ -2834,6 +3426,65 @@ class PosTerminal extends Component
             }
         }
 
+        return $this->validasiSurgery();
+    }
+
+    /**
+     * Aturan pembayaran SURGERY (lihat `App\Services\Surgery`):
+     *  - Piutang HANYA utk transaksi yg dicentang Surgery - di POS biasa tidak ada piutang.
+     *  - Nota surgery yg ditarik dicek ULANG dari DB (bukan dipercaya dari properti Livewire
+     *    yg bisa diubah lewat request): masih milik pasien ini, belum dilanjutkan nota lain,
+     *    belum lunas. "Sudah dibayar"-nya juga dihitung ulang dari DB.
+     *  - Total tidak boleh di bawah yg sudah dibayar, dan piutang tidak boleh membuat
+     *    pembayaran melebihi tagihan (sisa = piutang, bukan kembalian).
+     */
+    private function validasiSurgery(): bool
+    {
+        $piutang = (float) $this->pay['piutang'];
+
+        if ($piutang < 0) {
+            $this->addError('pay.piutang', 'Piutang tidak boleh minus.');
+
+            return false;
+        }
+        if (! $this->surgery) {
+            if ($piutang > 0) {
+                $this->addError('pay.piutang', 'Piutang hanya untuk transaksi Surgery - centang "Surgery" dulu.');
+
+                return false;
+            }
+            $this->resetSurgeryLink();
+
+            return true;
+        }
+
+        if ($this->surgeryIdu) {
+            $nota = $this->surgeryResults()->firstWhere('id', $this->surgeryIdu);
+            if (! $nota) {
+                $this->addError('surgery', 'Nota surgery ' . $this->surgeryNo . ' tidak bisa dilanjutkan lagi (sudah dilanjutkan nota lain, lunas, atau bukan milik pasien ini). Tarik ulang No IP Surgery.');
+                $this->resetSurgeryLink();
+
+                return false;
+            }
+            $this->surgeryTotal = (float) $nota->total;
+            $this->surgeryPiutang = (float) $nota->piutang;
+            $this->surgeryPembayaran = (float) $nota->dibayar;
+
+            if ($this->grandTotal() + 0.001 < $this->surgeryPembayaran) {
+                $this->addError('surgery', 'Total transaksi (' . number_format($this->grandTotal(), 0, ',', '.')
+                    . ') lebih kecil dari yang sudah dibayar (' . number_format($this->surgeryPembayaran, 0, ',', '.') . ').');
+
+                return false;
+            }
+        }
+
+        if ($piutang > 0 && $this->totalBayar() > $this->grandTotal() + 0.001) {
+            $this->addError('pay.piutang', 'Piutang melebihi sisa tagihan - maksimal '
+                . number_format(max(0, $this->grandTotal() - ($this->totalBayar() - $piutang)), 0, ',', '.') . '.');
+
+            return false;
+        }
+
         return true;
     }
 
@@ -2943,6 +3594,43 @@ class PosTerminal extends Component
             }
         }
 
+        // Keranjang PRO: masih milik pasien ini & belum masuk DIAS. Transaksi yg sedang di-Edit
+        // boleh - `lmcDiasIP` keranjangnya memang berisi nomor transaksi lama itu.
+        $keranjangPro = collect($this->cart)->pluck('sdproidu')->filter()->unique()->values();
+        if ($keranjangPro->count() > 1) {
+            $this->addError('cart', 'Satu transaksi hanya untuk satu keranjang PRO.');
+
+            return;
+        }
+        if ($keranjangPro->isNotEmpty()) {
+            $k = DB::table('official_nmw.log_medlib_cart')->where('lmcId', $keranjangPro->first())->first(['lmcPatientKID', 'lmcDiasIP']);
+            $dias = trim((string) ($k->lmcDiasIP ?? ''));
+            if (! $k || (int) $k->lmcPatientKID !== (int) $this->custId || ($dias !== '' && $dias !== (string) $this->editingFromNomor)) {
+                $this->addError('cart', 'Keranjang PRO sudah masuk DIAS (' . ($dias ?: '-') . ') atau bukan milik pasien ini - hapus barisnya lalu Tarik PRO ulang.');
+
+                return;
+            }
+        }
+
+        // Invoice Medlib: masih milik pasien ini & belum masuk DIAS (kasir lain bisa saja sudah
+        // menyimpannya sejak ditarik). Invoice dari transaksi yg sedang di-Edit dikecualikan -
+        // ivhStatusDIAS-nya memang sudah 1 oleh transaksi lama itu.
+        $invoiceIds = array_values(array_unique(array_filter(array_column($this->cart, 'sdprdid'))));
+        if ($invoiceIds !== []) {
+            $milikEdit = $this->editingFromId
+                ? DB::table('fstokd')->where('SDIDSU', $this->editingFromId)->whereNotNull('SDPRDID')->pluck('SDPRDID')->map(fn ($v) => (int) $v)->all()
+                : [];
+            $bentrok = DB::table('official_nmw.ops_invoice_header')->whereIn('ivhId', $invoiceIds)
+                ->where(fn ($w) => $w->where('ivhKID', '<>', $this->custId)
+                    ->orWhere(fn ($x) => $x->where('ivhStatusDIAS', '<>', 0)->when($milikEdit !== [], fn ($y) => $y->whereNotIn('ivhId', $milikEdit))))
+                ->pluck('ivhCode')->all();
+            if ($bentrok !== []) {
+                $this->addError('cart', 'Invoice Medlib ' . implode(', ', $bentrok) . ' sudah masuk DIAS atau bukan milik pasien ini - hapus barisnya lalu Tarik Medlib ulang.');
+
+                return;
+            }
+        }
+
         $tgl = now()->toDateString();
         $stokCol = $this->stokColumn((int) $branch->GID);
         $ids = array_column($this->cart, 'item');
@@ -3008,6 +3696,17 @@ class PosTerminal extends Component
                 'SDCATATANKOLI'   => $l['sdcatatankoli'] ?? null,
                 'SDKEDATANGAN'    => $l['sdkedatangan'] ?? null,
                 'SDSODURUTAN'     => $l['sdsodurutan'] ?? null,
+                // Tarik Medlib - ID asal di official_nmw (lihat `pilihMedlib()`). SDPRDID
+                // dipakai trigger `fstokd_add` utk menandai invoice `ivhStatusDIAS = 1`.
+                'SDSODID'         => $l['sdsodid'] ?? null,
+                'SDPRDID'         => $l['sdprdid'] ?? null,
+                'SDMEDIDU'        => $l['sdmedidu'] ?? null,
+                'SDMEDIDD'        => $l['sdmedidd'] ?? null,
+                // Tarik PRO - lihat `pilihPro()`.
+                'SDPRO'           => $l['sdpro'] ?? null,
+                'SDPRORECOM'      => $l['sdprorecom'] ?? null,
+                'SDPROIDU'        => $l['sdproidu'] ?? null,
+                'SDPROIDD'        => $l['sdproidd'] ?? null,
             ];
         }
 
@@ -3073,8 +3772,8 @@ class PosTerminal extends Component
             'SUDPID'             => $dp['sdid'] ?: null,
             'SUJENISDP'          => $dp['jenis'] ?: null,
             'SUPROMO'            => $this->promos !== [] ? implode(', ', $this->promos) : null,
-            // "Data Lainnya" - lihat komentar $showOtherDataModal. SUIDMEDLIB/SULMCID (ID
-            // Medlib/ID PRO) SENGAJA TIDAK ditulis dari sini - readonly, rujukan sistem lain.
+            // "Data Lainnya" - lihat komentar $showOtherDataModal. SUIDMEDLIB (ID Medlib) TIDAK
+            // ditulis dari sini - rujukan sistem lain. SULMCID ditulis di bawah (Tarik PRO).
             'SUREKHUTANG'        => $this->suTraining ?: null,
             'SUFARMASI'          => $this->suFarmasi ?: null,
             'SUFARMASIASISTEN'   => $this->suFarmasiAsisten ?: null,
@@ -3086,6 +3785,19 @@ class PosTerminal extends Component
             'SUREVIEWCATATAN'    => $this->suReviewCatatan ?: null,
             'SUKONUL'            => $this->suKonsulSaja ? 1 : 0,
             'SUKONSULKEMARIN'    => $this->suKonsulKemarin ? 1 : 0,
+            // Tarik PRO - keranjang yg ditarik (`pilihPro()`); trigger `fstoku_add` mengisi
+            // `log_medlib_cart.lmcDiasIP`. Diambil dari baris keranjang, bukan properti, supaya
+            // keranjang yg barisnya sudah dihapus kasir tidak ikut ditandai. Edit transaksi lama
+            // tanpa baris PRO tetap membawa SULMCID aslinya.
+            'SULMCID'            => collect($this->cart)->pluck('sdproidu')->filter()->first() ?: ($this->editingFromId ? $this->suLmcId : null),
+            // Surgery - kolom & isi SAMA dgn VB6 `eFrmPOS2` (lihat komentar `$surgery`).
+            // Nilai nota sebelumnya sudah dihitung ulang dari DB di `validasiSurgery()`.
+            'SUNILAIPIUTANG'        => $this->surgery ? (float) $this->pay['piutang'] : 0,
+            'SUSURGERYDP'           => $this->surgery ? 1 : 0,
+            'SUSURGERYDPIDU'        => $this->surgery ? $this->surgeryIdu : null,
+            'SUSURGERYDPPEMBAYARAN' => $this->surgery && $this->surgeryIdu ? $this->surgeryPembayaran : 0,
+            'SUSURGERYDPTOTAL'      => $this->surgery && $this->surgeryIdu ? $this->surgeryTotal : 0,
+            'SUSURGERYDPPIUTANG'    => $this->surgery && $this->surgeryIdu ? $this->surgeryPiutang : 0,
             'SUCREATEU'          => auth()->id(),
         ];
 
@@ -3142,6 +3854,7 @@ class PosTerminal extends Component
         $this->showPaketNomorModal = false;
         $this->showPaketTarikModal = false;
         $this->resetPaketState();
+        $this->resetSurgery();
         // Dialog bayar ditutup HANYA di sini - kalau checkout() berhenti karena validasi, dialog
         // sengaja dibiarkan terbuka supaya pesan kesalahannya terbaca di tempat isiannya.
         $this->showPayModal = false;
@@ -3237,49 +3950,18 @@ class PosTerminal extends Component
             return; // bukan transaksi POS / bukan input kasir yg login
         }
 
-        $lines = DB::table('fstokd as d')
-            ->leftJoin('bitem as i', 'i.IID', '=', 'd.SDITEM')
-            ->where('d.SDIDSU', $id)
-            ->orderBy('d.SDURUTAN')
-            ->get([
-                'd.SDITEM', 'd.SDKELUAR', 'd.SDHARGA', 'd.SDDISKONPERSEN', 'd.SDDISKONPERSEN2',
-                'd.SDSATUAN', 'd.SDKARYAWAN', 'd.SDDOKTER', 'd.SDNOREF', 'd.SDLANTAI2', 'd.SDIDPROMO',
-                'd.SDDARIPAKET', 'd.SDIDPOTONGSTOK', 'd.SDCATATANKOLI', 'd.SDKEDATANGAN', 'd.SDSODURUTAN',
-                'i.IKODE', 'i.INAMA', 'i.ITIPEITEM', 'i.IJENISITEM',
-            ]);
+        // Nota surgery yg SUDAH dilanjutkan nota berikutnya tidak boleh di-Edit: Edit
+        // membatalkan nota ini & membuat nomor baru, sehingga nota lanjutannya menunjuk nota
+        // batal dan rantai cicilannya putus.
+        if (DB::table('fstoku')->where('SUSURGERYDPIDU', $id)->where('SUSTATUS', '<>', 9)->exists()) {
+            $this->dispatch('pos-toast', msg: 'Nota ' . $header->SUNOTRANSAKSI . ' sudah dilanjutkan cicilan surgery berikutnya - tidak bisa diedit.', type: 'warning');
 
-        if ($lines->isEmpty()) {
             return;
         }
 
-        $branch = $this->branch();
-        $stokCol = $branch ? $this->stokColumn((int) $branch->GID) : 'ISTOKPG';
-
-        $opIds = $lines->pluck('SDKARYAWAN')->merge($lines->pluck('SDDOKTER'))->filter()->unique()->values()->all();
-        $namaMap = [];
-        if ($opIds !== []) {
-            foreach (DB::table('bkontak')->whereIn('KID', $opIds)->get(['KID', 'KNAMA']) as $row) {
-                $namaMap[(int) $row->KID] = $row->KNAMA;
-            }
+        if (! DB::table('fstokd')->where('SDIDSU', $id)->exists()) {
+            return;
         }
-
-        // Label promo per baris kombinasi (MPDID -> MPUKODE) - info tampilan saja, MPDID
-        // sendiri (SDIDPROMO) yg jadi sumber kebenaran & ditulis ulang persis saat disimpan.
-        $mpdIds = $lines->pluck('SDIDPROMO')->filter()->unique()->values()->all();
-        $promoLabelMap = [];
-        if ($mpdIds !== []) {
-            foreach (DB::table('emasterpromod as d')->join('emasterpromou as u', 'u.MPUID', '=', 'd.MPDIDU')
-                ->whereIn('d.MPDID', $mpdIds)->get(['d.MPDID', 'u.MPUKODE']) as $row) {
-                $promoLabelMap[(int) $row->MPDID] = $row->MPUKODE;
-            }
-        }
-
-        // Label paket per baris asal-paket (PUID -> PUKODE) - info tampilan saja, sama pola spt
-        // $promoLabelMap di atas (kolom asli SDIDPOTONGSTOK/dst yg jadi sumber kebenaran).
-        $puIds = $lines->pluck('SDIDPOTONGSTOK')->filter()->unique()->values()->all();
-        $paketLabelMap = $puIds !== []
-            ? DB::table('epaketu')->whereIn('PUID', $puIds)->pluck('PUKODE', 'PUID')
-            : collect();
 
         // Pelanggan diset DULU selagi cart masih kosong - pickCustomer()/clearCustomer() memanggil
         // applyMemberDiscount() yg no-op kalau cart kosong, supaya dis1/dis2 asli transaksi lama
@@ -3297,50 +3979,7 @@ class PosTerminal extends Component
             $this->clearCustomer();
         }
 
-        foreach ($lines as $l) {
-            // Stok saat ini - BELUM termasuk pengembalian qty transaksi lama (baru dikembalikan
-            // saat checkout benar2 disimpan). Nilai ini murni informatif di tampilan keranjang;
-            // validasi stok yg sesungguhnya di checkout() sudah dikompensasi dgn qty lama.
-            $stokSekarang = $branch ? (float) (DB::table('bitem')->where('IID', $l->SDITEM)->value($stokCol) ?? 0) : 0.0;
-
-            $this->cart[] = [
-                'item'             => (int) $l->SDITEM,
-                'kode'             => $l->IKODE,
-                'nama'             => $l->INAMA,
-                'qty'              => (float) $l->SDKELUAR,
-                'harga'            => (float) $l->SDHARGA,
-                'dis1'             => (float) $l->SDDISKONPERSEN,
-                'dis2'             => (float) $l->SDDISKONPERSEN2,
-                'satuan'           => $l->SDSATUAN ? (int) $l->SDSATUAN : null,
-                'tipe'             => (int) $l->ITIPEITEM,
-                'stok'             => $stokSekarang,
-                'jenisitem'        => (int) $l->IJENISITEM,
-                'sdkaryawan'       => $l->SDKARYAWAN ? (int) $l->SDKARYAWAN : null,
-                'sdkaryawan_label' => $l->SDKARYAWAN ? ($namaMap[(int) $l->SDKARYAWAN] ?? null) : null,
-                'sddokter'         => $l->SDDOKTER ? (int) $l->SDDOKTER : null,
-                'sddokter_label'   => $l->SDDOKTER ? ($namaMap[(int) $l->SDDOKTER] ?? null) : null,
-                'sdnoref'          => $l->SDNOREF,
-                'sdlantai2'        => $l->SDLANTAI2,
-                'sdidpromo'        => $l->SDIDPROMO ? (int) $l->SDIDPROMO : null,
-                'promo_label'      => $l->SDIDPROMO ? ($promoLabelMap[(int) $l->SDIDPROMO] ?? null) : null,
-                // Heuristik tampilan saja (tidak ada kolom "is_bonus" di fstokd): baris hasil
-                // "Item Bonus" promo Biasa SELALU disimpan SDHARGA=0 - kalau ada sdidpromo DAN
-                // harga 0, anggap itu baris bonus. Jarang salah (harga 0 tanpa promo = bukan
-                // bonus krn sdidpromo null; harga 0 DENGAN promo hampir selalu memang bonus).
-                'is_bonus'         => $l->SDIDPROMO && (float) $l->SDHARGA === 0.0,
-                'sddaripaket'      => (int) $l->SDDARIPAKET,
-                'sdidpotongstok'   => $l->SDIDPOTONGSTOK ? (int) $l->SDIDPOTONGSTOK : null,
-                'sdcatatankoli'    => $l->SDCATATANKOLI,
-                'sdkedatangan'     => $l->SDKEDATANGAN !== null ? (int) $l->SDKEDATANGAN : null,
-                'sdsodurutan'      => $l->SDSODURUTAN ? (int) $l->SDSODURUTAN : null,
-                'paket_label'      => $l->SDIDPOTONGSTOK ? ($paketLabelMap[(int) $l->SDIDPOTONGSTOK] ?? null) : null,
-                // Pasien SAAT INI (bukan disimpan di fstokd) - $header->SUKONTAK dipakai krn
-                // pickCustomer() sudah dipanggil DULU dgn nilai yg sama persis sblm loop ini
-                // (lihat komentar di atas), jadi custId skrg = pasien asli transaksi ini.
-                'sdpaket_pasien'   => (int) $l->SDDARIPAKET === 1 ? (int) $header->SUKONTAK : null,
-            ];
-        }
-
+        $this->cart = $this->barisDariTransaksi($id, (int) $header->SUKONTAK);
         $this->catatan = $header->SUCATATAN;
         $this->rekamMedis = $header->SUREKAMMEDIS;
 
@@ -3400,7 +4039,18 @@ class PosTerminal extends Component
                     ->where('d.SDID', $header->SUDPID)->value('i.INAMA') : null,
                 'jenis'     => $header->SUJENISDP,
             ],
+            'piutang' => (float) $header->SUNILAIPIUTANG,
         ];
+
+        // Surgery - dimuat apa adanya; dicek ulang terhadap DB saat disimpan (`validasiSurgery()`).
+        $this->surgery = (int) $header->SUSURGERYDP !== 0;
+        $this->surgeryIdu = $header->SUSURGERYDPIDU ? (int) $header->SUSURGERYDPIDU : null;
+        $this->surgeryNo = $this->surgeryIdu
+            ? (string) DB::table('fstoku')->where('SUID', $this->surgeryIdu)->value('SUNOTRANSAKSI') : null;
+        $this->surgeryTotal = (float) $header->SUSURGERYDPTOTAL;
+        $this->surgeryPembayaran = (float) $header->SUSURGERYDPPEMBAYARAN;
+        $this->surgeryPiutang = (float) $header->SUSURGERYDPPIUTANG;
+        $this->showSurgeryModal = false;
 
         $this->lastReceipt = [];
         $this->showHistoryModal = false;
@@ -3408,6 +4058,123 @@ class PosTerminal extends Component
         $this->editingFromNomor = $header->SUNOTRANSAKSI;
 
         activity_log('edit_start', 'sales/pos', $id, 'Transaksi ' . $header->SUNOTRANSAKSI . ' dimuat ulang ke keranjang utk diedit (belum dibatalkan - menunggu disimpan).');
+    }
+
+
+    /**
+     * Baris `fstokd` satu transaksi -> baris keranjang POS. Dipakai `editTransaction()` DAN
+     * tarik "No IP Surgery" (`pilihSurgery()`) supaya keduanya memetakan kolom persis sama.
+     *
+     * Pemanggil WAJIB sudah memilih pasien (`pickCustomer()`) SEBELUM memasang hasilnya ke
+     * `$this->cart` - lihat komentar "Pelanggan diset DULU" di `editTransaction()`.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function barisDariTransaksi(int $suid, int $pasienId): array
+    {
+        $lines = DB::table('fstokd as d')
+            ->leftJoin('bitem as i', 'i.IID', '=', 'd.SDITEM')
+            ->where('d.SDIDSU', $suid)
+            ->orderBy('d.SDURUTAN')
+            ->get([
+                'd.SDITEM', 'd.SDKELUAR', 'd.SDHARGA', 'd.SDDISKONPERSEN', 'd.SDDISKONPERSEN2',
+                'd.SDSATUAN', 'd.SDKARYAWAN', 'd.SDDOKTER', 'd.SDNOREF', 'd.SDLANTAI2', 'd.SDIDPROMO',
+                'd.SDDARIPAKET', 'd.SDIDPOTONGSTOK', 'd.SDCATATANKOLI', 'd.SDKEDATANGAN', 'd.SDSODURUTAN',
+                'd.SDSODID', 'd.SDPRDID', 'd.SDMEDIDU', 'd.SDMEDIDD',
+                'd.SDPRO', 'd.SDPRORECOM', 'd.SDPROIDU', 'd.SDPROIDD',
+                'i.IKODE', 'i.INAMA', 'i.ITIPEITEM', 'i.IJENISITEM',
+            ]);
+
+        if ($lines->isEmpty()) {
+            return [];
+        }
+
+        $branch = $this->branch();
+        $stokCol = $branch ? $this->stokColumn((int) $branch->GID) : 'ISTOKPG';
+
+        $opIds = $lines->pluck('SDKARYAWAN')->merge($lines->pluck('SDDOKTER'))->filter()->unique()->values()->all();
+        $namaMap = [];
+        if ($opIds !== []) {
+            foreach (DB::table('bkontak')->whereIn('KID', $opIds)->get(['KID', 'KNAMA']) as $row) {
+                $namaMap[(int) $row->KID] = $row->KNAMA;
+            }
+        }
+
+        // Label promo per baris kombinasi (MPDID -> MPUKODE) - info tampilan saja, MPDID
+        // sendiri (SDIDPROMO) yg jadi sumber kebenaran & ditulis ulang persis saat disimpan.
+        $mpdIds = $lines->pluck('SDIDPROMO')->filter()->unique()->values()->all();
+        $promoLabelMap = [];
+        if ($mpdIds !== []) {
+            foreach (DB::table('emasterpromod as d')->join('emasterpromou as u', 'u.MPUID', '=', 'd.MPDIDU')
+                ->whereIn('d.MPDID', $mpdIds)->get(['d.MPDID', 'u.MPUKODE']) as $row) {
+                $promoLabelMap[(int) $row->MPDID] = $row->MPUKODE;
+            }
+        }
+
+        // Label paket per baris asal-paket (PUID -> PUKODE) - info tampilan saja, sama pola spt
+        // $promoLabelMap di atas (kolom asli SDIDPOTONGSTOK/dst yg jadi sumber kebenaran).
+        $puIds = $lines->pluck('SDIDPOTONGSTOK')->filter()->unique()->values()->all();
+        $paketLabelMap = $puIds !== []
+            ? DB::table('epaketu')->whereIn('PUID', $puIds)->pluck('PUKODE', 'PUID')
+            : collect();
+
+        $hasil = [];
+        foreach ($lines as $l) {
+            // Stok saat ini - BELUM termasuk pengembalian qty transaksi lama (baru dikembalikan
+            // saat checkout benar2 disimpan). Nilai ini murni informatif di tampilan keranjang;
+            // validasi stok yg sesungguhnya di checkout() sudah dikompensasi dgn qty lama.
+            $stokSekarang = $branch ? (float) (DB::table('bitem')->where('IID', $l->SDITEM)->value($stokCol) ?? 0) : 0.0;
+
+            $hasil[] = [
+                'item'             => (int) $l->SDITEM,
+                'kode'             => $l->IKODE,
+                'nama'             => $l->INAMA,
+                'qty'              => (float) $l->SDKELUAR,
+                'harga'            => (float) $l->SDHARGA,
+                'dis1'             => (float) $l->SDDISKONPERSEN,
+                'dis2'             => (float) $l->SDDISKONPERSEN2,
+                'satuan'           => $l->SDSATUAN ? (int) $l->SDSATUAN : null,
+                'tipe'             => (int) $l->ITIPEITEM,
+                'stok'             => $stokSekarang,
+                'jenisitem'        => (int) $l->IJENISITEM,
+                'sdkaryawan'       => $l->SDKARYAWAN ? (int) $l->SDKARYAWAN : null,
+                'sdkaryawan_label' => $l->SDKARYAWAN ? ($namaMap[(int) $l->SDKARYAWAN] ?? null) : null,
+                'sddokter'         => $l->SDDOKTER ? (int) $l->SDDOKTER : null,
+                'sddokter_label'   => $l->SDDOKTER ? ($namaMap[(int) $l->SDDOKTER] ?? null) : null,
+                'sdnoref'          => $l->SDNOREF,
+                'sdlantai2'        => $l->SDLANTAI2,
+                'sdidpromo'        => $l->SDIDPROMO ? (int) $l->SDIDPROMO : null,
+                'promo_label'      => $l->SDIDPROMO ? ($promoLabelMap[(int) $l->SDIDPROMO] ?? null) : null,
+                // Heuristik tampilan saja (tidak ada kolom "is_bonus" di fstokd): baris hasil
+                // "Item Bonus" promo Biasa SELALU disimpan SDHARGA=0 - kalau ada sdidpromo DAN
+                // harga 0, anggap itu baris bonus. Jarang salah (harga 0 tanpa promo = bukan
+                // bonus krn sdidpromo null; harga 0 DENGAN promo hampir selalu memang bonus).
+                'is_bonus'         => $l->SDIDPROMO && (float) $l->SDHARGA === 0.0,
+                'sddaripaket'      => (int) $l->SDDARIPAKET,
+                'sdidpotongstok'   => $l->SDIDPOTONGSTOK ? (int) $l->SDIDPOTONGSTOK : null,
+                'sdcatatankoli'    => $l->SDCATATANKOLI,
+                'sdkedatangan'     => $l->SDKEDATANGAN !== null ? (int) $l->SDKEDATANGAN : null,
+                'sdsodurutan'      => $l->SDSODURUTAN ? (int) $l->SDSODURUTAN : null,
+                'paket_label'      => $l->SDIDPOTONGSTOK ? ($paketLabelMap[(int) $l->SDIDPOTONGSTOK] ?? null) : null,
+                // Pasien SAAT INI (bukan disimpan di fstokd) - `$pasienId` = pasien yg sudah dipilih krn
+                // pickCustomer() sudah dipanggil DULU dgn nilai yg sama persis sblm loop ini
+                // (lihat komentar di atas), jadi custId skrg = pasien asli transaksi ini.
+                'sdpaket_pasien'   => (int) $l->SDDARIPAKET === 1 ? $pasienId : null,
+                // ID asal Tarik Medlib - dibawa ulang supaya Edit tetap menandai invoice yg sama.
+                'sdsodid'          => $l->SDSODID ? (int) $l->SDSODID : null,
+                'sdprdid'          => $l->SDPRDID ? (int) $l->SDPRDID : null,
+                'sdmedidu'         => $l->SDMEDIDU ? (int) $l->SDMEDIDU : null,
+                'sdmedidd'         => $l->SDMEDIDD ? (int) $l->SDMEDIDD : null,
+                'medlib'           => $l->SDPRDID || $l->SDMEDIDD,
+                'sdpro'            => $l->SDPRO ? (int) $l->SDPRO : null,
+                'sdprorecom'       => $l->SDPRORECOM ? (int) $l->SDPRORECOM : null,
+                'sdproidu'         => $l->SDPROIDU ? (int) $l->SDPROIDU : null,
+                'sdproidd'         => $l->SDPROIDD ? (int) $l->SDPROIDD : null,
+                'pro'              => (bool) $l->SDPROIDD,
+            ];
+        }
+
+        return $hasil;
     }
 
     public function render()
@@ -3423,6 +4190,10 @@ class PosTerminal extends Component
         $dpResults = $this->showDpModal ? $this->dpSearchResults() : collect();
         $promoResults = $this->showPromoModal ? $this->promoSearchResults() : collect();
         $paketResults = $this->showPaketModal ? $this->paketSearchResults() : collect();
+        $surgeryResults = $this->showSurgeryModal ? $this->surgeryResults() : collect();
+        $proRows = $this->showProModal ? $this->proRows() : collect();
+        $medlibRows = ! $this->showMedlibModal ? collect()
+            : ($this->medlibTab === 'invoice' ? $this->medlibInvoiceRows() : $this->medlibResepRows());
         $kombinasiRows = $this->showKombinasiModal ? $this->kombinasiRows() : collect();
 
         // Baris "Terapkan Kombinasi": hitung harga & subtotal per slot (murni tampilan,
@@ -3473,6 +4244,9 @@ class PosTerminal extends Component
             'dpResults'       => $dpResults,
             'promoResults'    => $promoResults,
             'paketResults'    => $paketResults,
+            'surgeryResults'  => $surgeryResults,
+            'medlibRows'      => $medlibRows,
+            'proRows'         => $proRows,
             'kombinasiRows'   => $kombinasiRows,
             'kombApplyRows'   => $kombApplyRows,
             'kombApplyTotal'  => $kombApplyTotal,

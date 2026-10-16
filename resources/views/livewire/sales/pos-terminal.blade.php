@@ -115,6 +115,12 @@
                                             @if ($line['kode'] !== $line['nama'])
                                                 <div class="text-muted small">{{ $line['kode'] }}</div>
                                             @endif
+                                            @if (! empty($line['medlib']))
+                                                <div class="small text-primary mt-1"><i class="fas fa-notes-medical me-1"></i>Medlib</div>
+                                            @endif
+                                            @if (! empty($line['pro']))
+                                                <div class="small text-primary mt-1"><i class="fas fa-user-tag me-1"></i>PRO</div>
+                                            @endif
                                             @if (! empty($line['sdidpromo']))
                                                 <div class="small text-success mt-1">
                                                     <i class="fas fa-tag me-1"></i>Promo: {{ $line['promo_label'] ?? '—' }}
@@ -254,6 +260,38 @@
                                 <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
+
+                        {{-- SURGERY (cicilan) - alur VB6 eFrmPOS2: centang "Surgery" di SEMUA nota
+                             surgery; nota lanjutan menarik nota sebelumnya lewat "No IP Surgery".
+                             Aturan lengkap di App\Services\Surgery. --}}
+                        <div class="mt-3 border-top pt-2">
+                            <div class="form-check form-switch mb-1">
+                                <input type="checkbox" class="form-check-input" id="pos-surgery" wire:model.live="surgery">
+                                <label class="form-check-label small fw-semibold" for="pos-surgery">Surgery</label>
+                            </div>
+                            @if ($surgery)
+                                @if ($surgeryIdu)
+                                    <div class="border rounded p-2 small bg-light">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div>
+                                                <div class="fw-semibold">Lanjutan dari {{ $surgeryNo }}</div>
+                                                <div class="text-muted">Sudah dibayar {{ number_format($surgeryPembayaran, 0, ',', '.') }}
+                                                    &middot; sisa {{ number_format($surgeryPiutang, 0, ',', '.') }}</div>
+                                            </div>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" wire:click="lepasSurgery"
+                                                    title="Batalkan tarikan nota (isi keranjang tidak dihapus)">Lepas</button>
+                                        </div>
+                                    </div>
+                                @else
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100 text-start" wire:click="openSurgeryModal">
+                                        <i class="fas fa-user-doctor me-1"></i> No IP Surgery…
+                                        <span class="text-muted">(cicilan berikutnya)</span>
+                                    </button>
+                                    <div class="form-text">Nota pertama: isi tindakan lengkap, sisa pembayaran diisi di kolom <strong>Piutang</strong>.</div>
+                                @endif
+                            @endif
+                            @error('surgery') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+                        </div>
                     </div>
                 </div>
 
@@ -286,6 +324,18 @@
                             <i class="fas fa-boxes-packing me-1"></i> Daftar Paket
                             <kbd class="float-end">F11</kbd>
                         </button>
+                        {{-- Tarik Medlib - port VB6 cmdTarikMedlib_Click: invoice/resep dari aplikasi
+                             Medlib (DB official_nmw) milik pasien terpilih. --}}
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
+                                wire:click="openMedlibModal">
+                            <i class="fas fa-notes-medical me-1"></i> Tarik Medlib
+                        </button>
+                        {{-- Tarik PRO - port VB6 cmdPRO_Click: keranjang rekomendasi PRO pasien
+                             (official_nmw.log_medlib_cart). --}}
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
+                                wire:click="openProModal">
+                            <i class="fas fa-user-tag me-1"></i> Tarik PRO
+                        </button>
                     </div>
                 </div>
 
@@ -313,6 +363,8 @@
                                 'Merchant'     => (float) $pay['merchant']['jumlah'],
                                 'Voucher'      => (float) $pay['voucher']['jumlah'],
                                 'DP'           => (float) $pay['dp']['jumlah'],
+                                'Sudah dibayar (Surgery)' => $surgeryIdu ? (float) $surgeryPembayaran : 0,
+                                'Piutang'      => (float) $pay['piutang'],
                             ])->filter(fn ($v) => $v > 0);
                         @endphp
 
@@ -367,6 +419,183 @@
                 </button>
             </div>
         </div>
+
+        {{-- ============ MODAL TARIK PRO ============
+             Dua tab = dua grid VB6 bFrmCariPRO. Baris dikelompokkan per keranjang - satu
+             transaksi hanya boleh satu keranjang (lihat PosTerminal::pilihPro()). --}}
+        @if ($showProModal)
+            <x-lw-modal :show="$showProModal" size="xl" title="Tarik PRO" close="closeProModal">
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">Keranjang rekomendasi PRO milik <strong>{{ $custLabel }}</strong> yang belum masuk DIAS.</p>
+                    <ul class="nav nav-tabs mb-2">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link {{ $proTab === 'belum' ? 'active' : '' }}" wire:click.prevent="$set('proTab', 'belum')">Belum Bayar</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link {{ $proTab === 'bayar' ? 'active' : '' }}" wire:click.prevent="$set('proTab', 'bayar')">Sudah Bayar</a>
+                        </li>
+                    </ul>
+                    @if ($proTab === 'bayar')
+                        <div class="small text-muted mb-2">Sudah dibayar online — pembayaran otomatis terisi sebagai <strong>Merchant DOKU</strong> sebesar total keranjang.</div>
+                    @endif
+                    <div style="max-height: 400px; overflow-y: auto">
+                        @forelse ($proRows->groupBy('keranjang') as $idKeranjang => $baris)
+                            @php $pertama = $baris->first(); @endphp
+                            <div class="border rounded mb-2" wire:key="pro-k-{{ $idKeranjang }}">
+                                <div class="d-flex justify-content-between align-items-center bg-body-tertiary px-2 py-1 small">
+                                    <span>
+                                        <span class="fw-semibold">Keranjang {{ $idKeranjang }}</span>
+                                        &middot; {{ $pertama->tanggal ? \Carbon\Carbon::parse($pertama->tanggal)->format('d/m/Y H:i') : '—' }}
+                                        &middot; PRO {{ $pertama->proNama ?: '—' }}
+                                        &middot; No Resep <span class="font-monospace">{{ $pertama->noResep ?: '—' }}</span>
+                                        &middot; total {{ number_format((float) $pertama->totalKeranjang, 0, ',', '.') }}
+                                    </span>
+                                    <button type="button" class="btn btn-sm btn-outline-primary py-0" wire:click="pilihKeranjangPro({{ $idKeranjang }})">Pilih keranjang ini</button>
+                                </div>
+                                <table class="table table-sm small align-middle mb-0">
+                                    <thead><tr><th style="width:30px"></th><th>Item</th><th>Jenis</th><th class="text-end">Qty</th>
+                                        <th class="text-end">Harga</th><th class="text-end">Disc %</th><th class="text-end">Subtotal</th><th>Promo / Paket</th></tr></thead>
+                                    <tbody>
+                                        @foreach ($baris as $p)
+                                            <tr wire:key="pro-{{ $p->kunci }}">
+                                                <td><input type="checkbox" class="form-check-input" value="{{ $p->kunci }}" wire:model.live="proPilih"></td>
+                                                <td>{{ $p->kode }}@if ($p->nama !== $p->kode)<div class="text-muted">{{ $p->nama }}</div>@endif</td>
+                                                <td>{{ $p->tipe === 'add_on' ? 'Add on' : 'Rekam medis' }}</td>
+                                                <td class="text-end">{{ (float) $p->qty + 0 }}</td>
+                                                <td class="text-end">{{ number_format((float) $p->harga, 0, ',', '.') }}</td>
+                                                <td class="text-end">{{ number_format((float) $p->diskonPersen, 1, ',', '.') }}</td>
+                                                <td class="text-end">{{ number_format((float) $p->subtotal, 0, ',', '.') }}</td>
+                                                <td>{{ $p->promoKode ?: '' }}{{ $p->promoKode && $p->paketKode ? ' / ' : '' }}{{ $p->paketKode ?: '' }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @empty
+                            <div class="text-center text-muted py-4">Tidak ada keranjang PRO untuk pasien ini.</div>
+                        @endforelse
+                    </div>
+                    @error('pro') <div class="text-danger small mt-2">{{ $message }}</div> @enderror
+                    <div class="form-text mt-2">Satu transaksi hanya untuk <strong>satu keranjang PRO</strong>. Bila ada produk, otomatis ditambahkan
+                        <strong>RESEP SKIN CARE</strong>. Untuk tindakan, isi Operator, Dokter, dan No Ref seperti biasa.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" wire:click="closeProModal">Tutup</button>
+                    <button type="button" class="btn btn-primary" wire:click="pilihPro" @disabled($proPilih === [])>
+                        <i class="fas fa-cart-plus me-1"></i> Tambahkan ke Keranjang ({{ count($proPilih) }})
+                    </button>
+                </div>
+            </x-lw-modal>
+        @endif
+
+        {{-- ============ MODAL TARIK MEDLIB ============
+             Dua tab = dua grid VB6 bFrmCariMedlib. Baris dicentang lalu "Tambahkan ke Keranjang". --}}
+        @if ($showMedlibModal)
+            <x-lw-modal :show="$showMedlibModal" size="xl" title="Tarik Medlib" close="closeMedlibModal">
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">Data Medlib milik <strong>{{ $custLabel }}</strong>
+                        @if ($medlibTab === 'invoice') di cabang <strong>{{ $branch?->GNAMA }}</strong>@endif.</p>
+                    <ul class="nav nav-tabs mb-2">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link {{ $medlibTab === 'invoice' ? 'active' : '' }}" wire:click.prevent="$set('medlibTab', 'invoice')">
+                                Invoice Sudah Dibayar</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link {{ $medlibTab === 'resep' ? 'active' : '' }}" wire:click.prevent="$set('medlibTab', 'resep')">
+                                Medlib Belum Invoice</a>
+                        </li>
+                    </ul>
+                    <div class="small text-muted mb-2">
+                        @if ($medlibTab === 'invoice')
+                            Invoice yang sudah dibayar online dan belum masuk DIAS. Pembayaran otomatis terisi sebagai <strong>Merchant DOKU</strong>.
+                        @else
+                            Resep dari rekam medis yang belum dibayar (1 bulan terakhir).
+                        @endif
+                    </div>
+                    <div class="table-responsive" style="max-height: 380px; overflow-y: auto">
+                        <table class="table table-sm table-hover small align-middle mb-0">
+                            <thead class="table-light"><tr>
+                                <th style="width: 30px">
+                                    <input type="checkbox" class="form-check-input" wire:click="pilihSemuaMedlib"
+                                           @checked($medlibRows->isNotEmpty() && count($medlibPilih) === $medlibRows->count()) title="Semua / tidak semua">
+                                </th>
+                                <th>No Resep</th><th>Item</th><th class="text-end">Qty</th><th>Tanggal</th><th>Tipe</th>
+                                <th>Dokter</th>@if ($medlibTab === 'invoice')<th>No Invoice</th>@endif
+                                <th class="text-end">Harga</th><th class="text-end">Disc %</th>
+                            </tr></thead>
+                            <tbody>
+                                @forelse ($medlibRows as $m)
+                                    <tr wire:key="medlib-{{ $medlibTab }}-{{ $m->kunci }}">
+                                        <td><input type="checkbox" class="form-check-input" value="{{ $m->kunci }}" wire:model.live="medlibPilih"></td>
+                                        <td class="font-monospace">{{ $m->noResep }}</td>
+                                        <td>{{ $m->kode }}@if ($m->nama !== $m->kode)<div class="text-muted">{{ $m->nama }}</div>@endif</td>
+                                        <td class="text-end">{{ (float) $m->qty + 0 }}</td>
+                                        <td>{{ $m->tanggal ? \Carbon\Carbon::parse($m->tanggal)->format('d/m/Y') : '—' }}</td>
+                                        <td>{{ $m->tipeKonsul ?: '—' }}</td>
+                                        <td>{{ $m->dokter ?: '—' }}</td>
+                                        @if ($medlibTab === 'invoice')<td class="font-monospace">{{ $m->noInvoice }}</td>@endif
+                                        <td class="text-end">{{ number_format((float) $m->harga, 0, ',', '.') }}</td>
+                                        <td class="text-end">{{ (float) ($medlibTab === 'invoice' ? $m->diskonPersen : ($memberActive ? $m->diskonMember : 0)) + 0 }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="10" class="text-center text-muted py-4">Tidak ada data Medlib untuk pasien ini.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    @error('medlib') <div class="text-danger small mt-2">{{ $message }}</div> @enderror
+                    <div class="form-text mt-2">Selain item yang dicentang, otomatis ditambahkan <strong>RESEP SKIN CARE</strong>
+                        (atau <strong>RESEP SKIN CARE DKK</strong>) dan <strong>ONGKIR</strong> bila ada.
+                        @if ($medlibTab === 'invoice')
+                            Harga mengikuti <strong>harga di invoice</strong>, jadi total sama dengan yang sudah dibayar online.
+                        @endif
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" wire:click="closeMedlibModal">Tutup</button>
+                    <button type="button" class="btn btn-primary" wire:click="pilihMedlib" @disabled($medlibPilih === [])>
+                        <i class="fas fa-cart-plus me-1"></i> Tambahkan ke Keranjang ({{ count($medlibPilih) }})
+                    </button>
+                </div>
+            </x-lw-modal>
+        @endif
+
+        {{-- ============ MODAL NO IP SURGERY ============
+             Nota surgery pasien ini yg masih bisa dilanjutkan (ujung rantai, masih berpiutang).
+             Memilih = keranjang DIGANTI item nota itu (sama dgn VB6 cmdNoIP_Click). --}}
+        @if ($showSurgeryModal)
+            <x-lw-modal :show="$showSurgeryModal" title="No IP Surgery — cicilan berikutnya" close="closeSurgeryModal">
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">Nota surgery <strong>{{ $custLabel }}</strong> yang masih berjalan.
+                        Item nota yang dipilih akan <strong>menggantikan isi keranjang</strong>.</p>
+                    <div class="list-group" style="max-height: 360px; overflow-y: auto">
+                        @forelse ($surgeryResults as $s)
+                            <button type="button" class="list-group-item list-group-item-action" wire:click="pilihSurgery({{ $s->id }})"
+                                    @if (count($cart) > 0) wire:confirm="Isi keranjang akan diganti item nota {{ $s->nomor }}. Lanjutkan?" @endif>
+                                <div class="d-flex justify-content-between">
+                                    <span class="fw-semibold font-monospace">{{ $s->nomor }}</span>
+                                    <span class="text-muted small">{{ \Carbon\Carbon::parse($s->tanggal)->format('d/m/Y') }} &middot; {{ $s->cabang }}</span>
+                                </div>
+                                <div class="small d-flex justify-content-between">
+                                    <span>Total {{ number_format($s->total, 0, ',', '.') }}</span>
+                                    <span>Dibayar {{ number_format($s->dibayar, 0, ',', '.') }}</span>
+                                    <span class="text-danger fw-semibold">Sisa {{ number_format($s->piutang, 0, ',', '.') }}</span>
+                                </div>
+                            </button>
+                        @empty
+                            <div class="text-center text-muted py-4">
+                                Tidak ada surgery yang masih berjalan untuk pasien ini.<br>
+                                <span class="small">Untuk surgery baru, cukup centang <strong>Surgery</strong> dan isi tindakannya.</span>
+                            </div>
+                        @endforelse
+                    </div>
+                    @error('surgery') <div class="text-danger small mt-2">{{ $message }}</div> @enderror
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" wire:click="closeSurgeryModal">Tutup</button>
+                </div>
+            </x-lw-modal>
+        @endif
 
         {{-- ============ MODAL PEMBAYARAN (F8) ============
              Tata letak DUA KOLOM mengikuti dialog Pembayaran VB6 (screenshot user 2026-09-28).
@@ -453,6 +682,29 @@
                                     </div>
                                 </div>
                             @endforeach
+
+                            {{-- Surgery: "sudah dibayar" nota sebelumnya + Piutang (sisa yg belum
+                                 dibayar). Hanya tampil kalau transaksi dicentang Surgery. --}}
+                            @if ($surgery)
+                                <div class="border border-primary rounded p-2 mb-3">
+                                    <div class="small fw-semibold mb-1"><i class="fas fa-user-doctor me-1"></i>Surgery</div>
+                                    @if ($surgeryIdu)
+                                        <div class="d-flex justify-content-between small mb-1">
+                                            <span class="text-muted">Sudah dibayar ({{ $surgeryNo }})</span>
+                                            <span>{{ number_format($surgeryPembayaran, 0, ',', '.') }}</span>
+                                        </div>
+                                    @endif
+                                    <label class="form-label small mb-1">Piutang (sisa belum dibayar)</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" min="0" class="form-control text-end @error('pay.piutang') is-invalid @enderror"
+                                               wire:model.live.debounce.400ms="pay.piutang">
+                                        <button type="button" class="btn btn-outline-primary" wire:click="isiPiutangSisa"
+                                                title="Jadikan sisa tagihan sebagai piutang">Sisa → Piutang</button>
+                                    </div>
+                                    @error('pay.piutang') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
+                                    <div class="form-text">Piutang 0 = lunas = hari operasi.</div>
+                                </div>
+                            @endif
                         </div>
 
                         {{-- ---------- KOLOM KANAN: transfer, DP, merchant, voucher ---------- --}}

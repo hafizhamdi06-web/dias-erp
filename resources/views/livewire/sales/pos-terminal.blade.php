@@ -53,9 +53,24 @@
                         {{ (string) $kode === '58' ? '58 mm' : '½ A4' }}
                     </a>
                 @endforeach
+                @if (! empty($lastReceipt['email']))
+                    {{-- Kirim struk ke email (cabang GKIRIMEMAIL = 1). Transaksi baru sudah
+                         dikirim otomatis; tombol ini utk hasil Edit / kirim ulang. --}}
+                    <button class="btn btn-outline-primary" wire:click="kirimEmailStruk"
+                            wire:loading.attr="disabled" wire:target="kirimEmailStruk">
+                        <span wire:loading wire:target="kirimEmailStruk" class="spinner-border spinner-border-sm me-1"></span>
+                        <i class="fas fa-envelope me-1"></i>
+                        {{ ! empty($lastReceipt['emailHasil']) ? 'Kirim ulang struk ke email' : 'Kirim struk ke email' }}
+                    </button>
+                @endif
                 <button class="btn btn-primary" wire:click="newTransaction">
                     <i class="fas fa-plus me-1"></i> Transaksi baru
                 </button>
+                @if (! empty($lastReceipt['emailHasil']))
+                    <div class="small mt-2 {{ $lastReceipt['emailHasil']['ok'] ? 'text-success' : 'text-danger' }}">
+                        <i class="fas {{ $lastReceipt['emailHasil']['ok'] ? 'fa-check' : 'fa-triangle-exclamation' }} me-1"></i>{{ $lastReceipt['emailHasil']['pesan'] }}
+                    </div>
+                @endif
             </div>
         </div>
     @else
@@ -219,9 +234,16 @@
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <div class="fw-semibold">{{ $custLabel }}</div>
-                                    <div class="small {{ $memberActive ? 'text-success' : 'text-muted' }}">
-                                        <i class="fas fa-id-card me-1"></i>{{ $memberInfo }}
-                                    </div>
+                                    {{-- Status member (permintaan user 2026-10-16): aktif = latar BIRU,
+                                         tidak aktif = latar MERAH - supaya kasir langsung sadar diskon
+                                         member tidak berlaku. Bukan member: teks biasa. --}}
+                                    @if ($memberStatus === 'aktif')
+                                        <span class="badge text-bg-primary mt-1"><i class="fas fa-id-card me-1"></i>{{ $memberInfo }}</span>
+                                    @elseif ($memberStatus === 'tidak_aktif')
+                                        <span class="badge text-bg-danger mt-1"><i class="fas fa-id-card me-1"></i>{{ $memberInfo }}</span>
+                                    @else
+                                        <div class="small text-muted"><i class="fas fa-id-card me-1"></i>{{ $memberInfo }}</div>
+                                    @endif
                                 </div>
                                 {{-- Langsung buka pencarian (permintaan user 2026-09-29), bukan
                                      `clearCustomer()` yg memaksa 2 langkah. Efek samping yg

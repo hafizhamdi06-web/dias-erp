@@ -4,6 +4,7 @@ namespace App\Livewire\Sales;
 
 use App\Models\Branch;
 use App\Models\User;
+use App\Services\EmailStruk;
 use App\Services\LegacyAuth;
 use App\Services\PosSaleWriter;
 use App\Services\Surgery;
@@ -26,6 +27,9 @@ class PosTerminal extends Component
 
     /** bitem.IID yang tergolong "item DP" (IJENISITEM=14) - satu2nya baris yg boleh dijadikan sumber pembayaran DP. */
     private const ITEM_DP = [2387, 3235, 3238, 3239, 3572];
+
+    /** Kode item yg tidak dihitung poin - VB6 `xHitungTotalTanpaDP` (selain item jenis 14 = DP). */
+    private const KODE_BUKAN_POIN = ['DP', 'DENDA MEMBER', 'SURCHARGE', 'CASH BACK', 'DP KONSUL'];
 
     /** Pilihan "Jenis Kartu" - daftar tetap sesuai CI3 (inline HTML, bukan dari tabel), TIDAK sama antara debit & kredit. */
     private const JENIS_KARTU_DEBIT = ['DEBIT', 'MAESTRO', 'SWITCHING'];
@@ -72,6 +76,8 @@ class PosTerminal extends Component
     public ?string $custLabel = null;
     public bool $memberActive = false;
     public ?string $memberInfo = null;
+    /** 'aktif' | 'tidak_aktif' | null (bukan member) - utk warna label member di panel pasien. */
+    public ?string $memberStatus = null;
 
     /** Kasir yg login (auser.UKID -> bkontak.KID) - otomatis, bukan dipilih manual. */
     public ?int $kasirId = null;
@@ -1001,6 +1007,7 @@ class PosTerminal extends Component
         $this->memberInfo = $this->memberActive
             ? 'Member aktif s/d ' . date('d/m/Y', strtotime(($m->ta) . ' +1 year'))
             : ($row->KTIPE == 12 ? 'Member (tidak aktif)' : $row->tipe_nama);
+        $this->memberStatus = $this->memberActive ? 'aktif' : ($row->KTIPE == 12 ? 'tidak_aktif' : null);
 
         $this->applyMemberDiscount();
         $this->clearVoucher(); // voucher/DP lama (kalau ada) milik pelanggan sebelumnya - tidak valid lagi
@@ -1015,6 +1022,7 @@ class PosTerminal extends Component
         $this->custLabel = null;
         $this->memberActive = false;
         $this->memberInfo = null;
+        $this->memberStatus = null;
         $this->applyMemberDiscount();
         $this->clearVoucher();
         $this->clearDp();
@@ -3635,7 +3643,7 @@ class PosTerminal extends Component
         $stokCol = $this->stokColumn((int) $branch->GID);
         $ids = array_column($this->cart, 'item');
         $meta = DB::table('bitem')->whereIn('IID', $ids)
-            ->get(['IID', 'INAMA', 'ITIPEITEM', 'IDISKON', 'ICOGS', DB::raw("{$stokCol} AS stok")])->keyBy('IID');
+            ->get(['IID', 'IKODE', 'INAMA', 'ITIPEITEM', 'IJENISITEM', 'IDISKON', 'ICOGS', DB::raw("{$stokCol} AS stok")])->keyBy('IID');
 
         // Sedang edit transaksi lama (belum dibatalkan) -> qty lama per item dianggap "akan
         // dikembalikan" saat checkout ini benar2 disimpan, jadi ditambahkan dulu ke stok yg
@@ -3648,6 +3656,7 @@ class PosTerminal extends Component
         }
 
         $subtotal = 0.0;
+        $totalPoin = 0.0;
         $lines = [];
         foreach ($this->cart as $l) {
             $itemId = (int) $l['item'];
@@ -3673,6 +3682,9 @@ class PosTerminal extends Component
             $net = $harga * (1 - $d1 / 100) * (1 - $d2 / 100);
             $diskonUnit = round($harga - $net, 2);
             $subtotal += $qty * ($harga - $diskonUnit);
+            if ($m && (int) $m->IJENISITEM !== 14 && ! in_array(strtoupper((string) $m->IKODE), self::KODE_BUKAN_POIN, true)) {
+                $totalPoin += $qty * ($harga - $diskonUnit);
+            }
 
             $lines[] = [
                 'SDITEM'          => $itemId,
@@ -3825,7 +3837,8 @@ class PosTerminal extends Component
 
         $wasEditingFrom = $this->editingFromNomor;
 
-        $writer->maybeAddPoints((int) $res['id'], $this->custId, $subtotal);
+        // Dasar poin = total TANPA DP dkk (VB6 xHitungTotalTanpaDP) - lihat `PosSaleWriter::maybeAddPoints()`.
+        $writer->maybeAddPoints((int) $res['id'], $this->custId, round($totalPoin, 2), (int) $branch->GID, $this->suTeman ?: null);
         activity_log(
             'create',
             'sales/pos',
@@ -3842,7 +3855,16 @@ class PosTerminal extends Component
             'bayar'     => $bayar,
             'kembalian' => max(0, round($bayar - $subtotal, 2)),
             'items'     => count($lines),
+            // Kirim struk ke email (VB6 xCabangKirimEmail) - hanya cabang GKIRIMEMAIL = 1.
+            'email'     => app(EmailStruk::class)->cabangKirim((int) $branch->GID),
+            'emailHasil' => null,
         ];
+
+        // Transaksi BARU -> langsung dikirim. Hasil EDIT -> tidak otomatis: VB6 bertanya dulu
+        // "kirim ulang struk ke pasien?", di sini jadi tombol di panel "Transaksi tersimpan".
+        if ($this->lastReceipt['email'] && ! $wasEditingFrom) {
+            $this->kirimEmailStruk();
+        }
 
         $this->cart = [];
         $this->clearCustomer();
@@ -3908,6 +3930,21 @@ class PosTerminal extends Component
      * yg sudah dipunya siapapun yg bisa buka layar ini (tidak ada lapisan hak akses tambahan).
      * Konvensi tombol serupa ini akan diulang di form2 lain nanti (per permintaan user).
      */
+    /**
+     * Kirim struk transaksi terakhir ke email pasien - otomatis utk transaksi baru, lewat
+     * tombol utk hasil Edit / kirim ulang. Kegagalan API TIDAK membatalkan transaksi (sudah
+     * tersimpan); kasir cukup diberi tahu, spt pesan VB6.
+     */
+    public function kirimEmailStruk(): void
+    {
+        if (! ($this->lastReceipt['id'] ?? null) || ! ($this->lastReceipt['email'] ?? false)) {
+            return;
+        }
+        $h = app(EmailStruk::class)->kirim((int) $this->lastReceipt['id'], (string) $this->lastReceipt['nomor']);
+        $this->lastReceipt['emailHasil'] = $h;
+        $this->dispatch('pos-toast', msg: $h['pesan'], type: $h['ok'] ? 'success' : 'error');
+    }
+
     public function newTransaction(): void
     {
         $this->lastReceipt = [];

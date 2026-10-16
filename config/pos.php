@@ -31,6 +31,23 @@ return [
     */
     'cabang_marketplace' => (int) env('POS_CABANG_MARKETPLACE', 18),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Kirim struk ke email pasien
+    |--------------------------------------------------------------------------
+    |
+    | API klinik yang mengirim struk ke email pasien. Hanya utk cabang bgudang.GKIRIMEMAIL = 1.
+    | URL & token diambil dari tabel `aconfig` (KirimEmail / Link & Auth) - sama dgn VB6.
+    | Isian .env di bawah HANYA penimpa opsional (biarkan kosong di produksi). Token JANGAN
+    | ditulis di file ini. Lihat App\Services\EmailStruk.
+    |
+    */
+    'email_struk' => [
+        'url'     => env('POS_EMAIL_STRUK_URL', ''),
+        'auth'    => env('POS_EMAIL_STRUK_AUTH', ''),
+        'timeout' => (int) env('POS_EMAIL_STRUK_TIMEOUT', 15),
+    ],
+
     /** Pilihan yang boleh - dipakai validasi & dropdown, jangan ditambah sembarangan. */
     'struk_pilihan' => [
         '58' => 'Struk termal 58 mm',

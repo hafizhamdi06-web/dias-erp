@@ -215,32 +215,73 @@ class PosSaleWriter
             ->all();
     }
 
+    /** Cabang yg TIDAK memberi poin - VB6 eFrmPOS2: Online, Gogobli, Bizpark, Marketplace. */
+    public const CABANG_TANPA_POIN = [6, 9, 10, 18];
+
+    /** Batas & bonus - disalin dari VB6 (eFrmPOS2 simpan + eMod_Point.PointMasuk). */
+    public const POIN_MIN_TOTAL = 100000;
+
+    public const POIN_PER = 10000;
+
+    public const TEMAN_MIN_TOTAL = 500000;
+
+    /** Bonus teman: VB6 memanggil PointMasuk(teman, 10.000.000) = 1.000 poin. */
+    public const TEMAN_NILAI = 10000000;
+
     /**
-     * Loyalty point: total > 100rb & KTIPE in (12,14,19) -> 1 poin / 10rb.
+     * Poin loyalti saat transaksi disimpan - aturan VB6 `eFrmPOS2` (permintaan user
+     * 2026-10-16; versi sebelumnya memberi poin ke tipe 12/14/19 di semua cabang, total
+     * > 100rb termasuk DP):
+     *   - cabang Online/Gogobli/Bizpark/Marketplace tidak memberi poin sama sekali
+     *   - MEMBER (KTIPE 12) & total >= 100.000 -> 1 poin / 10.000
+     *   - `$totalTanpaDp` = total TANPA item DP & DP Konsul/Denda Member/Surcharge/Cash Back
+     *     (VB6 `xHitungTotalTanpaDP`) - dihitung pemanggil
+     *   - BONUS TEMAN: pasien BARU (KCREATED = tanggal transaksi, aturan VB6) belanja
+     *     >= 500.000 & membawa teman (SUTEMAN) -> teman dapat 1.000 poin. Dicatat sbg baris
+     *     `bpoint` SENDIRI - di VB6 keduanya memakai kunci PIDTRANSAKSIMASUK yg sama
+     *     sehingga poin teman MENIMPA poin pasien.
+     *
+     * KPOINT HANYA diubah trigger `bpoint_add` (menambah poin baris baru) - TIDAK dihitung
+     * ulang dari SUM bpoint spt VB6 `UpdatePoint`/versi lama di sini: terukur 2026-10-16,
+     * 2.927 pasien punya KPOINT lebih besar dari SUM bpoint-nya (total +- 3,9 jt poin,
+     * mis. poin migrasi) - menghitung ulang akan MENGHAPUS saldo itu.
      */
-    public function maybeAddPoints(int $saleId, ?int $kontak, float $total): void
+    public function maybeAddPoints(int $saleId, ?int $kontak, float $totalTanpaDp, int $cabang, ?int $teman = null): void
     {
-        if (! $kontak || $total <= 100000) {
+        if (! $kontak || in_array($cabang, self::CABANG_TANPA_POIN, true)) {
             return;
         }
 
-        $tipe = (int) DB::table('bkontak')->where('KID', $kontak)->value('KTIPE');
-        if (! in_array($tipe, [12, 14, 19], true)) {
-            return;
+        $pasien = DB::table('bkontak')->where('KID', $kontak)->first(['KTIPE', 'KCREATED']);
+        $diberi = [];
+
+        if ((int) ($pasien->KTIPE ?? 0) === 12 && $totalTanpaDp >= self::POIN_MIN_TOTAL) {
+            $this->tambahPoin($kontak, $totalTanpaDp, $saleId, null);
+            $diberi[] = $kontak;
         }
 
-        $point = (int) (($total - fmod($total, 10000)) / 10000);
+        $tglTransaksi = (string) DB::table('fstoku')->where('SUID', $saleId)->value('SUTANGGAL');
+        $pasienBaru = $pasien && $pasien->KCREATED
+            && substr((string) $pasien->KCREATED, 0, 10) === substr($tglTransaksi, 0, 10);
+        if ($teman && $teman !== $kontak && $pasienBaru && $totalTanpaDp >= self::TEMAN_MIN_TOTAL) {
+            $this->tambahPoin($teman, self::TEMAN_NILAI, $saleId, 'Bonus bawa teman - pasien baru KID ' . $kontak);
+            $diberi[] = $teman;
+        }
 
+        if ($diberi !== []) {
+            DB::table('fstoku')->where('SUID', $saleId)->update(['SUSTATUSTADA' => 1]);
+        }
+    }
+
+    /** 1 poin / 10.000 dari `$nilai` (VB6 PointMasuk: nilai - (nilai mod 10.000)) / 10.000. */
+    private function tambahPoin(int $kid, float $nilai, int $saleId, ?string $pesan): void
+    {
         DB::table('bpoint')->insert([
-            'PIDPASIEN'         => $kontak,
-            'PNILAIMASUK'       => $total,
-            'PMASUK'            => $point,
+            'PIDPASIEN'         => $kid,
+            'PNILAIMASUK'       => $nilai,
+            'PMASUK'            => (int) floor($nilai / self::POIN_PER),
             'PIDTRANSAKSIMASUK' => $saleId,
+            'PPESAN'            => $pesan,
         ]);
-        DB::table('fstoku')->where('SUID', $saleId)->update(['SUSTATUSTADA' => 1]);
-
-        $sum = (float) DB::table('bpoint')->where('PIDPASIEN', $kontak)
-            ->selectRaw('SUM(PMASUK - PKELUAR) s')->value('s');
-        DB::table('bkontak')->where('KID', $kontak)->update(['KPOINT' => $sum]);
     }
 }

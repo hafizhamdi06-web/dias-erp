@@ -105,5 +105,38 @@
             </tr>
         </tfoot>
     </table>
+
+    {{-- Rekap per bank penerima - lihat ReportController::rekapBankPenjualan(). --}}
+    @if ($rekapBank !== [])
+        <br>
+        <table>
+            <thead>
+                <tr><th colspan="6">Rekap per Bank</th></tr>
+                <tr><th>Bank</th><th>Debit</th><th>Kredit</th><th>Transfer</th><th>Kas</th><th>Total</th></tr>
+            </thead>
+            <tbody>
+                @foreach ($rekapBank as $b)
+                    <tr>
+                        <td>{{ $b['bank'] === 'Kas' ? 'Kas' : 'Total ' . $b['bank'] }}</td>
+                        <td class="num">{{ $b['debit'] }}</td>
+                        <td class="num">{{ $b['kredit'] }}</td>
+                        <td class="num">{{ $b['transfer'] }}</td>
+                        <td class="num">{{ $b['kas'] }}</td>
+                        <td class="num">{{ $b['total'] }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td><strong>Grand Total</strong></td>
+                    <td class="num">{{ array_sum(array_column($rekapBank, 'debit')) }}</td>
+                    <td class="num">{{ array_sum(array_column($rekapBank, 'kredit')) }}</td>
+                    <td class="num">{{ array_sum(array_column($rekapBank, 'transfer')) }}</td>
+                    <td class="num">{{ array_sum(array_column($rekapBank, 'kas')) }}</td>
+                    <td class="num">{{ array_sum(array_column($rekapBank, 'total')) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    @endif
 </body>
 </html>

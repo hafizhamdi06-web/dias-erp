@@ -98,4 +98,45 @@
             </tr>
         </tfoot>
     </table>
+
+    {{-- Rekap per BANK PENERIMA utk Debit/Kredit/Transfer + Kas (permintaan user 2026-10-16)
+         - spt blok "Total BCA / Mandiri / ... " laporan VB6, daftar bank dinamis. Lihat
+         ReportController::rekapBankPenjualan(). --}}
+    @if ($rekapBank !== [])
+        <table style="font-size:7pt; width:55%; margin-top:10pt">
+            <thead>
+                <tr><th colspan="6" style="text-align:left">Rekap per Bank</th></tr>
+                <tr>
+                    <th>Bank</th>
+                    <th class="text-end">Debit</th>
+                    <th class="text-end">Kredit</th>
+                    <th class="text-end">Transfer</th>
+                    <th class="text-end">Kas</th>
+                    <th class="text-end">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($rekapBank as $b)
+                    <tr>
+                        <td>{{ $b['bank'] === 'Kas' ? 'Kas' : 'Total ' . $b['bank'] }}</td>
+                        <td class="text-end">{{ $n($b['debit']) }}</td>
+                        <td class="text-end">{{ $n($b['kredit']) }}</td>
+                        <td class="text-end">{{ $n($b['transfer']) }}</td>
+                        <td class="text-end">{{ $n($b['kas']) }}</td>
+                        <td class="text-end">{{ $n($b['total']) }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+            <tfoot>
+                <tr style="border-top:.5pt solid #333">
+                    <td><strong>Grand Total</strong></td>
+                    <td class="text-end"><strong>{{ $n(array_sum(array_column($rekapBank, 'debit'))) }}</strong></td>
+                    <td class="text-end"><strong>{{ $n(array_sum(array_column($rekapBank, 'kredit'))) }}</strong></td>
+                    <td class="text-end"><strong>{{ $n(array_sum(array_column($rekapBank, 'transfer'))) }}</strong></td>
+                    <td class="text-end"><strong>{{ $n(array_sum(array_column($rekapBank, 'kas'))) }}</strong></td>
+                    <td class="text-end"><strong>{{ $n(array_sum(array_column($rekapBank, 'total'))) }}</strong></td>
+                </tr>
+            </tfoot>
+        </table>
+    @endif
 </x-reports.layout>

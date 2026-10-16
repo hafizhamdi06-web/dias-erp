@@ -4,6 +4,7 @@ namespace App\Livewire\Sales;
 
 use App\Models\Branch;
 use App\Models\User;
+use App\Services\BankNama;
 use App\Services\EmailStruk;
 use App\Services\LegacyAuth;
 use App\Services\PosSaleWriter;
@@ -1115,6 +1116,80 @@ class PosTerminal extends Component
         }
         $lain = $this->totalBayar() - (float) $this->pay['piutang'];
         $this->pay['piutang'] = max(0, round($this->grandTotal() - $lain, 2));
+    }
+
+    /* ---------------- Farmasi default per cabang (lv_cabang_pref) ----------------
+     * Permintaan user 2026-10-16: Farmasi & Farmasi Asisten selalu diisi utk penjualan
+     * produk -> kartu "Farmasi" di panel kanan (dipindah dari Data Lainnya) + tombol
+     * "Isi default cabang". Default diatur pemegang hak Approve Kasir/POS.
+     */
+
+    /** @return object{farmasi:?int,farmasiLabel:?string,asisten:?int,asistenLabel:?string}|null */
+    private function farmasiDefault(): ?object
+    {
+        if (! $this->branchId) {
+            return null;
+        }
+        $p = DB::table('lv_cabang_pref')->where('gid', $this->branchId)->first(['farmasi_kid', 'farmasi_asisten_kid']);
+        if (! $p || (! $p->farmasi_kid && ! $p->farmasi_asisten_kid)) {
+            return null;
+        }
+
+        return (object) [
+            'farmasi'      => $p->farmasi_kid ? (int) $p->farmasi_kid : null,
+            'farmasiLabel' => $this->labelKaryawan($p->farmasi_kid),
+            'asisten'      => $p->farmasi_asisten_kid ? (int) $p->farmasi_asisten_kid : null,
+            'asistenLabel' => $this->labelKaryawan($p->farmasi_asisten_kid),
+        ];
+    }
+
+    /** Label spt hasil lookup karyawan: "Nama — Kode". */
+    private function labelKaryawan($kid): ?string
+    {
+        if (! $kid) {
+            return null;
+        }
+        $k = DB::table('bkontak')->where('KID', $kid)->first(['KNAMA', 'KKODE']);
+
+        return $k ? trim($k->KNAMA . ($k->KKODE ? ' — ' . $k->KKODE : '')) : null;
+    }
+
+    /** Tombol "Isi default cabang" - Farmasi & Asisten diisi default cabang aktif. */
+    public function isiFarmasiDefault(): void
+    {
+        $d = $this->farmasiDefault();
+        if (! $d) {
+            $this->dispatch('pos-toast', msg: 'Default farmasi cabang ini belum diatur.', type: 'warning');
+
+            return;
+        }
+        $this->suFarmasi = $d->farmasi;
+        $this->suFarmasiLabel = $d->farmasiLabel;
+        $this->suFarmasiAsisten = $d->asisten;
+        $this->suFarmasiAsistenLabel = $d->asistenLabel;
+    }
+
+    /** "Jadikan default cabang" - isian sekarang disimpan sbg default cabang aktif. */
+    public function simpanFarmasiDefault(): void
+    {
+        abort_unless(can_do('sales/pos', 'approve'), 403);
+        if (! $this->branchId) {
+            return;
+        }
+        if (! $this->suFarmasi && ! $this->suFarmasiAsisten) {
+            $this->dispatch('pos-toast', msg: 'Isi Farmasi / Farmasi Asisten dulu.', type: 'warning');
+
+            return;
+        }
+        DB::table('lv_cabang_pref')->updateOrInsert(['gid' => $this->branchId], [
+            'farmasi_kid'         => $this->suFarmasi ?: null,
+            'farmasi_asisten_kid' => $this->suFarmasiAsisten ?: null,
+            'updated_by'          => auth()->id(),
+            'updated_at'          => now(),
+        ]);
+        activity_log('update', 'sales/pos', (string) $this->branchId, 'Default farmasi cabang: '
+            . ($this->labelKaryawan($this->suFarmasi) ?? '-') . ' / asisten ' . ($this->labelKaryawan($this->suFarmasiAsisten) ?? '-'));
+        $this->dispatch('pos-toast', msg: 'Default farmasi cabang disimpan.', type: 'success');
     }
 
     public function openSurgeryModal(): void
@@ -4077,9 +4152,9 @@ class PosTerminal extends Component
 
         $this->pay = [
             'tunai'    => (float) $header->SUTOTALKAS,
-            'debit'    => ['jumlah' => (float) $header->SUTOTALKARTUDEBIT, 'no' => $header->SUNOKARTUDEBIT ?? '', 'nama' => $header->SUNAMADEBIT ?? '', 'bank' => $header->SUBANKDEBIT, 'jenis' => $header->SUDEBITJENIS, 'bank_lain' => $header->SUATTENTION ?? ''],
-            'kredit'   => ['jumlah' => (float) $header->SUTOTALKARTUKREDIT, 'no' => $header->SUNOKARTUKREDIT ?? '', 'nama' => $header->SUNAMAKREDIT ?? '', 'bank' => $header->SUBANKKREDIT, 'jenis' => $header->SUKREDITJENIS, 'bank_lain' => $header->SUNOFAKTURPAJAK ?? ''],
-            'transfer' => ['jumlah' => (float) $header->SUTOTALTRANSFER, 'no' => $header->SUNOTRANSFER ?? '', 'nama' => $header->SUNAMATRANSFER ?? '', 'bank' => $header->SUBANKTRANSFER],
+            'debit'    => ['jumlah' => (float) $header->SUTOTALKARTUDEBIT, 'no' => $header->SUNOKARTUDEBIT ?? '', 'nama' => $header->SUNAMADEBIT ?? '', 'bank' => app(BankNama::class)->nama($header->SUBANKDEBIT) ?: null, 'jenis' => $header->SUDEBITJENIS, 'bank_lain' => $header->SUATTENTION ?? ''],
+            'kredit'   => ['jumlah' => (float) $header->SUTOTALKARTUKREDIT, 'no' => $header->SUNOKARTUKREDIT ?? '', 'nama' => $header->SUNAMAKREDIT ?? '', 'bank' => app(BankNama::class)->nama($header->SUBANKKREDIT) ?: null, 'jenis' => $header->SUKREDITJENIS, 'bank_lain' => $header->SUNOFAKTURPAJAK ?? ''],
+            'transfer' => ['jumlah' => (float) $header->SUTOTALTRANSFER, 'no' => $header->SUNOTRANSFER ?? '', 'nama' => $header->SUNAMATRANSFER ?? '', 'bank' => app(BankNama::class)->nama($header->SUBANKTRANSFER) ?: null],
             'merchant' => ['jumlah' => (float) $header->SUMERCHANTJUMLAH, 'no' => $header->SUMERCHANTNO ?? '', 'jenis' => $header->SUMERCHANTJENIS],
             'voucher'  => [
                 'jumlah'  => (float) $header->SUTOTALVOUCHER,
@@ -4306,6 +4381,7 @@ class PosTerminal extends Component
             // Daftar cabang filter Pilih Operator/Dokter - hanya saat dialognya terbuka.
             'odCabangList'    => ($this->showOperatorModal || $this->showDokterModal) ? Branch::options() : collect(),
             'medlibRows'      => $medlibRows,
+            'farmasiDefault'  => $this->farmasiDefault(),
             'proRows'         => $proRows,
             'kombinasiRows'   => $kombinasiRows,
             'kombApplyRows'   => $kombApplyRows,
@@ -4316,7 +4392,8 @@ class PosTerminal extends Component
             'grand'       => $grand,
             'bayar'       => $bayar,
             'kurang'      => round($grand - $bayar, 2),
-            'banks'       => DB::table('bbank')->orderBy('BNAMA')->get(['BID', 'BNAMA']),
+            // Nilai pilihan = NAMA bank (disimpan di SUBANK*) spt CI3/VB6 - lihat BankNama.
+            'banks'       => DB::table('bbank')->whereNotIn('BNAMA', ['None', 'undefined'])->orderBy('BNAMA')->get(['BID', 'BNAMA']),
             'merchants'   => DB::table('bmerchant')->orderBy('MCNAMA')->get(['MCID', 'MCKODE', 'MCNAMA']),
             'jenisKartuDebit'  => self::JENIS_KARTU_DEBIT,
             'jenisKartuKredit' => self::JENIS_KARTU_KREDIT,

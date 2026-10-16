@@ -113,19 +113,19 @@ class PosReceiptController extends Controller
             ->all();
     }
 
-    /** Nama bank untuk label "Debit <bank>" / "Kredit <bank>" / "Transfer <bank>". */
+    /**
+     * Nama bank untuk label "Debit <bank>" / "Kredit <bank>" / "Transfer <bank>". Kolomnya
+     * berisi NAMA bank (CI3/VB6) - dulu dibaca sbg ID, sehingga transaksi dari CI3/VB6
+     * tercetak tanpa nama bank. Lihat `BankNama`.
+     */
     private function namaBank(object $h): array
     {
-        $ids = array_filter([$h->SUBANKDEBIT ?? null, $h->SUBANKKREDIT ?? null, $h->SUBANKTRANSFER ?? null]);
-
-        $nama = $ids === []
-            ? collect()
-            : DB::table('bbank')->whereIn('BID', $ids)->pluck('BNAMA', 'BID');
+        $b = app(\App\Services\BankNama::class);
 
         return [
-            'debit'    => $nama[$h->SUBANKDEBIT ?? 0] ?? '',
-            'kredit'   => $nama[$h->SUBANKKREDIT ?? 0] ?? '',
-            'transfer' => $nama[$h->SUBANKTRANSFER ?? 0] ?? '',
+            'debit'    => $b->nama($h->SUBANKDEBIT ?? null),
+            'kredit'   => $b->nama($h->SUBANKKREDIT ?? null),
+            'transfer' => $b->nama($h->SUBANKTRANSFER ?? null),
         ];
     }
 

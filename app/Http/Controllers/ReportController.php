@@ -381,6 +381,10 @@ class ReportController extends Controller
                 DB::raw('IFNULL(F_DP_PERHARI(u.SUID),0) as tarikDp'),
                 DB::raw('IFNULL(u.SUTOTALSISA,0) as cashback'),
                 DB::raw('IFNULL(u.SUNILAIPIUTANGBAYAR,0) as piutangBayar'),
+                // Bank PENERIMA tiap cara bayar - utk rekap per bank di bawah laporan.
+                DB::raw('u.SUBANKDEBIT as bankDebit'),
+                DB::raw('u.SUBANKKREDIT as bankKredit'),
+                DB::raw('u.SUBANKTRANSFER as bankTransfer'),
             ])
             ->map(function ($x) {
                 foreach (['kas', 'debit', 'kredit', 'transfer', 'merchant', 'voucher', 'piutang',
@@ -427,7 +431,48 @@ class ReportController extends Controller
             'total'    => $jumlahkan($rows),
             // Baris kedua: hanya transaksi TANPA pembayaran piutang.
             'totalTanpa' => $jumlahkan($rows->filter(fn ($x) => $x->piutangBayar == 0.0)),
+            'rekapBank'  => $this->rekapBankPenjualan($rows),
         ];
+    }
+
+    /**
+     * Rekap per BANK PENERIMA utk Debit, Kredit & Transfer (permintaan user 2026-10-16) - spt
+     * blok "Total BCA / Mandiri / ... / Bank Lain" di laporan VB6, tapi daftar bank DINAMIS:
+     * hanya bank yg benar2 dipakai di rentang ini (VB6 memakai daftar tetap). Bank dari kolom
+     * `SUBANK*` (nama bank; nilai ID lama diterjemahkan `BankNama`); kosong = "Tanpa bank".
+     * Ditambah baris Kas (kas nett). Jumlah semua baris = total kolom laporan.
+     *
+     * @return list<array{bank:string,debit:float,kredit:float,transfer:float,kas:float,total:float}>
+     */
+    private function rekapBankPenjualan($rows): array
+    {
+        $b = app(\App\Services\BankNama::class);
+        $rekap = [];
+        $tambah = function (string $bank, string $kolom, float $nilai) use (&$rekap) {
+            if ($nilai == 0.0) {
+                return;
+            }
+            $rekap[$bank] ??= ['bank' => $bank, 'debit' => 0.0, 'kredit' => 0.0, 'transfer' => 0.0, 'kas' => 0.0, 'total' => 0.0];
+            $rekap[$bank][$kolom] += $nilai;
+            $rekap[$bank]['total'] += $nilai;
+        };
+
+        foreach ($rows as $x) {
+            $tambah($b->nama($x->bankDebit) ?: 'Tanpa bank', 'debit', $x->debit);
+            $tambah($b->nama($x->bankKredit) ?: 'Tanpa bank', 'kredit', $x->kredit);
+            $tambah($b->nama($x->bankTransfer) ?: 'Tanpa bank', 'transfer', $x->transfer);
+        }
+
+        // Urut nilai terbesar; "Tanpa bank" selalu terakhir sebelum Kas.
+        uasort($rekap, fn ($p, $q) => [($p['bank'] === 'Tanpa bank'), -$p['total']] <=> [($q['bank'] === 'Tanpa bank'), -$q['total']]);
+        $hasil = array_values($rekap);
+
+        $kas = (float) $rows->sum('kas');
+        if ($kas != 0.0) {
+            $hasil[] = ['bank' => 'Kas', 'debit' => 0.0, 'kredit' => 0.0, 'transfer' => 0.0, 'kas' => $kas, 'total' => $kas];
+        }
+
+        return $hasil;
     }
 
     /* =====================================================================================

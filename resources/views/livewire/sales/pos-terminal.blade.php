@@ -225,8 +225,25 @@
                 </div>
             </div>
 
-            {{-- ============ KANAN: pelanggan + bayar ============ --}}
-            <div class="col-lg-4">
+            {{-- ============ KANAN: pelanggan + bayar ============
+                 Dua bagian (permintaan user 2026-10-16: tombol Simpan tidak terlihat di layar
+                 100% & harus scroll): ATAS (pasien, tombol cari, farmasi) boleh di-scroll di
+                 dalam panelnya sendiri, BAWAH (Total, Pembayaran, Isi Pembayaran, Simpan)
+                 SELALU terlihat. Hanya di layar lebar (>= lg); di layar sempit tetap bertumpuk. --}}
+            <style>
+                @media (min-width: 992px) {
+                    .pos-kanan { position: sticky; top: .75rem; align-self: flex-start;
+                                 max-height: calc(100vh - 7.5rem); display: flex; flex-direction: column; }
+                    .pos-kanan-atas { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 2px; }
+                    .pos-kanan-bawah { flex: 0 0 auto; padding-top: .25rem; }
+                }
+                /* Farmasi 2 kolom: nama panjang dipotong "…" supaya tidak meluber keluar kotak. */
+                .pos-farmasi .form-control > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                @media (min-width: 992px) {
+                }
+            </style>
+            <div class="col-lg-4 pos-kanan">
+              <div class="pos-kanan-atas">
                 {{-- Pelanggan --}}
                 <div class="card mb-3">
                     <div class="card-body">
@@ -337,45 +354,89 @@
                                 @endforeach
                             </div>
                         @endif
-                        <button type="button" class="btn btn-outline-success btn-sm w-100 text-start" wire:click="openPromoModal">
-                            <i class="fas fa-tag me-1"></i> Harga Khusus{{ $promos !== [] ? ' (tambah lagi)' : ' (opsional)' }}
-                            <kbd class="float-end">F10</kbd>
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
-                                wire:click="openPaketModal">
-                            <i class="fas fa-boxes-packing me-1"></i> Daftar Paket
-                            <kbd class="float-end">F11</kbd>
-                        </button>
-                        {{-- Tarik Medlib - port VB6 cmdTarikMedlib_Click: invoice/resep dari aplikasi
-                             Medlib (DB official_nmw) milik pasien terpilih. --}}
-                        <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
-                                wire:click="openMedlibModal">
-                            <i class="fas fa-notes-medical me-1"></i> Tarik Medlib
-                        </button>
-                        {{-- Tarik PRO - port VB6 cmdPRO_Click: keranjang rekomendasi PRO pasien
-                             (official_nmw.log_medlib_cart). --}}
-                        <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start mt-2"
-                                wire:click="openProModal">
-                            <i class="fas fa-user-tag me-1"></i> Tarik PRO
-                        </button>
-                    </div>
-                </div>
-
-                {{-- Total --}}
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted">Total</span>
-                            <span class="fs-3 fw-bold">{{ number_format($grand, 0, ',', '.') }}</span>
+                        {{-- Disusun 2x2 (permintaan user 2026-10-16) supaya panel kanan muat satu layar. --}}
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <button type="button" class="btn btn-outline-success btn-sm w-100 text-start text-truncate" wire:click="openPromoModal"
+                                        title="Harga Khusus{{ $promos !== [] ? ' (tambah lagi)' : ' (opsional)' }}">
+                                    <i class="fas fa-tag me-1"></i>Harga Khusus <kbd class="float-end">F10</kbd>
+                                </button>
+                            </div>
+                            <div class="col-6">
+                                <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start text-truncate" wire:click="openPaketModal">
+                                    <i class="fas fa-boxes-packing me-1"></i>Daftar Paket <kbd class="float-end">F11</kbd>
+                                </button>
+                            </div>
+                            {{-- Tarik Medlib - port VB6 cmdTarikMedlib_Click: invoice/resep dari aplikasi
+                                 Medlib (DB official_nmw) milik pasien terpilih. --}}
+                            <div class="col-6">
+                                <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start text-truncate" wire:click="openMedlibModal">
+                                    <i class="fas fa-notes-medical me-1"></i>Tarik Medlib
+                                </button>
+                            </div>
+                            {{-- Tarik PRO - port VB6 cmdPRO_Click: keranjang rekomendasi PRO pasien
+                                 (official_nmw.log_medlib_cart). --}}
+                            <div class="col-6">
+                                <button type="button" class="btn btn-outline-secondary btn-sm w-100 text-start text-truncate" wire:click="openProModal">
+                                    <i class="fas fa-user-tag me-1"></i>Tarik PRO
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {{-- Pembayaran - RINGKASAN saja. Isiannya pindah ke dialog (lihat modal di bawah),
-                     mengikuti alur VB6: susun keranjang dulu, baru buka dialog bayar. --}}
-                <div class="card mb-3">
-                    <div class="card-header py-2 small fw-semibold">Pembayaran</div>
-                    <div class="card-body">
+                {{-- ============ FARMASI ============
+                     Dipindah dari dialog Data Lainnya (permintaan user 2026-10-16): selalu diisi
+                     utk penjualan produk. `wire:key` ikut nilai supaya label search-select ikut
+                     berganti saat diisi dari server (tombol default). --}}
+                {{-- Farmasi & Asisten SATU BARIS berdampingan (permintaan user 2026-10-16);
+                     tombol default & "Jadikan default" di baris judul supaya kartunya pendek. --}}
+                <div class="card mb-3 pos-farmasi">
+                    <div class="card-body py-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1 gap-2">
+                            <span class="small fw-semibold text-nowrap"><i class="fas fa-prescription-bottle-medical me-1"></i>Farmasi</span>
+                            <span class="d-flex align-items-center gap-2 small">
+                                @if ($farmasiDefault)
+                                    <button type="button" class="btn btn-outline-primary btn-sm py-0" wire:click="isiFarmasiDefault"
+                                            title="Default: {{ $farmasiDefault->farmasiLabel ?? '-' }} / {{ $farmasiDefault->asistenLabel ?? '-' }}">
+                                        <i class="fas fa-wand-magic-sparkles me-1"></i>Isi default
+                                    </button>
+                                @else
+                                    <span class="text-muted" title="Default farmasi cabang ini belum diatur">default belum diatur</span>
+                                @endif
+                                @if (can_do('sales/pos', 'approve'))
+                                    <a href="#" wire:click.prevent="simpanFarmasiDefault" title="Jadikan isian ini default cabang"
+                                       wire:confirm="Jadikan isian Farmasi & Farmasi Asisten ini default untuk cabang {{ $branch?->GNAMA }}?">
+                                        <i class="fas fa-thumbtack"></i>
+                                    </a>
+                                @endif
+                            </span>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6" wire:key="farmasi-{{ $suFarmasi ?: 'kosong' }}">
+                                <label class="form-label small text-muted mb-0">Farmasi</label>
+                                <x-search-select model="suFarmasi" :value="$suFarmasi" :selected-text="$suFarmasiLabel" :endpoint="route('lookup.karyawan')" placeholder="cari…" />
+                            </div>
+                            <div class="col-6" wire:key="farmasi-asisten-{{ $suFarmasiAsisten ?: 'kosong' }}">
+                                <label class="form-label small text-muted mb-0">Asisten</label>
+                                <x-search-select model="suFarmasiAsisten" :value="$suFarmasiAsisten" :selected-text="$suFarmasiAsistenLabel" :endpoint="route('lookup.karyawan')" placeholder="cari…" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+              </div>{{-- /.pos-kanan-atas --}}
+
+              <div class="pos-kanan-bawah">
+                {{-- Total + Pembayaran digabung SATU kartu (permintaan user 2026-10-16, hemat
+                     tempat). Pembayaran = RINGKASAN saja; isiannya di dialog (lihat modal di
+                     bawah), mengikuti alur VB6: susun keranjang dulu, baru buka dialog bayar. --}}
+                <div class="card mb-2">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <span class="text-muted">Total</span>
+                        <span class="fs-3 fw-bold">{{ number_format($grand, 0, ',', '.') }}</span>
+                    </div>
+                    <div class="card-body py-2">
                         @php
                             $rincianBayar = collect([
                                 'Tunai'        => (float) $pay['tunai'],
@@ -439,6 +500,7 @@
                     <i class="fas fa-cash-register me-1"></i> Simpan Transaksi
                     <kbd class="ms-1">Ctrl+Enter</kbd>
                 </button>
+              </div>{{-- /.pos-kanan-bawah --}}
             </div>
         </div>
 
@@ -680,7 +742,7 @@
                                                     wire:model="pay.{{ $key }}.bank">
                                                 <option value="">bank…</option>
                                                 @foreach ($banks as $bk)
-                                                    <option value="{{ $bk->BID }}">{{ $bk->BNAMA }}</option>
+                                                    <option value="{{ $bk->BNAMA }}">{{ $bk->BNAMA }}</option>
                                                 @endforeach
                                             </select>
                                             @error("pay.{$key}.bank") <div class="invalid-feedback">{{ $message }}</div> @enderror
@@ -747,7 +809,7 @@
                                                 wire:model="pay.transfer.bank">
                                             <option value="">bank…</option>
                                             @foreach ($banks as $bk)
-                                                <option value="{{ $bk->BID }}">{{ $bk->BNAMA }}</option>
+                                                <option value="{{ $bk->BNAMA }}">{{ $bk->BNAMA }}</option>
                                             @endforeach
                                         </select>
                                         @error('pay.transfer.bank') <div class="invalid-feedback">{{ $message }}</div> @enderror
@@ -1236,14 +1298,8 @@
                         <label class="col-4 col-form-label small">Training</label>
                         <div class="col-8"><x-search-select model="suTraining" :value="$suTraining" :selected-text="$suTrainingLabel" :endpoint="route('lookup.karyawan')" placeholder="cari karyawan…" /></div>
                     </div>
-                    <div class="row g-2 align-items-center mb-2">
-                        <label class="col-4 col-form-label small">Farmasi</label>
-                        <div class="col-8"><x-search-select model="suFarmasi" :value="$suFarmasi" :selected-text="$suFarmasiLabel" :endpoint="route('lookup.karyawan')" placeholder="cari karyawan…" /></div>
-                    </div>
-                    <div class="row g-2 align-items-center mb-2">
-                        <label class="col-4 col-form-label small">Farmasi Asisten</label>
-                        <div class="col-8"><x-search-select model="suFarmasiAsisten" :value="$suFarmasiAsisten" :selected-text="$suFarmasiAsistenLabel" :endpoint="route('lookup.karyawan')" placeholder="cari karyawan…" /></div>
-                    </div>
+                    {{-- Farmasi & Farmasi Asisten DIPINDAH ke kartu "Farmasi" di panel kanan
+                         (permintaan user 2026-10-16) - kolomnya sama (SUFARMASI/SUFARMASIASISTEN). --}}
                     <div class="row g-2 align-items-center mb-2">
                         <label class="col-4 col-form-label small">Sales Marketing</label>
                         <div class="col-8"><x-search-select model="suSalesMarketing" :value="$suSalesMarketing" :selected-text="$suSalesMarketingLabel" :endpoint="route('lookup.karyawan')" placeholder="cari karyawan…" /></div>

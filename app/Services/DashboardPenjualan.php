@@ -203,8 +203,11 @@ class DashboardPenjualan
         // Produk-nya masih terhitung (295.313) padahal biaya itu sudah dihitung di baris
         // paket induknya. Tidak ada barang keluar = tidak ada harga pokok PENJUALAN.
         // COGS ALKES sengaja TIDAK ikut dinolkan - alkesnya memang benar-benar terpakai.
+        // Nota CICILAN surgery juga 0 (permintaan user 2026-10-16) - itemnya salinan, COGS
+        // dihitung di nota pelunasan/hari operasi saja. Lihat `Surgery`.
         return 'IF((COALESCE(d.SDDARIPAKET,0) <> 0 AND COALESCE(d.SDKEDATANGAN,0) > 0)
                    OR COALESCE(d.SDKELUAR,0) = 0
+                   OR ' . Surgery::kondisiCicilan('u') . '
                    OR NOT (' . $this->ditarik() . '), 0, ' . $this->nilaiCogs('d', 'i', 'u.SUTANGGAL') . ')';
     }
 
@@ -219,7 +222,8 @@ class DashboardPenjualan
      */
     private function ekspresiCogsAlkes(): string
     {
-        return '(CASE WHEN ' . $this->ditarik() . '
+        // Nota CICILAN surgery tidak ber-COGS alkes - lihat `Surgery`.
+        return '(CASE WHEN ' . $this->ditarik() . ' AND NOT ' . Surgery::kondisiCicilan('u') . '
                       THEN (SELECT SUM(' . $this->nilaiCogs('aa', 'ai', 'u.SUTANGGAL') . ')
                              FROM fstokd aa
                              LEFT JOIN bitem ai ON ai.IID = aa.SDITEM

@@ -48,6 +48,12 @@ class PosTerminal extends Component
     public bool $showDokterModal = false;
     public bool $showRefModal = false;
     public string $odQ = '';
+    /**
+     * Filter cabang pencarian Operator & Dokter (permintaan user 2026-10-16): default cabang
+     * aktif, dikembalikan ke cabang aktif TIAP kali dialog dibuka; '' = semua cabang. Kasir
+     * boleh membuka cabang lain mis. utk dokter/perawat tamu.
+     */
+    public string $odCabang = '';
     public int $odHighlight = 0;
     public string $refNo = '';
     public string $refIc = '';
@@ -733,6 +739,7 @@ class PosTerminal extends Component
         $this->odLine = $lineIndex;
         $this->odQ = '';
         $this->odHighlight = 0;
+        $this->odCabang = (string) ($this->branchId ?? '');
         $this->showOperatorModal = true;
     }
 
@@ -788,9 +795,16 @@ class PosTerminal extends Component
         $this->odHighlight = 0;
     }
 
+    public function updatedOdCabang(): void
+    {
+        $this->odHighlight = 0;
+        $this->dispatch('refocus-od');
+    }
+
     /**
-     * Pencarian Operator & Dokter DIBATASI ke cabang aktif kasir (`bkontak.KCABANG` =
-     * `$this->branchId`) - permintaan user 2026-09-30.
+     * Pencarian Operator & Dokter DISARING per cabang (`bkontak.KCABANG`) - permintaan user
+     * 2026-09-30, dilonggarkan 2026-10-16: default tetap cabang aktif kasir, tapi kasir bisa
+     * memilih cabang lain / "Semua cabang" lewat `$odCabang` (mis. dokter tamu).
      *
      * **BEDA DISENGAJA dari VB6**: di sana (`eFrmPOS.frm` / `eFrmPOS2Edit.frm`,
      * `bFrmCariKontak.lblFilterTambahan`) filternya HANYA
@@ -834,13 +848,14 @@ class PosTerminal extends Component
         }
 
         $query = DB::table('bkontak as k')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'k.KCABANG')
             ->where('k.KAKTIF', '<>', 0)
             ->where('k.KTIPE', 4)
             ->where('k.' . $kolomFlag, 1)
-            ->when($this->branchId, fn ($b) => $b->where('k.KCABANG', $this->branchId));
+            ->when((int) $this->odCabang, fn ($b) => $b->where('k.KCABANG', (int) $this->odCabang));
         \App\Models\Contact::applySearch($query, $q, 'k');
 
-        return $query->limit(15)->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama']);
+        return $query->limit(15)->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama', 'g.GNAMA as cabang']);
     }
 
     public function moveOdHighlight(int $delta): void
@@ -893,6 +908,7 @@ class PosTerminal extends Component
         $this->showOperatorModal = false;
         $this->odQ = '';
         $this->odHighlight = 0;
+        $this->odCabang = (string) ($this->branchId ?? '');
         $this->showDokterModal = true;
     }
 
@@ -4287,6 +4303,8 @@ class PosTerminal extends Component
             'promoResults'    => $promoResults,
             'paketResults'    => $paketResults,
             'surgeryResults'  => $surgeryResults,
+            // Daftar cabang filter Pilih Operator/Dokter - hanya saat dialognya terbuka.
+            'odCabangList'    => ($this->showOperatorModal || $this->showDokterModal) ? Branch::options() : collect(),
             'medlibRows'      => $medlibRows,
             'proRows'         => $proRows,
             'kombinasiRows'   => $kombinasiRows,

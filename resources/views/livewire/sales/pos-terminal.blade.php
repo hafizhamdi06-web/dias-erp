@@ -1009,14 +1009,9 @@
                             @endif
                         </div>
                     @endif
-                    {{-- Daftarnya DISARING ke cabang aktif (permintaan user 2026-09-30) - dikatakan
-                         terang-terangan supaya kasir tidak mengira nama rekannya hilang. --}}
-                    @if ($branch)
-                        <div class="small text-muted mb-2">
-                            <i class="fas fa-filter me-1"></i>Hanya operator cabang
-                            <span class="fw-semibold">{{ $branch->GNAMA }}</span>
-                        </div>
-                    @endif
+                    {{-- Filter cabang: default cabang aktif, bisa diganti / "Semua cabang"
+                         (permintaan user 2026-10-16). --}}
+                    @include('livewire.sales.partials.od-cabang', ['peran' => 'operator'])
                     <input type="text" class="form-control mb-2" x-ref="odSearch" wire:key="od-search-input-operator"
                            placeholder="ketik nama / kode operator…" autocomplete="off"
                            wire:model.live.debounce.250ms="odQ"
@@ -1032,9 +1027,10 @@
                                         class="{{ $i === $odHighlight ? 'table-active' : '' }}"
                                         style="cursor: pointer" wire:click="pickOperator({{ $r->id }})">
                                         <td><span class="fw-semibold">{{ $r->kode }}</span> — {{ $r->nama }}</td>
+                                        <td class="text-muted small text-end text-nowrap">{{ $r->cabang ?: '—' }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td class="text-center text-muted py-4">
+                                    <tr><td colspan="2" class="text-center text-muted py-4">
                                         {{ mb_strlen(trim($odQ)) < 2 ? 'Ketik minimal 2 huruf…' : 'Tidak ada hasil.' }}
                                     </td></tr>
                                 @endforelse
@@ -1066,12 +1062,7 @@
                         </div>
                     @endif
                     {{-- Idem modal Operator - lihat catatan di sana. --}}
-                    @if ($branch)
-                        <div class="small text-muted mb-2">
-                            <i class="fas fa-filter me-1"></i>Hanya dokter cabang
-                            <span class="fw-semibold">{{ $branch->GNAMA }}</span>
-                        </div>
-                    @endif
+                    @include('livewire.sales.partials.od-cabang', ['peran' => 'dokter'])
                     <input type="text" class="form-control mb-2" x-ref="odSearch" wire:key="od-search-input-dokter"
                            placeholder="ketik nama / kode dokter…" autocomplete="off"
                            wire:model.live.debounce.250ms="odQ"
@@ -1087,9 +1078,10 @@
                                         class="{{ $i === $odHighlight ? 'table-active' : '' }}"
                                         style="cursor: pointer" wire:click="pickDokter({{ $r->id }})">
                                         <td><span class="fw-semibold">{{ $r->kode }}</span> — {{ $r->nama }}</td>
+                                        <td class="text-muted small text-end text-nowrap">{{ $r->cabang ?: '—' }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td class="text-center text-muted py-4">
+                                    <tr><td colspan="2" class="text-center text-muted py-4">
                                         {{ mb_strlen(trim($odQ)) < 2 ? 'Ketik minimal 2 huruf…' : 'Tidak ada hasil.' }}
                                     </td></tr>
                                 @endforelse

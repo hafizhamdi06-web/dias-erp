@@ -284,6 +284,10 @@ class AlkesWriter
                 ], 'SUID');
 
                 // Baris fstokd arah KELUAR - DB TRIGGER `fstokd_add` yg mengurangi stok.
+                // Harga pokok baris = bitem.ICOGS x qty (permintaan user 2026-10-16) - sama dgn
+                // POS. Tanpa ini SDBELI alkes 0: COGS Alkes di Dashboard Penjualan 0 &
+                // berlabel "HPP belum dihitung".
+                $icogs = DB::table('bitem')->whereIn('IID', array_column($lines, 'item'))->pluck('ICOGS', 'IID');
                 $urut = 1;
                 foreach ($lines as $l) {
                     $qty = (float) $l['qty'];
@@ -297,6 +301,7 @@ class AlkesWriter
                         'SDITEM'     => $l['item'],
                         'SDKELUAR'   => $qty,
                         'SDKELUARD'  => $qty,
+                        'SDBELI'     => round((float) ($icogs[$l['item']] ?? 0) * $qty, 2),
                         'SDMASUK'    => 0,
                         'SDSATUAN'   => $l['satuan'] ?: null,
                         'SDSATUAND'  => $l['satuan'] ?: null,

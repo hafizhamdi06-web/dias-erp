@@ -3635,7 +3635,7 @@ class PosTerminal extends Component
         $stokCol = $this->stokColumn((int) $branch->GID);
         $ids = array_column($this->cart, 'item');
         $meta = DB::table('bitem')->whereIn('IID', $ids)
-            ->get(['IID', 'INAMA', 'ITIPEITEM', 'IDISKON', DB::raw("{$stokCol} AS stok")])->keyBy('IID');
+            ->get(['IID', 'INAMA', 'ITIPEITEM', 'IDISKON', 'ICOGS', DB::raw("{$stokCol} AS stok")])->keyBy('IID');
 
         // Sedang edit transaksi lama (belum dibatalkan) -> qty lama per item dianggap "akan
         // dikembalikan" saat checkout ini benar2 disimpan, jadi ditambahkan dulu ke stok yg
@@ -3678,6 +3678,11 @@ class PosTerminal extends Component
                 'SDITEM'          => $itemId,
                 'SDKELUAR'        => $qty,
                 'SDKELUARD'       => $qty,
+                // Harga pokok baris = bitem.ICOGS x qty (permintaan user 2026-10-16). Dulu POS
+                // Laravel tidak mengisi SDBELI sama sekali (0) - dan stored procedure HPP
+                // (SP_HITUNG_HPP_ADD) yg dipakai CI3 tidak pernah dipanggil - sehingga COGS
+                // transaksi POS Laravel di Dashboard Penjualan selalu 0.
+                'SDBELI'          => round(($m ? (float) $m->ICOGS : 0.0) * $qty, 2),
                 'SDHARGA'         => $harga,
                 'SDDISKONPERSEN'  => $d1,
                 'SDDISKONPERSEN2' => $d2,

@@ -848,15 +848,33 @@ class PosTerminal extends Component
             return collect();
         }
 
-        $query = DB::table('bkontak as k')
-            ->leftJoin('bgudang as g', 'g.GID', '=', 'k.KCABANG')
-            ->where('k.KAKTIF', '<>', 0)
-            ->where('k.KTIPE', 4)
-            ->where('k.' . $kolomFlag, 1)
-            ->when((int) $this->odCabang, fn ($b) => $b->where('k.KCABANG', (int) $this->odCabang));
-        \App\Models\Contact::applySearch($query, $q, 'k');
+        /* JANGAN pakai `Contact::applySearch()` di sini. Ia memotong kandidat di 300 nama dari
+         | SELURUH bkontak (321rb, mayoritas pasien) SEBELUM saringan petugas diterapkan -
+         | mencari "siska" cocok 558 kontak, dan "dr. Siska Rahmawati" tidak masuk 300 yg
+         | terambil, jadi tidak pernah muncul walau datanya benar (dilaporkan 2026-10-17).
+         |
+         | `LIKE '%kata%'` AMAN di sini - pengecualian sadar dari aturan "jangan leading
+         | wildcard di bkontak": query digerakkan index `I_bkontak_u` (KTIPE), dan KTIPE=4
+         | cuma ~1.300 baris (EXPLAIN: type=ref, rows 1328), bukan 321rb. Sekaligus menangani
+         | "dr" (2 huruf, diabaikan FULLTEXT) & potongan di tengah nama ("rahma"). */
+        $kata = array_values(array_filter(preg_split('/[\s.,]+/u', $q), fn ($w) => $w !== ''));
 
-        return $query->limit(15)->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama', 'g.GNAMA as cabang']);
+        return DB::table('bkontak as k')
+            ->leftJoin('bgudang as g', 'g.GID', '=', 'k.KCABANG')
+            ->where('k.KTIPE', 4)
+            ->where('k.KAKTIF', '<>', 0)
+            ->where('k.' . $kolomFlag, 1)
+            ->when((int) $this->odCabang, fn ($b) => $b->where('k.KCABANG', (int) $this->odCabang))
+            ->where(function ($w) use ($kata, $q) {
+                $w->where(function ($n) use ($kata) {
+                    foreach ($kata as $k) {
+                        $n->where('k.KNAMA', 'like', '%' . addcslashes($k, '%_\\') . '%');
+                    }
+                })->orWhere('k.KKODE', 'like', addcslashes($q, '%_\\') . '%');
+            })
+            ->orderBy('k.KNAMA')
+            ->limit(15)
+            ->get(['k.KID as id', 'k.KKODE as kode', 'k.KNAMA as nama', 'g.GNAMA as cabang']);
     }
 
     public function moveOdHighlight(int $delta): void

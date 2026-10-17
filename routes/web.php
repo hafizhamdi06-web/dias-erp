@@ -18,6 +18,8 @@ use App\Http\Controllers\PoPrintController;
 use App\Http\Controllers\PosReceiptController;
 use App\Http\Controllers\PrPrintController;
 use App\Http\Controllers\SjPrintController;
+use App\Http\Controllers\PerubahanHargaLampiranController;
+use App\Http\Controllers\PerubahanHargaPrintController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TmbPrintController;
 use App\Livewire\Auth\ChangePassword;
@@ -60,6 +62,8 @@ Route::middleware('auth')->group(function () {
     Route::get('inventory/tmb/{id}/print', [TmbPrintController::class, 'show'])->name('inventory.tmb.print');
     Route::get('inventory/adjust/{id}/print', [PenyesuaianPrintController::class, 'show'])->name('inventory.adjust.print');
     Route::get('inventory/pengeluaran-lain/{id}/print', [PengeluaranLainPrintController::class, 'show'])->name('inventory.pengeluaran-lain.print');
+    Route::get('master/perubahan-harga/{id}/print', [PerubahanHargaPrintController::class, 'show'])->name('master.perubahan-harga.print');
+    Route::get('master/perubahan-harga/lampiran/{id}', [PerubahanHargaLampiranController::class, 'show'])->whereNumber('id')->name('master.perubahan-harga.lampiran');
     Route::get('sales/invoice/{id}/print', [InvoicePrintController::class, 'show'])->name('sales.invoice.print');
     Route::get('sales/invoice-mutasi/{id}/print', [InvoiceMutasiPrintController::class, 'show'])->name('sales.invoice-mutasi.print');
     Route::get('sales/sj/{id}/print', [SjPrintController::class, 'show'])->name('sales.sj.print');

@@ -4082,6 +4082,155 @@ hapus baris saat mode persen -> % tetap 10, Rp turun 3.628,43 -> 2.264,34; tamba
 rp -> Rp tetap 1.000, % jadi 2,756; `SOUDISKON` + `SOUDISKONPERSEN` KEDUANYA tersimpan & termuat
 lagi saat PO dibuka ulang; pajak memakai subtotal setelah diskon.
 
+## Master: Perubahan Harga (PH) (2026-10-17)
+
+`PerubahanHargaWriter` + `Master\PerubahanHarga{List,Form}`, menu `master.perubahan-harga`
+(path ACL `master/perubahan-harga`, grup Master Data di bawah Data Harga Marketplace). Dokumen
+kenaikan/penurunan `bitem.IHARGAJUAL1` dgn harga lama tersimpan, tombol **Terapkan Harga** dan
+**Batalkan Pergantian**.
+
+**TATA LETAK = STANDAR aplikasi, BUKAN gaya VB6** (permintaan user 2026-10-17: "tidak
+disamakan dengan permintaan barang, buat seperti layout sebelumnya" - khusus form ini): kartu
+Bootstrap biasa, label DI ATAS isian (pola `kas-bank-form`), tanpa kelas `vb-*`. Ini
+PENGECUALIAN dari konvensi "tata letak form entri = tiru VB6" - JANGAN diseragamkan balik.
+Yg diambil dari VB6 hanya ISI/urutannya (kolom grid, fitur Tampilkan Jenis / % / Proses).
+
+**Acuan VB6 = MID 517 `fFrmPerubahanHarga`** (518 = layar daftar, 519 = cetakan
+`areport` ARIDMENU=519). Tabel legacy `gperubahanhargau` / `gperubahanhargad` dipakai APA ADANYA
+(0 baris sebelum modul ini - fitur VB6 tidak pernah dipakai). **VB6 TIDAK PERNAH menerapkan
+harga** - tidak ada satu pun `UPDATE bitem` di form itu; Terapkan & Kembalikan murni tambahan.
+`SDHARGALAMA` / `SDHARGABARU` (lama + %) / `SDHARGAAKHIR` (setelah pembulatan = yg dipasang).
+
+Status `SUSTATUS`: 0 Draft, 1 Diterapkan, 2 Dikembalikan (boleh diubah & diterapkan lagi).
+Riwayat tiap aksi di tabel baru **`lv_perubahan_harga_log`** (rincian JSON per item, termasuk
+`ITANGGALRUBAHHARGA` sebelumnya - dipakai memulihkan tanggal saat dikembalikan).
+
+**Dua pengaman - JANGAN dilonggarkan:**
+1. Terapkan DITOLAK (semua-atau-tidak) kalau harga sekarang ≠ `SDHARGALAMA` - persennya
+   dihitung dari angka basi. User menekan "Segarkan Harga Lama", memeriksa, simpan, terapkan.
+2. Kembalikan HANYA item yg harganya masih = `SDHARGAAKHIR`; yg sudah diubah pihak lain
+   DILEWATI & dilaporkan, supaya tidak menimpa perubahan orang lain.
+
+Terapkan memakai isi dokumen di DB, jadi **ditolak selama ada perubahan layar yg belum
+disimpan** (`$dirty`). **Harga TIDAK berubah otomatis di Tgl Berlaku** - tidak ada penjadwal;
+daftar memberi badge "Jatuh tempo" + filter. Terapkan/Kembalikan butuh hak **`approve`**,
+menyusun butuh `add`/`edit` (dipisah sengaja). Daftar tidak dibatasi cabang: harga jual berlaku
+di semua cabang.
+
+Pembulatan = kelipatan terdekat (0/100/500/1.000/5.000); **5.000 = rumus VB6
+`cmdProses_Click`** (diuji identik). Default 1.000, BUKAN 5.000: 249 item aktif berharga
+< 10.000 akan rusak dgn 5.000. Hasil 0 jatuh ke harga sebelum pembulatan.
+
+**Grid berhalaman 25 baris & `$lines` hanya angka** (item/lama/baru/akhir; kode/nama/harga
+sekarang diambil saat render). Versi pertama merender semua baris lengkap: "Tampilkan" jenis
+Tindakan (1.029 item) = halaman **2,2 MB**. Satu baris ber-`<x-uang-input>` ~2 KB, state
+"Semua jenis" (1.912 item) ~106 KB. Indeks baris ASLI dipertahankan
+(`array_slice(..., true)`) karena itulah yg dipakai `lines.{i}.akhir`.
+
+**Jebakan yg kena**: galat dari aksi sebelumnya tetap tinggal di error bag Livewire, jadi
+`$errors->first()` menampilkan pesan LAMA - tiap aksi (`save`/`terapkan`/`kembalikan`/`hapus`)
+memanggil `resetErrorBag()` dulu.
+
+Verifikasi (50 asersi + uji hak akses, transaksi + rollback, item nyata): pembulatan = VB6;
+simpan tidak mengubah harga; terapkan memasang harga & tanggal + log; perubahan belum disimpan
+memblok terapkan; kembalikan memulihkan harga & tanggal dan MELEWATI item yg diubah pihak lain;
+terapkan ulang dgn harga basi diblok, lalu lolos setelah disegarkan; hapus draft; halaman 2 &
+saringan mengikat indeks yg benar; penyusun (tanpa approve) -> terapkan 403, penyetuju (tanpa
+edit) -> form terkunci tapi bisa menerapkan.
+
+**Cetakan** (2026-10-17): `PerubahanHargaPrintController` + `reports/perubahan-harga-print`,
+route `master/perubahan-harga/{id}/print` (ACL `print`), tombol di header form + daftar, tawaran
+cetak setelah Simpan. **Dibuat BARU mengikuti isian form** (permintaan user), bukan tiruan
+`fRptPerubahanHarga.rpt` (areport 519 - file .rpt-nya terkompresi, tidak terbaca). Kolom =
+grid form tanpa "Harga Sekarang". Status dicetak (Draft diberi tanda merah BELUM DITERAPKAN);
+"Disetujui / Diterapkan Oleh" = user log `terapkan`. Ditulis BERTAHAP (`perBagian` 400, nomor
+urut dihitung di controller): 1.912 item = ~7 s / 120 MB.
+**Kolom "Setelah Pembulatan" HANYA dicetak kalau ada baris yg dibulatkan** (`SDHARGABARU` ≠
+`SDHARGAAKHIR`; permintaan user) - pembulatan tidak disimpan di dokumen, jadi dibaca dari data.
+`$adaPembulatan` dihitung di CONTROLLER atas SELURUH baris, bukan per potongan, supaya semua
+halaman bertahap sama kolomnya. Tanpa kolom itu, lebarnya pindah ke Nama & Harga Baru ditebalkan.
+**Dikelompokkan per COA tipe: `bitem.ICOA2021` -> `bcoatipe_perpt.CTTIPEID`, nama `CTNAMA`**
+(permintaan user 2026-10-17; versi pertama per `IKELOMPOK2020`, DIGANTI). User menyebut
+"icoa2020" - **kolom itu TIDAK ADA di `bitem`**; yg ada `ICOA2021` (+ `ICOA2026`), dan terbukti yg
+dimaksud: dokumen surat edaran 16 Okt terbagi PERSIS spt suratnya (OTC 9 / Racikan 22 + Umum 9
+= "Obat & Racikan" 31). Join `CTTIPEID` (bukan `CTID`; sama kecuali tipe 0 = CTID 100).
+Judul kelompok, **nomor urut reset per kelompok**, subtotal per kelompok (hanya kalau >1
+kelompok). Urutan = `CTTIPEID`; tipe tanpa nama (0, 99 - `CTNAMA` NULL) = "Tanpa Kelompok"
+PALING AKHIR. Penanda `awalGrup`/`akhirGrup`/`subtotal` dihitung di CONTROLLER atas seluruh
+baris (view cuma lihat sepotong); kelompok yg terpotong di BATAS POTONGAN bertahap diberi judul
+"(lanjutan)". Pergantian halaman BIASA (mpdf) tidak mengulang judul kelompok - hanya `<thead>`.
+**Jebakan mpdf di judul kolom**: `white-space: nowrap` DIABAIKAN di `<th>`, dan `&nbsp;` malah
+membuat kata terpotong di tengah ("Harga Lam / a") krn mpdf menyempitkan kolom sesukanya (lebar
+% hanya saran). Yg andal: `<br>` eksplisit - judul harga dibuat 2 baris seragam.
+**Jebakan uji**: `View::composer` yg memanggil `$v->render()` view yg sama = rekursi tanpa
+henti -> memori habis. Composer cukup mencatat `getData()`, render ulang terpisah.
+**Tabel `gperubahanhargau` sudah TIDAK kosong** sejak 2026-10-17 (dokumen nyata user
+`PG-PH26100001`) - uji wajib membandingkan jumlah sbg SELISIH & tidak mematok nomor.
+
+### Lampiran surat/IOM untuk audit (2026-10-17)
+
+Tabel **`lv_perubahan_harga_lampiran`** (suid, nama_asli, path, mime, ukuran, **sha256**,
+user_id) + file di disk **`local` = `storage/app/private/lampiran/perubahan-harga/{suid}/{ulid}.{ext}`**
+(privat, sudah di-.gitignore). Dibuka HANYA lewat `PerubahanHargaLampiranController`
+(route `master.perubahan-harga.lampiran`, hak `view`, path dari DB, SHA-256 dicocokkan ulang ->
+409 kalau isi file berubah). **Folder ini WAJIB ikut backup server** - bukti audit ada di sana,
+bukan di DB.
+
+Aturan (dijaga di `PerubahanHargaWriter`, bukan cuma tombol) - JANGAN dilonggarkan:
+1. **`terapkan()` DITOLAK tanpa minimal 1 lampiran.**
+2. **Lampiran tidak bisa dihapus begitu dokumen PERNAH diterapkan** (ada log) - termasuk setelah
+   dikembalikan. Menambah lampiran susulan tetap boleh.
+3. Tipe dibaca dari ISI (`finfo`): PDF/JPG/PNG/WEBP; file kembar (sha256 sama) ditolak.
+4. Hapus draft ikut menghapus baris & file lampirannya (file dihapus SETELAH commit).
+Yg boleh melampirkan: add/edit ATAU approve (surat bertanda tangan sering di penyetuju).
+Unggah/hapus tercatat di `lv_activity_log` (`attach`/`detach`). Nama lampiran ikut dicetak.
+
+**Batas ukuran = yg terkecil dari 10 MB & `upload_max_filesize`/`post_max_size` PHP server**
+(`W::batasUnggahKb()`, ditampilkan di layar). PHP dev `C:\php82` = **2 MB** - hasil scan surat
+sering lebih besar. Di atas batas PHP, unggahan gagal SEBELUM sampai Laravel; pesan
+`fileLampiran.uploaded` menjelaskannya. Batas server produksi perlu dicek terpisah.
+**Jebakan uji**: `UploadedFile::fake()->create('x.pdf', 3000)` hanya MENGAKU 3000 KB - isinya
+kosong, jadi lolos aturan `max` dan baru ditolak finfo (`application/x-empty`). Uji ukuran pakai
+`createWithContent()` berisi data sungguhan.
+
+**DEFER**: penerapan otomatis terjadwal, harga per cabang/kolom
+`IHARGAJUAL2..6`/`IHARGAWEB` (hanya `IHARGAJUAL1` yg diminta).
+
+### Import Kode / Nama / Harga Baru (2026-10-17)
+
+Tombol **Import** di form -> dialog unggah **.xlsx / .csv** (`PerubahanHargaForm::prosesImport()`),
+dibaca **`App\Support\TabelImport`** - pembaca tanpa library (PhpSpreadsheet tidak ada): .xlsx
+dibuka sbg zip (sheet PERTAMA saja, lokasi lewat `workbook.xml` + rels, bukan ditebak
+`sheet1.xml`); CSV pemisah `;`/`,`/TAB dideteksi dari baris pertama. **Pakai pembaca ini utk
+import lain ke depan**, jangan bikin baru.
+
+- Dicocokkan lewat **Kode** (`IKODE` - dicek UNIK di 5.582 item, tanpa nol di depan). Nama hanya
+  pembanding -> beda dari master masuk "Catatan", tetap diimpor.
+- Kolom dicari dari JUDUL (urutan bebas); tanpa judul -> posisi A/B/C.
+- Harga dari file = harga BARU & AKHIR, **tanpa pembulatan** (dianggap final). Item di grid
+  diperbarui; item baru ditambah dgn Harga Lama = harga jual sekarang.
+- Kode dobel -> baris TERAKHIR menang (+ dilaporkan). Kode tak dikenal / harga kosong ->
+  dilewati, dilaporkan per NOMOR BARIS Excel.
+- `TabelImport::angka()`: "55.000" = 55000 (pola kelompok ribuan), "55.5" = 55,5, kalau ada
+  titik DAN koma yg terakhir = desimal. Jadi "1,500" = 1500 - wajar utk rupiah.
+- **Unduh template** = CSV `;` + BOM, DIISI baris grid -> edit di Excel, impor balik.
+- Import TIDAK menyimpan - menandai `$dirty`, user tetap menekan Simpan.
+
+**GOTCHA (kena nyata, ini fitur unggah file PERTAMA di app): JANGAN gabungkan
+`@disabled(...)` dari server dgn `wire:loading.attr="disabled"` di elemen yg sama.** Tombol
+"Proses Import" semula `@disabled(! $fileImport)` + `wire:loading.attr="disabled"
+wire:target="fileImport,..."`. File BENAR2 terunggah (ada di `storage/app/private/livewire-tmp`,
+tercatat di log `upload-file`), tapi tombol TETAP mati: Livewire mengembalikan keadaan
+"disabled" yg dicatatnya saat unggah dimulai, menimpa render server yg sudah mengaktifkan
+tombol. `Livewire::test()` TIDAK menangkapnya (tanpa JS). Sekarang tombol hanya dikendalikan
+loading, `prosesImport()` sendiri menolak tanpa file, dan ada teks "File siap: <nama>".
+Catatan lain: disk temp unggah = `local` -> **`storage/app/private/livewire-tmp`** (Laravel
+12), bukan `storage/app/livewire-tmp` - cari di sana kalau perlu membuktikan unggahan sampai.
+
+Verifikasi 39 asersi (xlsx buatan meniru Excel: shared string, teks ber-format `<r><t>`,
+inline string, sel kosong dilompati, kolom ditukar, Target rels absolut; CSV `;` & `,`;
+13 format angka; template bolak-balik; simpan+terapkan hasil import; dokumen terkunci).
+
 ## Referensi CI3
 
 `C:\xampp\htdocs\dias-online-app\application\{controllers,models,views/modul}` — sumber kebenaran untuk field & alur

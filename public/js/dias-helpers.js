@@ -498,3 +498,15 @@ document.addEventListener('livewire:init', function () {
         });
     });
 });
+
+/* ===================== Sidebar auto-tutup di HP (2026-10-16) =====================
+   Menu sidebar membuka tab Workspace lewat `wire:click` (tanpa pindah halaman), jadi
+   AdminLTE tidak pernah menutup sidebar overlay-nya di layar kecil - menu menutupi
+   layar sampai user menekan tombol ☰ sendiri. Di bawah breakpoint `sidebar-expand-lg`
+   (992px), klik menu daun (bukan grup) langsung menutup sidebar spt klik overlay. */
+document.addEventListener('click', function (e) {
+    var a = e.target.closest('.app-sidebar a.nav-link');
+    if (!a || !a.hasAttribute('wire:click') || window.innerWidth >= 992) return;
+    document.body.classList.remove('sidebar-open');
+    document.body.classList.add('sidebar-collapse');
+});
